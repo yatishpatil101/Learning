@@ -1,17 +1,20 @@
 
+/* A list row carries counts instead of the gallery, description and amenity list. */
+const photosOf = (l) => l.photoCount ?? ((l.gallery && l.gallery.length) || (l.image ? 1 : 0));
+
 export function computeQualityScore(l) {
   const isRent = l.deal === 'rent';
   let score = 0;
 
   // Photos (25 pts)
-  const photoCount = (l.gallery && l.gallery.length) || (l.image ? 1 : 0);
+  const photoCount = photosOf(l);
   if (photoCount >= 3) score += 25;
   else if (photoCount === 2) score += 16;
   else if (photoCount === 1) score += 8;
 
   // Description (15 pts). `desc`, not `description`: `propertyMapper` renames the wire's field on
   // the way in, so reading `description` here scores every listing zero.
-  const descLen = (l.desc || '').length;
+  const descLen = l.descLength ?? (l.desc || '').length;
   if (descLen >= 200) score += 15;
   else if (descLen >= 100) score += 12;
   else if (descLen >= 50) score += 8;
@@ -49,7 +52,7 @@ export function computeQualityScore(l) {
   }
 
   // Amenities (15 pts)
-  const amenityCount = (l.amenities && l.amenities.length) || 0;
+  const amenityCount = l.amenityCount ?? (l.amenities && l.amenities.length) ?? 0;
   if (amenityCount >= 5) score += 15;
   else if (amenityCount >= 3) score += 10;
   else if (amenityCount >= 1) score += 5;
@@ -73,11 +76,10 @@ export function qualityColor(score) {
 
 export function qualityTips(l) {
   const tips = [];
-  const photoCount = (l.gallery && l.gallery.length) || (l.image ? 1 : 0);
-  if (photoCount < 3) tips.push('Add more photos (3+ recommended)');
-  if ((l.desc || '').length < 100) tips.push('Write a detailed description (100+ chars)');
+  if (photosOf(l) < 3) tips.push('Add more photos (3+ recommended)');
+  if ((l.descLength ?? (l.desc || '').length) < 100) tips.push('Write a detailed description (100+ chars)');
   if (!l.ownerVerified && !l.ownershipVerified) tips.push('Complete verification for trust badge');
-  if (!(l.amenities && l.amenities.length >= 3)) tips.push('Add amenities to attract more views');
+  if (!((l.amenityCount ?? l.amenities?.length ?? 0) >= 3)) tips.push('Add amenities to attract more views');
   if (!l.facing) tips.push('Add facing direction');
   if (!l.floor) tips.push('Specify floor number');
   return tips;

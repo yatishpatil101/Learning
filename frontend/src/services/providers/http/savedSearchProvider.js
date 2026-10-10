@@ -16,7 +16,6 @@ function toViewModel(row) {
     /** `label` is in TOP_LEVEL, so it is never written into the filters blob — there is no route by which
      * `filters.label` could be populated by this client, and a fallback to it read as if there were one. */
     label: row.label || row.name || '',
-    mobile: row.mobile ?? undefined,
     alertFrequency: row.alertFrequency || 'daily',
     // Derived so the existing Switch and the `s.alerts !== false` guards keep working unchanged.
     alerts: (row.alertFrequency || 'daily') !== 'off',

@@ -56,7 +56,7 @@ export default function FlatmateDetail() {
   const { t } = useTranslation();
   const { toast } = useToast();
   const { user, loading: authLoading } = useAuth();
-  const { verified: identityVerified } = useVerification();
+  const { verified: identityVerified, loading: verifying, refresh: refreshVerification } = useVerification();
   const sendToSignIn = useSignInGate();
   const rootRef = useScrollReveal([]);
   const [state, setState] = useState({ status: 'loading' });
@@ -80,7 +80,7 @@ export default function FlatmateDetail() {
   }, [kind, id]);
   useEffect(() => { if (!authLoading) load(); }, [authLoading, signedInAs, load]);
 
-  const loadMine = useCallback(() => flatmateService.myFlatmateInterests()
+  const loadMine = useCallback(() => flatmateService.myFlatmateInterestKeys()
     .then((rows) => rows.find((r) => (r.kind === 'room' || r.kind === 'group' ? `${r.kind}-${r.targetId}` : r.targetId) === interestKey(kind, id)))
     .then((row) => row || null), [kind, id]);
 
@@ -98,7 +98,8 @@ export default function FlatmateDetail() {
 
   const onAsk = async (target, share = 'solo') => {
     if (!user) { sendToSignIn(kind === 'group' ? 'community' : 'contact'); return; }
-    if (kind === 'post' && target.verifiedContactOnly && !identityVerified) {
+    const isVerified = verifying ? (await refreshVerification().catch(() => null))?.verified : identityVerified;
+    if (kind === 'post' && target.verifiedContactOnly && !isVerified) {
       toast(t('flatmates.acceptsVerifiedOnlyToast', { name: target.name }), 'error');
       setVerifyOpen(true);
       return;

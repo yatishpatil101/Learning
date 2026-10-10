@@ -32,9 +32,9 @@ function toViewModel(row) {
 
 const paged = () => ({ size: MAX_PAGE_SIZE });
 
-/** `GET /visits` — visits the caller booked. Caller-scoped by the token. Paged. */
-export async function listVisits() {
-  return unwrapFullPage(await get('/visits', paged()), 'visit').map(toViewModel);
+/** `GET /visits` — visits the caller booked, optionally on one listing. Caller-scoped by the token. Paged. */
+export async function listVisits({ propertyId } = {}) {
+  return unwrapFullPage(await get('/visits', propertyId ? { propertyId, ...paged() } : paged()), 'visit').map(toViewModel);
 }
 
 /** `GET /me/visit-requests` — visits on the caller's own listings. Paged. */

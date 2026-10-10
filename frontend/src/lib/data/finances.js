@@ -141,6 +141,26 @@ export function filterByPeriod(txns, period, now = new Date()) {
   return (txns || []).filter((t) => new Date(t.date) >= start);
 }
 
+/** Adjusts the server's summary and cashflow for one confirmed ledger row (`sign` 1 added, -1 removed): both are
+ * additive sums by the row's date, so the held figures move by exactly that row. */
+const moves = (tx, sign) => {
+  const key = tx.type === 'income' ? 'income' : 'expense';
+  const moved = (Number(tx.amount) || 0) * sign;
+  return { key, moved, netMoved: key === 'income' ? moved : -moved };
+};
+
+export function summaryAfter(summary, tx, sign, period, now = new Date()) {
+  if (!filterByPeriod([tx], period, now).length) return summary;
+  const { key, moved, netMoved } = moves(tx, sign);
+  return { ...summary, [key]: summary[key] + moved, net: summary.net + netMoved };
+}
+
+export function cashflowAfter(cashflow, tx, sign) {
+  const { key, moved, netMoved } = moves(tx, sign);
+  const month = String(tx.date || '').slice(0, 7);
+  return cashflow.map((p) => (p.month === month ? { ...p, [key]: p[key] + moved, net: p.net + netMoved } : p));
+}
+
 export function financeSummary(mobile, propId, period = 'all', now = new Date()) {
   const txns = filterByPeriod(getTransactions(mobile, propId), period, now);
 

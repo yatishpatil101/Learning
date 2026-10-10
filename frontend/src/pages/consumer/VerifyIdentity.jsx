@@ -110,8 +110,8 @@ export default function VerifyIdentity() {
   }, [location.state?.source]);
 
   useEffect(() => {
-    if (current?.status === 'verified') refreshUser();
-  }, [current?.status, refreshUser]);
+    if (current?.status === 'verified' && !user?.verified) refreshUser();
+  }, [current?.status, user?.verified, refreshUser]);
 
   useEffect(() => {
     if (!needsPhone) return undefined;

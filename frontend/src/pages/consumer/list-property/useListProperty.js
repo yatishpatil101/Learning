@@ -9,7 +9,7 @@ import { myListing, checkOwnDuplicate } from '../../../services/propertyService.
 import { ADDRESS_PARTS, hasStoredAddress } from '../../../lib/listingFormDetails.js';
 import { createRoom, updateRoom } from '../../../services/flatmateService.js';
 import { canSplitIntoRooms } from '../../../lib/data/flatSplit.js';
-import { loadListingQuota } from '../../../lib/data/listingQuota.js';
+import { loadWizardQuota } from '../../../lib/data/listingQuota.js';
 import { formatIndian } from './format.js';
 import { haptic } from '../../../lib/haptics.js';
 import {
@@ -128,7 +128,7 @@ export default function useListProperty() {
       return undefined;
     }
     let live = true;
-    loadListingQuota().then((q) => {
+    loadWizardQuota().then((q) => {
       if (!live) return;
       setQuota({ used: q.used, allowance: q.allowance });
       setCanPost(q.canPost);

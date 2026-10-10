@@ -65,6 +65,17 @@ class FlatmateRoomCards {
                 (first, duplicate) -> first));
     }
 
+    /** The host's own list: no names, no review lookup — the card carries neither. */
+    List<FlatmateRoomCard> ownerCards(List<FlatmateRoom> window) {
+        Map<UUID, Integer> ledger = committedByFlat(window);
+        return window.stream().map(room -> new FlatmateRoomCard(
+                room.getId(), room.getTitle(), room.getPropertyId(), room.getSociety(),
+                room.getFlatType(), room.getLocality(), room.getLocalities(), room.getBudget(),
+                mapper.shareMax(room, committedFor(room, ledger)), room.getOccupants(),
+                mapper.coverOf(room), room.getModStatus(), room.getStatus(), room.getCreatedAt()))
+                .toList();
+    }
+
     /** Same occupancy rule for public and host views so one room never has two counts. */
     private static int committedFor(FlatmateRoom room, Map<UUID, Integer> ledger) {
         if (!room.isSplitRoom()) {

@@ -55,4 +55,8 @@ public class ConversationMessage extends BaseEntity {
         this.replyToId = replyToId;
     }
 
+    void markDelivered() {
+        deliveredAt = Instant.now();
+    }
+
     }

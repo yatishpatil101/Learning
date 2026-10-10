@@ -37,11 +37,16 @@ const toPhotoRow = (r) => ({
   requestedAt: r.createdAt ? Date.parse(r.createdAt) : 0,
 });
 
-// Six cards for the overview feed — recently viewed if any still resolve, else the newest homes.
-async function loadFeed() {
+// Deduped by id: a user visiting their own listing legitimately appears in both reads.
+const mergeVisits = (mine, onMine) => [...new Map([...mine, ...onMine.map((v) => ({ ...v, hostedByMe: true }))].map((v) => [v.id, v])).values()]
+  .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0))
+  .map((v) => ({ ...v, listing: v.listing || '', ownerMobile: v.ownerMobile || '' }));
+
+// Six cards for the overview feed — recently viewed if any still resolve, else (seekers only) the newest homes.
+async function loadFeed(withRecommended) {
   try {
     const recent = await listPropertiesByIds(getRecentProps().slice(0, 6));
-    if (recent.length) return { recent, recommended: [] };
+    if (recent.length || !withRecommended) return { recent, recommended: [] };
     const { items } = await searchListings({ sort: 'createdAt,desc' }, { size: 6 });
     return { recent: [], recommended: items };
   } catch {
@@ -49,11 +54,14 @@ async function loadFeed() {
   }
 }
 /* Data layer for the consumer Dashboard: owns all remote/persisted state, the load + per-user request effects, and
-   the mutation handlers. */
+   the mutation handlers. `ownsProperty` is undefined until /me/dashboard answers, null when unknown. */
 
-export function useDashboardData({ user, toast }) {
-  const { searches } = useSavedSearches();
+export function useDashboardData({ user, toast, ownsProperty }) {
   const [listings, setListings] = useState([]);
+  // Every owner inbox is scoped to the caller's property listings, so a known non-owner skips them and their
+  // refreshes until one appears (e.g. published in another tab).
+  const ownerReads = !!user?.mobile && (ownsProperty !== false || listings.some((l) => !l.flatmate));
+  const { searches } = useSavedSearches();
   const [visits, setVisits] = useState([]);
   const [recent, setRecent] = useState([]);
   const [recommended, setRecommended] = useState([]);
@@ -99,7 +107,7 @@ export function useDashboardData({ user, toast }) {
   const [docReqs, docReqsStatus, setDocReqs, retryDocReqs, docReqsError, refreshDocReqs] = useAsyncList(
     () => listDocRequests(user.mobile),
     [user],
-    !!user?.mobile,
+    ownerReads,
   );
 
   // The contact inbox is a network read and is owner-scoped by the session, so unlike the localStorage panels above
@@ -107,7 +115,7 @@ export function useDashboardData({ user, toast }) {
   const [contactReqs, contactReqsStatus, setContactReqs, retryContactReqs, contactReqsError, refreshContactReqs] = useAsyncList(
     () => myContactRequests().then((res) => res.items.map(toLeadRow)),
     [user],
-    !!user?.mobile,
+    ownerReads,
   );
 
   // Flatmate group applications on the caller's own listings. Owner-scoped by the session, like the contact inbox,
@@ -115,7 +123,7 @@ export function useDashboardData({ user, toast }) {
   const [apps, appsStatus, setApps, retryApps, appsError, refreshApps] = useAsyncList(
     () => listMyGroupApplications({ size: MAX_PAGE_SIZE }).then((res) => res.items),
     [user],
-    !!user?.mobile,
+    ownerReads,
   );
   // Accept/decline is irreversible and the server refuses a second answer, so the row is re-read rather than patched
   // in place.
@@ -139,12 +147,18 @@ export function useDashboardData({ user, toast }) {
 
   const decideContact = async (reqId, decision) => {
     return runBusy(`contact:${reqId}`, async () => {
+      const answered = contactReqs.find((r) => r.id === reqId);
       try {
         await respondToContactRequest(reqId, decision);
       } catch (e) {
         toast(e?.message || 'That did not go through. Please try again.', 'error');
         await refreshContactReqs();
         return false;
+      }
+      if (String(answered?.status || '').toLowerCase() === 'pending') {
+        // The My Listings lead chip reads the count off the row, so it moves with the answer.
+        setListings((rows) => rows.map((l) => (!l.flatmate && [l.id, l.uuid].map(String).includes(String(answered.propId))
+          ? { ...l, pendingLeads: Math.max(0, (l.pendingLeads || 0) - 1) } : l)));
       }
       toast(decision === 'approved' ? 'Accepted — you can chat now and see their number.' : 'Request declined.', decision === 'approved' ? 'success' : 'info');
       try {
@@ -160,7 +174,7 @@ export function useDashboardData({ user, toast }) {
   const [photoReqs, photoReqsStatus, setPhotoReqs, retryPhotoReqs, photoReqsError, refreshPhotoReqs] = useAsyncList(
     () => myPhotoRequests().then((res) => res.items.map(toPhotoRow)),
     [user],
-    !!user?.mobile,
+    ownerReads,
   );
   /* Answer a photo request, either way. */
   /* The owner's half of the maker-checker pair: the buyer makes the request, the owner marks it satisfied. */
@@ -208,7 +222,7 @@ export function useDashboardData({ user, toast }) {
     let serverSharedCount = 0;
     try {
       for (const id of ids) {
-        // eslint-disable-next-line no-await-in-loop -- a handful of ids per buyer; sequential keeps the store consistent
+        // eslint-disable-next-line no-await-in-loop -- a few ids per buyer; sequential keeps the store consistent
         const updated = await respondDocRequest(user.mobile, id, decision);
         serverSharedCount += updated?.sharedDocumentCount || 0;
       }
@@ -267,7 +281,9 @@ export function useDashboardData({ user, toast }) {
     return write
       .then(
         () => {
-          Promise.resolve(refreshData()).catch(() => {});
+          Promise.all([listVisits(), myVisitRequests()])
+            .then(([mine, onMine]) => setVisits(mergeVisits(mine, onMine)))
+            .catch(() => {});
           return true;
         },
         () => {
@@ -311,25 +327,31 @@ export function useDashboardData({ user, toast }) {
 
   const [bundle, dataStatus, , retryData, dataError, refreshData] = useAsyncList(
     // Both sides of the visit relationship: one person may be both a seeker and an owner.
-    () => Promise.all([loadMyListings(user), loadFeed(), listVisits(), myVisitRequests()]),
+    () => Promise.all([loadMyListings(user), listVisits(), myVisitRequests()]),
     [user?.mobile],
   );
   /* Derivation, split from the fetch so the loader stays a pure read and every `set*` below runs off one settled
      result. */
 
   useEffect(() => {
-    if (bundle.length < 4) return;
-    const [shownListings, feed, mine, onMine] = bundle;
+    if (bundle.length < 3) return;
+    const [shownListings, mine, onMine] = bundle;
     setListings(shownListings);
-    // Deduped by id: a user visiting their own listing legitimately appears in both reads.
-    const merged = [...new Map([...mine, ...onMine.map((v) => ({ ...v, hostedByMe: true }))].map((v) => [v.id, v])).values()]
-      .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
-    setVisits(merged.map((v) => ({ ...v, listing: v.listing || '', ownerMobile: v.ownerMobile || '' })));
-    setRecent(feed.recent);
-    setRecommended(feed.recommended);
+    setVisits(mergeVisits(mine, onMine));
   }, [bundle]);
 
-  /* The verification queue, keyed both ways. */
+  // Once per visit, not on every refresh: the recommended rail is only for a known non-owner.
+  useEffect(() => {
+    if (ownsProperty === undefined) return undefined;
+    let live = true;
+    loadFeed(ownsProperty !== true).then((feed) => {
+      if (!live) return;
+      setRecent(feed.recent);
+      setRecommended(feed.recommended);
+    });
+    return () => { live = false; };
+  }, [ownsProperty]);
+
   useEffect(() => {
     setAlertMatches(searches
       .filter((s) => s.alerts !== false)
@@ -352,15 +374,16 @@ export function useDashboardData({ user, toast }) {
       if (now - lastVisibleRefresh.current < 30000) return;
       lastVisibleRefresh.current = now;
       refreshData();
+      refreshFlatmateReqs();
+      if (!ownerReads) return;
       refreshContactReqs();
       refreshPhotoReqs();
       refreshDocReqs();
-      refreshFlatmateReqs();
       refreshApps();
     };
     document.addEventListener('visibilitychange', onVisible);
     return () => document.removeEventListener('visibilitychange', onVisible);
-  }, [refreshApps, refreshContactReqs, refreshData, refreshDocReqs, refreshFlatmateReqs, refreshPhotoReqs]);
+  }, [ownerReads, refreshApps, refreshContactReqs, refreshData, refreshDocReqs, refreshFlatmateReqs, refreshPhotoReqs]);
 
   const refreshReviews = useCallback(async () => {
     try {
@@ -370,7 +393,10 @@ export function useDashboardData({ user, toast }) {
     }
   }, []);
 
-  useEffect(() => { refreshReviews(); }, [refreshReviews]);
+  useEffect(() => {
+    if (ownerReads) refreshReviews();
+    else setReviewRows([]);
+  }, [ownerReads, refreshReviews]);
 
   // Keyed by both UUID and slug: the server answers with the UUID, the cards hold the slug.
   const reviewsByProp = useMemo(() => {
@@ -390,7 +416,7 @@ export function useDashboardData({ user, toast }) {
     reviewProp, setReviewProp, reviewInput, setReviewInput, reviewsByProp, reviewThread,
     apps, decideApp,
     decideContact, decideDocReqs, decideFlatmateReq, decidePhotoReq, mutateVisit, openReview, sendReview,
-    busyIds, isBusy, refreshData,
+    busyIds, isBusy, refreshData, setListings,
     // Load state, so the page can say "we couldn't load this" instead of rendering a plausible
     // dashboard for a user whose data never arrived.
     dataStatus, dataError, retryData,

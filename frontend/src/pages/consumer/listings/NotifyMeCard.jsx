@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { Link, useLocation, useNavigate } from 'react-router';
 import Icon from '../../../components/Icon.jsx';
 import { recordSignal } from '../../../services/demandService.js';
-import { useSavedSearches } from '../../../context/SavedSearchContext.jsx';
+import { useSavedSearchCreate } from '../../../context/SavedSearchContext.jsx';
 import { useAuth } from '../../../context/AuthContext.jsx';
 import { useSignInGate } from '../../../lib/useSignInGate.js';
 import { buildAlertRecord, criteriaChips } from './alertCriteria.js';
@@ -20,7 +20,7 @@ export default function NotifyMeCard({ filters, locNameBySlug, toast }) {
   const [sent, setSent] = useState(false);
   const [saving, setSaving] = useState(false);
   const [confirmingReturn, setConfirmingReturn] = useState(false);
-  const { create: createSavedSearch } = useSavedSearches();
+  const createSavedSearch = useSavedSearchCreate();
   const sendToSignIn = useSignInGate();
   const signalled = useRef(new Set());
   const consumedReturn = useRef(false);

@@ -4,7 +4,7 @@ import { useTranslation } from 'react-i18next';
 import Icon from '../../components/Icon.jsx';
 import PropertyImage from '../../components/ui/PropertyImage.jsx';
 import { CARD_SIZES } from '../../lib/imgSrcSet.js';
-import { useSaved } from '../../context/SavedContext.jsx';
+import { useSavedItems } from '../../context/SavedContext.jsx';
 import { useSavedSearches } from '../../context/SavedSearchContext.jsx';
 import { fmtINR } from '../../lib/format.js';
 import usePullToRefresh from '../../lib/usePullToRefresh.js';
@@ -24,18 +24,13 @@ const CATEGORIES = [
 ];
 
 const SORTS = [['newest', 'Newest', 'sortNewest'], ['price-desc', 'Price: High to Low', 'sortPriceHigh'], ['price-asc', 'Price: Low to High', 'sortPriceLow']];
-const UNDO_WINDOW_MS = 8000;
-
 /* How long a swiped-away card stays undoable before the removal commits. */
-const isUnavailable = (status) => status && !['active', 'approved', 'live'].includes(String(status).toLowerCase());
-/* The flatmate half of the shortlist. */
+const UNDO_WINDOW_MS = 8000;
 
 async function readFlatmateSaves() {
   const page = await flatmateService.listFlatmateSaves();
   return (page?.items || []).map(toSavedCard).filter(Boolean);
 }
-/* Focus moves onto Undo because the control that caused the removal unmounts with the card — focus would otherwise
-   fall to `<body>`, far from an escape hatch that expires in five seconds. */
 
 export default function Saved() {
   const { t: tr } = useTranslation();
@@ -53,10 +48,8 @@ export default function Saved() {
   const pendingRef = useRef(new Map());
   const commitRef = useRef(() => {});
 
-  const savedList = useSaved();
+  const savedList = useSavedItems();
   const savedSearches = useSavedSearches();
-  /* The shared shortlist already holds the rows, so this is a pure reshape — hence useMemo, not an effect with its
-     own fetch, which would cost a request per card. */
 
   const dynamicSaved = useMemo(() => savedList.items.map((p) => {
     const isRent = p.deal === 'rent';
@@ -71,15 +64,13 @@ export default function Saved() {
       loc: locality,
       price: typeof p.price === 'number' ? (isRent ? `₹${p.price.toLocaleString('en-IN')}/mo` : fmtINR(p.price)) : (p.price || ''),
       priceNum: typeof p.price === 'number' ? p.price : 0,
-      createdAt: p.createdAt || 0,
-      unavailable: isUnavailable(p.status),
+      unavailable: p.available === false,
       deal: isRent ? 'rent' : 'buy',
       localitySlug: p.locality || '',
       bhkNum: p.bhkNum || null,
       badge: isRent ? 'For Rent' : 'For Sale',
       bhk: p.bhk || (p.bhkNum ? `${p.bhkNum} BHK` : ''),
       area: p.area ? `${p.area.toLocaleString('en-IN')} sq.ft.` : '',
-      bath: p.bath ? `${p.bath} Bath` : '',
       img: p.image || p.img || null,
       fromStore: true,
     };
@@ -242,8 +233,9 @@ export default function Saved() {
   const catLabel = useCallback((c) => (c ? tr('saved.' + c.labelKey, { defaultValue: c.label }) : ''), [tr]);
   const items = useMemo(() => {
     const filtered = tab === 'all' ? allCards : allCards.filter((c) => c.cat === tab);
+    // Rows arrive newest-saved first, so "newest" keeps that order.
     return [...filtered].sort((a, b) => {
-      if (sort === 'newest') return (b.createdAt || 0) - (a.createdAt || 0);
+      if (sort === 'newest') return 0;
       const diff = (a.priceNum || 0) - (b.priceNum || 0);
       return sort === 'price-asc' ? diff : -diff;
     });
@@ -379,7 +371,7 @@ export default function Saved() {
                         <div className="hidden md:mx-5 md:mb-5 md:flex md:items-center md:gap-3 md:border-t md:border-white/5 md:pt-4">
                           {c.cat !== 'flatmates' ? (
                             <>
-                              <span className="text-xs text-gray-400">{[c.bhk, c.area, c.bath].filter(Boolean).join(' · ')}</span>
+                              <span className="text-xs text-gray-400">{[c.bhk, c.area].filter(Boolean).join(' · ')}</span>
                               <span className="ml-auto flex items-center gap-2">
                                 <button type="button" disabled={alerting.has(c.id)} onClick={() => { void createAlert(c); }} title={tr('saved.createAlertAria')} aria-label={tr('saved.createAlertAria')} className="w-11 h-11 shrink-0 rounded-xl border border-white/10 text-gray-300 flex items-center justify-center transition-colors disabled:opacity-60">
                                   <Icon name={alerting.has(c.id) ? 'loader-2' : 'bell-plus'} className={'w-4 h-4' + (alerting.has(c.id) ? ' animate-spin' : '')} />

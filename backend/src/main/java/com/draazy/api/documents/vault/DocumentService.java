@@ -53,15 +53,33 @@ public class DocumentService {
     }
 
     @Transactional(readOnly = true)
-    public List<DocumentDto> list(UUID ownerId, String propId) {
-        return mapper.toDtos(documents.findByPropertyIdAndServiceRequestIdIsNullOrderByUploadedAtDesc(
+    public List<DocumentSummary> list(UUID ownerId, String propId) {
+        return mapper.toSummaries(documents.findByPropertyIdAndServiceRequestIdIsNullOrderByUploadedAtDesc(
                 ownedProperty(ownerId, propId)));
     }
 
+    /** A signed URL for one of the caller's own files: a listing's vault, the personal vault or a managed record's. */
+    @Transactional(readOnly = true)
+    public DocumentUrl url(UUID ownerId, String docId) {
+        UUID id = Ids.parseUuid(docId).orElseThrow(() -> NotFoundException.of("Document"));
+        String key = documents.findById(id)
+                .filter(d -> d.getServiceRequestId() == null && d.getPropertyId() != null
+                        && properties.findByIdAndOwner_Id(d.getPropertyId(), ownerId).isPresent())
+                .map(Document::getStorageKey)
+                .or(() -> personalDocuments.findById(id)
+                        .filter(d -> d.getOwnerId().equals(ownerId))
+                        .map(PersonalDocument::getStorageKey))
+                .or(() -> managedDocuments.findById(id)
+                        .filter(d -> managedProperties.findById(d.getManagedPropertyId())
+                                .filter(m -> m.getOwnerId().equals(ownerId)).isPresent())
+                        .map(ManagedPropertyDocument::getStorageKey))
+                .orElseThrow(() -> NotFoundException.of("Document"));
+        return new DocumentUrl(storage.signedDownloadUrl(key));
+    }
     /** Store object, then row: reversed order leaves a row pointing at nothing on storage failure. */
     // Deliberately unscoped: caller passes an already-authorised `propertyId`.
     @Transactional
-    public DocumentDto upload(UUID ownerId, String propId, String category, MultipartFile file) {
+    public DocumentSummary upload(UUID ownerId, String propId, String category, MultipartFile file) {
         UUID propertyId = ownedProperty(ownerId, propId);
         byte[] bytes = readBytes(file);
         String type = DocumentUploads.validate(file.getContentType(), file.getSize(), bytes);
@@ -74,7 +92,7 @@ public class DocumentService {
                 DocumentUploads.safeFileName(file.getOriginalFilename()), key,
             bytes.length, type));
 
-        return mapper.toDto(saved);
+        return mapper.toSummary(saved);
     }
 
     // Deliberately unscoped: caller passes an already-authorised `propertyId`.
@@ -132,14 +150,14 @@ public class DocumentService {
 
     // A private managed record may never be advertised, so its papers cannot require a listing.
     @Transactional(readOnly = true)
-    public List<DocumentDto> listPersonal(UUID ownerId) {
-        return mapper.toPersonalDtos(
+    public List<DocumentSummary> listPersonal(UUID ownerId) {
+        return mapper.toPersonalSummaries(
                 personalDocuments.findByOwnerIdOrderByUploadedAtDescIdDesc(ownerId));
     }
 
-    /** Same ordering, allowlist, scan and server-minted key as {@link #upload}; key {@code managed/{managedId}/{uuid}}. */
+    /** Same ordering, allowlist, scan and minted key as {@link #upload}, under {@code managed/{managedId}}. */
     @Transactional
-    public DocumentDto uploadPersonal(UUID ownerId, String category, MultipartFile file) {
+    public DocumentSummary uploadPersonal(UUID ownerId, String category, MultipartFile file) {
         byte[] bytes = readBytes(file);
         String type = DocumentUploads.validate(file.getContentType(), file.getSize(), bytes);
         scan(file.getOriginalFilename(), type, bytes);
@@ -147,7 +165,7 @@ public class DocumentService {
         String key = "personal/" + ownerId + "/" + UUID.randomUUID();
         storage.store(key, bytes, type);
 
-        return mapper.toDto(personalDocuments.saveAndFlush(new PersonalDocument(ownerId, category,
+        return mapper.toSummary(personalDocuments.saveAndFlush(new PersonalDocument(ownerId, category,
                 DocumentUploads.safeFileName(file.getOriginalFilename()), key,
             bytes.length, type)));
     }
@@ -162,14 +180,14 @@ public class DocumentService {
     }
 
     @Transactional(readOnly = true)
-    public List<DocumentDto> listManaged(UUID ownerId, String managedId) {
-        return mapper.toManagedDtos(
+    public List<DocumentSummary> listManaged(UUID ownerId, String managedId) {
+        return mapper.toManagedSummaries(
                 managedDocuments.findByManagedPropertyIdOrderByUploadedAtDescIdDesc(
                         ownedManaged(ownerId, managedId)));
     }
 
     @Transactional
-    public DocumentDto uploadManaged(UUID ownerId, String managedId, String category,
+    public DocumentSummary uploadManaged(UUID ownerId, String managedId, String category,
             MultipartFile file) {
         UUID recordId = ownedManaged(ownerId, managedId);
         byte[] bytes = readBytes(file);
@@ -179,7 +197,7 @@ public class DocumentService {
         String key = "managed/" + recordId + "/" + UUID.randomUUID();
         storage.store(key, bytes, type);
 
-        return mapper.toDto(managedDocuments.saveAndFlush(new ManagedPropertyDocument(recordId,
+        return mapper.toSummary(managedDocuments.saveAndFlush(new ManagedPropertyDocument(recordId,
                 category, DocumentUploads.safeFileName(file.getOriginalFilename()), key,
             bytes.length, type)));
     }

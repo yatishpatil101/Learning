@@ -32,46 +32,15 @@ import software.amazon.awssdk.services.s3.model.ListObjectsV2Request;
 import software.amazon.awssdk.services.s3.model.ListObjectsV2Response;
 import software.amazon.awssdk.services.s3.model.S3Object;
 
-/**
- * The private half of the public/private boundary (ADR-013), end to end through the server: a KYC
- * file POSTed to {@code /me/documents/personal} lands in the <em>private</em> bucket, the {@code
- * url} on the response opens because it is signed, and the same URL <em>without</em> its signature
- * is refused by Cloudflare.
- *
- * <p><strong>Why this exists alongside {@code R2FileStorageLiveTest}.</strong> That test proves
- * {@code R2FileStorage} can round-trip bytes; it constructs the class directly and knows the key it
- * used. It cannot say whether the endpoint the browser actually calls routes documents to the
- * private bucket, because it never calls it. The routing decision — {@code store} to private, {@code
- * storePublic} to public — is the entire boundary, and until now nothing exercised it above the
- * storage class. {@code MePhotosLiveTest} is the mirror of this for the public half.
- *
- * <p>The refusal is asserted as a 4xx that does not carry the file, not as a particular status: R2
- * rejects an unsigned S3-API GET with {@code 400} (no {@code Authorization} header) where AWS S3
- * would answer {@code 403}, and pinning either number would turn this into a test of Cloudflare's
- * error taxonomy rather than of our boundary.
- *
- * <p><strong>Why "unsigned is refused" and not "expired is refused".</strong> The presign window is
- * fifteen minutes and hard-coded, so a genuinely stale URL cannot be produced inside a test without
- * either waiting or making the window configurable to prove something about a value production does
- * not use. Stripping the signature tests the property that actually protects the documents: the
- * object is not world-readable at rest, so authority lives in the signature and nowhere else. A URL
- * copied out of one owner's dashboard is dangerous only for as long as its signature is valid; a
- * bucket that served the object unsigned would be dangerous forever, and that is the failure this
- * catches.
- *
- * <p>Gated on {@code STORAGE_ENABLED=true} plus the {@code R2_*} credentials, like its two
- * siblings, so an ordinary offline suite skips it.
- */
+/** Proves the endpoint routes KYC files to the private bucket: the signed URL opens, the unsigned one is refused
+ * (any 4xx; R2 answers 400 where AWS S3 says 403). Gated on {@code STORAGE_ENABLED} and R2 credentials. */
 @EnabledIfEnvironmentVariable(named = "STORAGE_ENABLED", matches = "true")
 class MePersonalDocumentsLiveTest extends AbstractApiTest {
 
     private static final ObjectMapper JSON = new ObjectMapper();
 
-    /**
-     * The test-classpath {@code application.properties} shadows main's and omits the storage block,
-     * so without this the flag would be off and the mock would wire. Same binding as {@code
-     * MePhotosLiveTest}.
-     */
+    /** The test-classpath properties shadow main's and omit the storage block,
+     * so without this the flag would be off and the mock would wire. */
     @DynamicPropertySource
     static void storage(DynamicPropertyRegistry registry) {
         registry.add("draazy.providers.storage.enabled", () -> "true");
@@ -107,16 +76,19 @@ class MePersonalDocumentsLiveTest extends AbstractApiTest {
                         .param("category", "aadhaar")
                         .header(HttpHeaders.AUTHORIZATION, bearer(owner)))
                 .andExpect(status().isCreated())
-                .andExpect(jsonPath("$.url").exists())
+                .andExpect(jsonPath("$.url").doesNotExist())
                 .andReturn().getResponse().getContentAsString();
 
-        String signed = JSON.readTree(body).get("url").asText();
+        String docId = JSON.readTree(body).get("id").asText();
+        String signed = JSON.readTree(mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get(Routes.MeDocuments.URL, docId)
+                        .header(HttpHeaders.AUTHORIZATION, bearer(owner)))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString()).get("url").asText();
         String key = null;
 
         try {
-            // The object is in the PRIVATE bucket under the owner-scoped, server-minted key. Listing
-            // by prefix rather than trusting the URL: the key is what the row persists, and the
-            // prefix is the thing that makes one owner's documents unreachable from another's id.
+            // Listed by prefix rather than trusting the URL: the key is what the row persists, and the prefix
+            // is what makes one owner's documents unreachable from another's id.
             key = onlyKeyUnder("personal/" + owner.getId() + "/");
             assertThat(key).isNotNull();
 
@@ -125,11 +97,8 @@ class MePersonalDocumentsLiveTest extends AbstractApiTest {
             assertThat(ok.statusCode()).isEqualTo(200);
             assertThat(ok.body()).isEqualTo(pdf);
 
-            // Unsigned: the identical object, addressed without the query-string signature, is
-            // refused and the bytes are not served. Asserted as "4xx and not the file" rather than
-            // a specific code — R2 answers a missing Authorization header with 400 where AWS S3
-            // would say 403, and pinning either would make this an assertion about Cloudflare's
-            // error taxonomy instead of about our documents staying unreadable.
+            // Asserted as "4xx and not the file": R2 answers a missing Authorization header with 400, S3 with 403;
+            // pinning either would test Cloudflare's error taxonomy, not our documents staying unreadable.
             HttpResponse<byte[]> denied = get(stripQuery(signed));
             assertThat(denied.statusCode()).isBetween(400, 499);
             assertThat(denied.body()).isNotEqualTo(pdf);
@@ -140,10 +109,7 @@ class MePersonalDocumentsLiveTest extends AbstractApiTest {
         }
     }
 
-    /**
-     * The one key under this owner's prefix. Returns {@code null} when the prefix is empty, so the
-     * assertion above reports "nothing was stored" rather than an index-out-of-bounds.
-     */
+    /** Returns {@code null} for an empty prefix so the assertion says "nothing was stored", not an index error. */
     private String onlyKeyUnder(String prefix) {
         try (S3Client s3 = s3()) {
             ListObjectsV2Response res = s3.listObjectsV2(ListObjectsV2Request.builder()
@@ -181,11 +147,8 @@ class MePersonalDocumentsLiveTest extends AbstractApiTest {
         return q < 0 ? url : url.substring(0, q);
     }
 
-    /**
-     * A file whose first bytes are a real PDF signature. {@code DocumentUploads} sniffs the content
-     * rather than trusting the declared type or the extension, so a payload of arbitrary bytes would
-     * be refused as "not a PDF" before storage is ever reached.
-     */
+    /** Starts with a real PDF signature: {@code DocumentUploads} sniffs content, so arbitrary bytes
+     * would be refused as "not a PDF" before storage is reached. */
     private static byte[] pdfBytes(String marker) {
         return ("%PDF-1.4\n" + marker + "\n%%EOF\n").getBytes(StandardCharsets.UTF_8);
     }

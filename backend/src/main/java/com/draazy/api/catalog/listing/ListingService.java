@@ -151,7 +151,7 @@ public class ListingService {
         return createOnBehalf(userId, in, null, uploadOwnerIds);
     }
 
-    /** {@code existingLocalitySlug} is a binding the source record already holds, kept even when that locality is not live. */
+    /** {@code existingLocalitySlug} is a binding the record already holds, kept even if it is not live. */
     @Transactional
     public Property createOnBehalf(UUID userId, ListingCreate in, String existingLocalitySlug, UUID... uploadOwnerIds) {
         photoLimit.require("A listing", in.images());
@@ -191,6 +191,12 @@ public class ListingService {
         // @Modifying above this line drops it silently. See list-property-wizard.md section 9.1.
         owner.recordListingPosted();
         return p;
+    }
+
+    @Transactional(readOnly = true)
+    public ListingSlots slots(UUID userId) {
+        ListingQuota.ListingStanding standing = quota.standingFor(userId);
+        return new ListingSlots(standing.allowance(), standing.held());
     }
 
     /** The key is derived on the same path a create takes, so the pre-check and the write cannot disagree. */
@@ -259,23 +265,6 @@ public class ListingService {
         return p;
     }
 
-    /** Staff correction of anyone's listing; deliberate non-effects: docs/flows/consumer/list-property-wizard.md 9.3. */
-    @Transactional
-    public Property updateAsModerator(AuthPrincipal principal, String idOrSlug, ListingUpdate in) {
-        Property p = resolveForWrite(idOrSlug).orElseThrow(() -> NotFoundException.of("Listing"));
-        photoLimit.require("A listing", in.images());
-        photoSources.requireUploaded(in.images(), p.getImages(),
-                Arrays.asList(p.getOwner() == null ? null : p.getOwner().getId(), principal.userId()).stream()
-                        .filter(Objects::nonNull).toList());
-        editRules.apply(p, in);
-
-        // The key is recomputed so the listing stays findable by a *later* probe, but no probe runs
-        // on this edit: a human is already looking, and is the one making the change.
-        duplicates.reindex(p);
-        audit.record(principal, "property.adminUpdate", "property", p.getId().toString(),
-                "owner", p.getOwner() == null ? null : p.getOwner().getId().toString());
-        return p;
-    }
 
     private Optional<Property> resolveOwned(UUID userId, String idOrSlug) {
         UUID id = parseUuid(idOrSlug);
@@ -289,7 +278,7 @@ public class ListingService {
                 .filter(property -> property.getOwner().getId().equals(userId));
     }
 
-    private Optional<Property> resolveForWrite(String idOrSlug) {
+    Optional<Property> resolveForWrite(String idOrSlug) {
         UUID id = parseUuid(idOrSlug);
         Optional<Property> locked = id != null
                 ? properties.findForVerificationDecision(id)

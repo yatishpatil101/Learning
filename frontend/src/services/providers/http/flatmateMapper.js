@@ -220,6 +220,52 @@ export function toGroupViewModel(row) {
   };
 }
 
+/** Wire `FlatmateRoomCard` → just what the owner's lists draw. The full record is read by id for the detail and edit
+ * screens, so none of the host-only internals ride along. */
+export function toRoomCardViewModel(row) {
+  const modStatus = row?.modStatus || 'live';
+  return {
+    id: row?.id || '',
+    kind: 'room',
+    title: row?.title || '',
+    propertyId: row?.propertyId || null,
+    society: row?.society || '',
+    flatType: row?.flatType || '',
+    locality: row?.locality || '',
+    localities: row?.localities || [],
+    budget: Number(row?.budget) || 0,
+    shareMax: Number(row?.shareMax) || 0,
+    occupants: Number(row?.occupants) || 0,
+    cover: row?.cover || null,
+    modStatus,
+    publiclyVisible: isPubliclyVisible(modStatus),
+    status: row?.status || 'active',
+    createdAt: row?.createdAt ? Date.parse(row.createdAt) : Date.now(),
+  };
+}
+
+/** Wire `FlatmateGroupCard` → the owner's list row and the apply-to-listing picker. */
+export function toGroupCardViewModel(row) {
+  const modStatus = row?.modStatus || 'live';
+  return {
+    id: row?.id || '',
+    kind: 'group',
+    title: row?.title || '',
+    locality: row?.locality || '',
+    localities: row?.localities || [],
+    rent: Number(row?.rent) || 0,
+    perHead: perHeadOf(row),
+    seatsTotal: Number(row?.seatsTotal) || 0,
+    seatsOpen: Number(row?.seatsOpen) || 0,
+    seatsLeft: seatsLeftOf(row),
+    memberCount: Number(row?.memberCount) || 0,
+    propertyId: row?.propertyId || null,
+    modStatus,
+    publiclyVisible: isPubliclyVisible(modStatus),
+    createdAt: row?.createdAt ? Date.parse(row.createdAt) : Date.now(),
+  };
+}
+
 const moneyOrNull = (v) => (v == null || v === '' ? null : Number(v));
 
 function toGroupPreferences(p) {

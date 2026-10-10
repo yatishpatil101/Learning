@@ -17,21 +17,8 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-/**
- * The caller's flatmate shortlist — the three-table sibling of {@code SavedPropertyService}.
- *
- * <p><strong>Why the projection is rebuilt rather than stored.</strong> Until this existed the
- * shortlist lived in {@code draazyFlatmateSaved}, and it stored the card as well as the key: the
- * title, locality, price and photo were copied into localStorage at the moment of the tap. That made
- * the Saved page cheap to render and permanently capable of lying — a room whose rent changed, or
- * whose host took it down, went on showing the numbers it had when it was saved. Here the save is
- * the key alone and the card is joined on read, so the shortlist can be wrong about what exists but
- * never about what it says.
- *
- * <p><strong>The rows are anonymous, deliberately.</strong> A shortlist is a browsing aid, and these
- * cards are the same cards the public feed renders — so the host's number is masked here exactly as
- * it is there. Shortlisting somebody is not a way to be introduced to them; the interest flow is.
- */
+/** The save stores the key only and the card is joined on read, so a shortlist never shows stale rent or a
+ * withdrawn room; rows are anonymous because shortlisting is not an introduction. */
 @Service
 public class FlatmateSaveService {
 
@@ -63,18 +50,8 @@ public class FlatmateSaveService {
         this.users = users;
     }
 
-    /**
-     * The caller's shortlist as full cards, newest save first, paged.
-     *
-     * <p>Four queries at most whatever the page holds: the save rows, then one batch fetch per kind
-     * present. Saved order is restored afterwards because {@code findAllById} does not guarantee it.
-     *
-     * <p>A save whose target has since been deleted drops out of the content while
-     * {@code totalElements} still counts the save row — the same contract {@code SavedPropertyService}
-     * states, and for the same reason: the alternative is a page with holes in it. The stale row is
-     * left in place rather than cleaned up here, because a read is not the right place to write and a
-     * row that costs nothing is not worth a transaction.
-     */
+    /** Saved order is restored because {@code findAllById} does not guarantee it; a save whose target is gone
+     * drops from content but still counts in {@code totalElements}. */
     @Transactional(readOnly = true)
     public Page<Object> listSaved(UUID userId, Pageable pageable) {
         Page<FlatmateSaveRepository.SaveRow> page = saves.findSaves(userId, pageable);
@@ -85,13 +62,7 @@ public class FlatmateSaveService {
         return new PageImpl<>(content, page.getPageable(), page.getTotalElements());
     }
 
-    /**
-     * Every key the caller has saved, unpaged — what the flatmates board needs to draw its bookmarks.
-     *
-     * <p>Keys rather than cards: the board already holds the cards, and it is asking a yes/no
-     * question about each one. Returning projections here would re-fetch rows it is currently
-     * rendering.
-     */
+    /** Keys rather than cards: the board already holds the cards and only asks a yes/no question about each. */
     @Transactional(readOnly = true)
     public List<FlatmateSaveKeyDto> listKeys(UUID userId) {
         return saves.findAllSaves(userId).stream()
@@ -99,14 +70,8 @@ public class FlatmateSaveService {
                 .toList();
     }
 
-    /**
-     * Idempotently shortlist one post. Existence is checked first: {@code post_id} carries no foreign
-     * key (Postgres has no polymorphic reference), so without this a typo would be stored happily and
-     * reappear forever as a row that renders nothing.
-     *
-     * @throws BadRequestException if {@code kind} is not one of the three tables
-     * @throws NotFoundException if no live row of that kind has that id
-     */
+    /** Existence is checked first: {@code post_id} has no foreign key, so a typo would be stored and
+     * reappear forever as a row that renders nothing. */
     @Transactional
     public void save(UUID userId, String kind, UUID postId) {
         String resolved = requireKind(kind);
@@ -127,9 +92,8 @@ public class FlatmateSaveService {
     private static String requireKind(String kind) {
         String resolved = kind == null ? "" : kind.trim().toLowerCase(java.util.Locale.ROOT);
         if (!KINDS.contains(resolved)) {
-            /* BadRequest rather than Validation: the contract declares `kind` as a path enum, so a
-               value outside it makes the request malformed in itself rather than wrong for this
-               caller — the line `ValidationException`'s own javadoc draws. */
+            /* BadRequest rather than Validation: {@code kind} is a contract path enum, so a value outside it
+               makes the request malformed in itself. */
             throw new BadRequestException("kind must be one of room, group, post");
         }
         return resolved;
@@ -143,15 +107,8 @@ public class FlatmateSaveService {
         };
     }
 
-    /**
-     * Does a live row of this kind exist?
-     *
-     * <p><strong>{@code archived}, not {@code isVisible()}, deliberately</strong> — the same width
-     * {@code FlatmateRoomRepository.findByPropertyIdAndArchivedFalse} documents. A shortlist is the
-     * caller's private list rather than a second rendering of the public feed, so a post passing
-     * through a re-moderation window should stay on it; a post its host withdrew should not, because
-     * there is nothing left to go back to.
-     */
+    /** Uses {@code archived}, not {@code isVisible()}: a post in a re-moderation window should stay shortlisted,
+     * a withdrawn one should not. */
     private boolean exists(String kind, UUID postId) {
         return switch (kind) {
             case KIND_ROOM -> rooms.findById(postId).filter(row -> !row.isArchived()).isPresent();
@@ -160,16 +117,7 @@ public class FlatmateSaveService {
         };
     }
 
-    /**
-     * Turn a page of save keys into a page of cards, in saved order.
-     *
-     * <p>The three fetches are batched by kind and the host names across all of them, which is the
-     * pattern {@code FlatmateFeedService.render} established — a page of twenty cards would otherwise
-     * be twenty lookups of a table whose keys are already in hand. The room half then goes through
-     * {@link FlatmateRoomCards} so {@code flatCommitted} keeps having exactly one definition: a
-     * shortlisted room reporting a different occupancy from the same room on the feed would be the
-     * fourth answer to a question that is supposed to have one.
-     */
+    /** Room cards go through {@link FlatmateRoomCards} so {@code flatCommitted} has exactly one definition. */
     private List<Object> render(List<FlatmateSaveRepository.SaveRow> window) {
         Map<UUID, FlatmateRoom> roomById = byId(
                 live(rooms.findAllById(idsOf(window, KIND_ROOM)), FlatmateRoom::isArchived),
@@ -219,7 +167,7 @@ public class FlatmateSaveService {
             }
             default -> {
                 FlatmateSeekerPost post = postById.get(id);
-                yield post == null ? null : mapper.toDto(post, FlatmateMapper.SeekerView.ANONYMOUS);
+                yield post == null ? null : mapper.toFeedDto(post);
             }
         };
     }
@@ -237,14 +185,8 @@ public class FlatmateSaveService {
                 (first, duplicate) -> first));
     }
 
-    /**
-     * Drop the rows whose author has since withdrawn them.
-     *
-     * <p>They fall out of {@code content} but not out of {@code totalElements}, because the save row
-     * they came from is still there. That asymmetry is the documented contract of this endpoint and
-     * of {@code SavedPropertyService}: a shortlist may be one card shorter than its count, and must
-     * never be a card that renders nothing.
-     */
+    /** Withdrawn rows leave {@code content} but not {@code totalElements}: a shortlist may be a card short,
+     * never a card that renders nothing. */
     private static <T> List<T> live(List<T> rows, java.util.function.Predicate<T> archived) {
         return rows.stream().filter(archived.negate()).toList();
     }

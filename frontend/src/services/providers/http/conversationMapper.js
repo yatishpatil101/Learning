@@ -1,15 +1,13 @@
-
 /** Where the view model wants more than the wire carries, each divergence is handled by degrading visibly rather than
  * by inventing data. */
-const senderOf = (m, viewerId) => (m?.authorId && viewerId && m.authorId === viewerId ? 'me' : 'them');
 
 /** Wire `Message` → the view model's message shape. */
-export function toMessage(m, viewerId) {
+export function toMessage(m) {
   if (!m) return null;
   return {
     id: m.id,
     clientId: m.clientId ?? undefined,
-    from: senderOf(m, viewerId),
+    from: m.mine ? 'me' : 'them',
     text: m.body ?? '',
     at: m.createdAt ? Date.parse(m.createdAt) : Date.now(),
     read: !!m.read,
@@ -20,11 +18,11 @@ export function toMessage(m, viewerId) {
   };
 }
 
-export function toViewModel(c, viewerId) {
+export function toViewModel(c) {
   if (!c) return null;
   const group = c.kind === 'group' ? { id: c.groupId, title: c.groupTitle || 'Group', memberCount: c.memberCount ?? 0 } : null;
   const name = group ? group.title : c.counterpartyName || 'Draazy user';
-  const messages = Array.isArray(c.messages) ? c.messages.map((m) => toMessage(m, viewerId)) : [];
+  const messages = Array.isArray(c.messages) ? c.messages.map(toMessage) : [];
   return {
     id: c.id,
     propertyId: c.propertyId ?? undefined,
@@ -60,9 +58,9 @@ export function toViewModel(c, viewerId) {
 }
 
 /** Wire page (or bare array) → a plain array. */
-export const toViewModelList = (payload, viewerId) =>
+export const toViewModelList = (payload) =>
   (Array.isArray(payload) ? payload : payload?.content ?? [])
-    .map((c) => toViewModel(c, viewerId))
+    .map((c) => toViewModel(c))
     .filter(Boolean);
 
 /* Staged chats share the server row shape so the page renders queued messages identically. */

@@ -141,10 +141,9 @@ export function ReviewsSection({ p, isIn, onReport, toast }) {
   useEffect(() => {
     if (!isIn || !propId) { setMyVisit(null); return undefined; }
     let alive = true;
-    listVisits()
-      .then((all) => {
+    listVisits({ propertyId: propId })
+      .then((mine) => {
         if (!alive) return;
-        const mine = all.filter((v) => v.propertyId === propId);
         if (mine.some((v) => v.status === 'completed')) setMyVisit('completed');
         else if (mine.some((v) => v.status === 'scheduled' || v.status === 'confirmed')) setMyVisit('scheduled');
         else setMyVisit(null);

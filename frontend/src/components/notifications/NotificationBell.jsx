@@ -21,6 +21,10 @@ export default function NotificationBell() {
   const panelRef = useRef(null);
 
   const label = `Notifications, ${unread} unread`;
+  // Re-opening an unchanged bell re-shows the rows already held instead of asking again.
+  const unreadRef = useRef(unread);
+  unreadRef.current = unread;
+  const loadedAt = useRef({ unread: -1, at: 0 });
 
   const load = useCallback(async () => {
     setStatus('loading');
@@ -28,6 +32,7 @@ export default function NotificationBell() {
       const page = await listNotifications({ page: 0, size: 5 });
       setRows(page.items);
       setStatus('ready');
+      loadedAt.current = { unread: unreadRef.current, at: Date.now() };
     } catch {
       setStatus('error');
     }
@@ -35,7 +40,7 @@ export default function NotificationBell() {
 
   useEffect(() => {
     if (!open) return undefined;
-    load();
+    if (loadedAt.current.unread !== unreadRef.current || Date.now() - loadedAt.current.at > 30_000) load();
     const onDown = (e) => {
       if (!rootRef.current?.contains(e.target)) setOpen(false);
     };

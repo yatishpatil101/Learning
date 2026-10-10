@@ -2,7 +2,6 @@ package com.draazy.api.engagement.follow;
 
 import com.draazy.api.catalog.society.Society;
 import com.draazy.api.catalog.society.SocietyRepository;
-import com.draazy.api.catalog.society.SocietyResponse;
 import com.draazy.api.catalog.society.SocietyService;
 import com.draazy.api.common.error.NotFoundException;
 import java.util.LinkedHashMap;
@@ -34,7 +33,7 @@ public class SocietyFollowService {
     /** Paged because a user can follow every society (unbounded). {@code findAllById} drops id order,
      * so it is restored via a {@link LinkedHashMap}. */
     @Transactional(readOnly = true)
-    public Page<SocietyResponse> listFollowed(UUID userId, Pageable pageable) {
+    public Page<FollowedSociety> listFollowed(UUID userId, Pageable pageable) {
         Page<UUID> ids = followRepo.findFollowedSocietyIds(userId, pageable);
         if (ids.isEmpty()) {
             return new PageImpl<>(List.of(), pageable, ids.getTotalElements());
@@ -46,8 +45,11 @@ public class SocietyFollowService {
 
         // Filtered, not trusted: the FK makes an orphan join row unreachable; the total still counts follows.
         List<Society> ordered = byId.values().stream().filter(Objects::nonNull).toList();
-        return new PageImpl<>(societyService.summarise(ordered, userId), pageable,
-                ids.getTotalElements());
+        Map<UUID, Long> homes = societyService.homeCounts(ordered.stream().map(Society::getId).toList());
+        return new PageImpl<>(ordered.stream()
+                .map(s -> new FollowedSociety(s.getSlug(), s.getName(), s.getLocalitySlug(),
+                        homes.getOrDefault(s.getId(), 0L)))
+                .toList(), pageable, ids.getTotalElements());
     }
 
     @Transactional

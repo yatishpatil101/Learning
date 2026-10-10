@@ -62,6 +62,16 @@ public class NotificationController {
         notificationService.dismiss(principal.userId(), id);
     }
 
+    @PostMapping(Routes.Engagement.NOTIFICATIONS_DISMISS)
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void dismissMany(@CurrentUser AuthPrincipal principal, @RequestBody MarkReadRequest request) {
+        if (request.ids() == null || request.ids().isEmpty() || request.ids().size() > 100) {
+            throw new BadRequestException("Send between 1 and 100 notification ids.");
+        }
+        notificationService.dismiss(principal.userId(),
+                request.ids().stream().map(NotificationController::parseId).toList());
+    }
+
     /** Body ids get 400 because the client sent a malformed list, not a missing resource path. */
     private static UUID parseId(String token) {
         return Ids.parseUuid(token)

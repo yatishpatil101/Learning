@@ -91,22 +91,24 @@ public class MessageEventHub {
 
     private record Client(UUID userId, SseEmitter emitter) {
         void send(String event, Object data) {
-            try {
-                synchronized (emitter) {
-                    emitter.send(SseEmitter.event().name(event).data(data));
-                }
-            } catch (IOException | IllegalStateException failed) {
-                emitter.complete();
-            }
+            write(SseEmitter.event().name(event).data(data));
         }
 
         void heartbeat() {
+            write(SseEmitter.event().comment("heartbeat"));
+        }
+
+        private void write(SseEmitter.SseEventBuilder event) {
             try {
                 synchronized (emitter) {
-                    emitter.send(SseEmitter.event().comment("heartbeat"));
+                    emitter.send(event);
                 }
             } catch (IOException | IllegalStateException failed) {
-                emitter.complete();
+                try {
+                    emitter.complete();
+                } catch (IllegalStateException alreadyErrored) {
+                    // A disconnected client's emitter refuses complete(); its onError already removed it.
+                }
             }
         }
     }

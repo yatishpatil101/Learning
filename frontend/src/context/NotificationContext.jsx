@@ -59,22 +59,22 @@ export function NotificationProvider({ children }) {
   }, [refresh]);
 
   useEffect(() => {
+    // Focus and visibilitychange fire together on a tab switch; one read answers both.
     const onVisible = () => {
-      if (document.visibilityState === 'visible') refresh();
+      if (document.visibilityState === 'visible' && Date.now() - lastRefreshAt.current >= 1_000) refresh();
     };
-    const onFocus = () => { refresh(); };
-    // One fixed timer: the stream reconnects every ~2 minutes, so a timer keyed on its state never fires.
+    // One fixed timer: the stream reconnects every few minutes, so a timer keyed on its state never fires.
     const poll = window.setInterval(() => {
       if (document.visibilityState !== 'visible') return;
       const due = streamUp.current ? STREAM_POLL_MS : POLL_MS;
       if (Date.now() - lastRefreshAt.current >= due - 1_000) refresh();
     }, POLL_MS);
     document.addEventListener('visibilitychange', onVisible);
-    window.addEventListener('focus', onFocus);
+    window.addEventListener('focus', onVisible);
     return () => {
       window.clearInterval(poll);
       document.removeEventListener('visibilitychange', onVisible);
-      window.removeEventListener('focus', onFocus);
+      window.removeEventListener('focus', onVisible);
     };
   }, [refresh]);
 

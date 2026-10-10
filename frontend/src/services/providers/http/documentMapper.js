@@ -1,4 +1,3 @@
-/* Signed URLs are read-time values, never stable storage identifiers. */
 /** ISO instant → epoch ms. 0 for a missing date, so a sort never produces NaN. */
 function epoch(iso) {
   if (!iso) return 0;
@@ -15,7 +14,7 @@ export function toDoc(dto) {
     size: dto.sizeBytes || 0,
     mime: dto.mimeType || 'application/octet-stream',
     dataUrl: null,
-    url: dto.url || null,
+    url: null,
     uploadedAt: epoch(dto.uploadedAt),
   };
 }
@@ -38,7 +37,6 @@ export function toRequest(dto) {
     sharedDocumentCount: Math.max(0, Number(dto.sharedDocumentCount) || 0),
     requestedAt: epoch(dto.createdAt),
     acknowledgedDisclaimer: !!dto.acknowledgedDisclaimer,
-    shareToken: dto.shareToken || null,
     expiresAt: epoch(dto.expiresAt) || null,
   };
 }

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useLocation, useParams } from 'react-router';
 import { Trans, useTranslation } from 'react-i18next';
 import Icon from '../../components/Icon.jsx';
@@ -6,7 +6,7 @@ import HScroll from '../../components/ui/HScroll.jsx';
 import { classNames } from '../../lib/format.js';
 import { cssColour } from '../../lib/themeColour';
 import {
-  listMyGrantedDocuments, listSharedDocuments,
+  getGrantedDocumentUrl, getSharedDocumentUrl, listMyGrantedDocuments, listSharedDocuments,
 } from '../../services/documentService.js';
 import '../../styles/routes/view-documents.css';
 
@@ -44,8 +44,7 @@ const isPdfDoc = (doc) => /pdf/i.test(doc.mime || '') || /\.pdf$/i.test(doc.name
 const isImageDoc = (doc) => /image/i.test(doc.mime || '');
 const docTypeIcon = (doc) => (isImageDoc(doc) ? 'image' : isPdfDoc(doc) ? 'file-text' : 'file-lock-2');
 
-// A local document carries inline base64 `dataUrl`; the http
-// provider returns a signed `url` with `dataUrl` null, so read both.
+// The signed `url` is minted for the selected document only; `dataUrl` is for inline bytes.
 const docSource = (doc) => doc.dataUrl || doc.url || null;
 
 // Decode a base64 data URL to bytes for pdf.js (it wants a typed array, not a URL).
@@ -201,8 +200,19 @@ function DocumentViewer({ doc }) {
   return <DownloadFallback doc={doc} />;
 }
 
-function DocumentCard({ doc }) {
+function DocumentCard({ doc, fetchUrl }) {
   const { t } = useTranslation();
+  const [url, setUrl] = useState(null);
+  const [failed, setFailed] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetchUrl(doc.id)
+      .then((signed) => { if (!cancelled) setUrl(signed); })
+      .catch(() => { if (!cancelled) setFailed(true); });
+    return () => { cancelled = true; };
+  }, [doc.id, fetchUrl]);
+
   return (
     <div className="glass-card rounded-2xl p-5">
       <div className="flex items-center gap-3 mb-4">
@@ -216,7 +226,11 @@ function DocumentCard({ doc }) {
           </p>
         </div>
       </div>
-      <DocumentViewer doc={doc} />
+      {url ? <DocumentViewer doc={{ ...doc, url }} /> : failed ? <DownloadFallback doc={doc} /> : (
+        <div className="flex items-center justify-center gap-2 py-10 text-gray-400 text-sm">
+          <Icon name="loader-2" className="w-5 h-5 animate-spin text-teal-400" /> {t('viewDocs.loading')}
+        </div>
+      )}
     </div>
   );
 }
@@ -300,20 +314,23 @@ const ERR_PENDING_UPLOAD = {
 
 /** The token rides the URL fragment, never `?token=`: a fragment isn't sent to servers, logs, proxies or Referer.
  * It stays in the address bar, as scrubbing it would break a refresh. */
+function tokenFromHash(hash) {
+  // `decodeURIComponent` because a chat client may percent-encode the fragment on the way through;
+  // the token itself is URL-safe base64 and survives either form.
+  try {
+    return decodeURIComponent((hash || '').replace(/^#/, '')).trim();
+  } catch {
+    return (hash || '').replace(/^#/, '').trim();
+  }
+}
+
 function useSharedByToken(enabled) {
   const { hash } = useLocation();
   const [state, setState] = useState({ shared: [], sub: null, errorState: null, loading: true });
 
   useEffect(() => {
     if (!enabled) return undefined;
-    // `decodeURIComponent` because a chat client may percent-encode the fragment on the way through;
-    // the token itself is URL-safe base64 and survives either form.
-    let token = '';
-    try {
-      token = decodeURIComponent((hash || '').replace(/^#/, '')).trim();
-    } catch {
-      token = (hash || '').replace(/^#/, '').trim();
-    }
+    const token = tokenFromHash(hash);
     if (!token) {
       setState({ shared: [], sub: null, errorState: ERR_INVALID, loading: false });
       return undefined;
@@ -381,6 +398,13 @@ function useSharedByRequest(requestId, enabled) {
 export default function ViewDocuments({ shared: byToken = false }) {
   const { t } = useTranslation();
   const { requestId } = useParams();
+  const { hash } = useLocation();
+  const fetchUrl = useMemo(
+    () => (byToken
+      ? (docId) => getSharedDocumentUrl(tokenFromHash(hash), docId)
+      : (docId) => getGrantedDocumentUrl(requestId, docId)),
+    [byToken, hash, requestId],
+  );
 
   const fromToken = useSharedByToken(byToken);
   const fromRequest = useSharedByRequest(requestId, !byToken);
@@ -492,7 +516,7 @@ export default function ViewDocuments({ shared: byToken = false }) {
         ) : (
           <div>
             {total > 1 && <DocSwitcher docs={shared} active={idx} onSelect={setActive} />}
-            <DocumentCard key={activeDoc.id} doc={activeDoc} />
+            <DocumentCard key={activeDoc.id} doc={activeDoc} fetchUrl={fetchUrl} />
             {total > 1 && <DocNav active={idx} total={total} onSelect={setActive} />}
           </div>
         )}

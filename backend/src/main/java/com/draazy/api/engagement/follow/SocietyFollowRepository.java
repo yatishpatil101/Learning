@@ -15,13 +15,18 @@ import org.springframework.data.repository.query.Param;
  * Follows are hard-deleted: a preference, not a business record. */
 public interface SocietyFollowRepository extends Repository<Society, UUID> {
 
-    /** Slices ids here, with an explicit {@code countQuery}, so {@code findAllById} loads one page. */
-    @Query(value = "select society_id from society_follows where user_id = :userId order by created_at desc",
-            countQuery = "select count(*) from society_follows where user_id = :userId",
+    /** Slices ids here, with an explicit {@code countQuery}, so {@code findAllById} loads one page.
+     * A follow of a merged-away society reads as its survivor, once. */
+    @Query(value = """
+            select coalesce(s.merged_into, s.id) from society_follows f join societies s on s.id = f.society_id
+            where f.user_id = :userId group by 1 order by max(f.created_at) desc""",
+            countQuery = """
+            select count(distinct coalesce(s.merged_into, s.id)) from society_follows f
+            join societies s on s.id = f.society_id where f.user_id = :userId""",
             nativeQuery = true)
     Page<UUID> findFollowedSocietyIds(@Param("userId") UUID userId, Pageable pageable);
 
-    /** Followers still owed this listing's alert: not the owner, not anyone with match alerts off, not anyone already told. */
+    /** Followers still owed this alert: not the owner, nobody with match alerts off, nobody already told. */
     @Query(value = """
             select distinct f.user_id from society_follows f
             left join notification_preferences np on np.user_id = f.user_id

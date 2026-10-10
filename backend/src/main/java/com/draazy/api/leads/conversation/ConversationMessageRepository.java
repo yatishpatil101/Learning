@@ -85,16 +85,18 @@ public interface ConversationMessageRepository extends JpaRepository<Conversatio
              """, nativeQuery = true)
     int markDelivered(@Param("conversationId") UUID conversationId, @Param("readerId") UUID readerId);
 
-    @Modifying(clearAutomatically = true, flushAutomatically = true)
     @Query(value = """
-            update messages m set delivered_at = now()
-              from conversations c
-             where c.id = m.conversation_id
-               and (c.user_a_id = :readerId or c.user_b_id = :readerId)
-               and m.author_id <> :readerId
-               and m.delivered_at is null
+            with delivered as (
+              update messages m set delivered_at = now()
+                from conversations c
+               where c.id = m.conversation_id
+                 and (c.user_a_id = :readerId or c.user_b_id = :readerId)
+                 and m.author_id <> :readerId
+                 and m.delivered_at is null
+              returning m.conversation_id)
+            select distinct conversation_id from delivered
              """, nativeQuery = true)
-    int markInboxDelivered(@Param("readerId") UUID readerId);
+    List<UUID> markInboxDelivered(@Param("readerId") UUID readerId);
 
     @Modifying(clearAutomatically = true, flushAutomatically = true)
     @Query(value = """

@@ -1,6 +1,7 @@
 package com.draazy.api.engagement.saved;
 
 import com.draazy.api.catalog.property.Property;
+import java.util.List;
 import java.util.UUID;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -29,11 +30,23 @@ public interface SavedPropertyRepository extends Repository<Property, UUID> {
                and p.archived = false
                and p.status in ('approved', 'sold', 'rented')
             """,
-    /** Idempotent save via {@code ON CONFLICT DO NOTHING} (.10). Returns 1 if inserted, 0 if
-     * already present. No exception, no race, no rollback-only transaction on duplicate. */
             nativeQuery = true)
     Page<UUID> findSavedPropertyIds(@Param("userId") UUID userId, Pageable pageable);
 
+    /** Same rows and order as {@link #findSavedPropertyIds}, as {@code [id, slug]} pairs and unpaged. */
+    @Query(value = """
+            select p.id, p.slug
+              from saved_properties sp
+              join properties p on p.id = sp.property_id
+             where sp.user_id = :userId
+               and p.archived = false
+               and p.status in ('approved', 'sold', 'rented')
+             order by sp.created_at desc
+            """, nativeQuery = true)
+    List<Object[]> findSavedKeys(@Param("userId") UUID userId);
+
+    /** {@code ON CONFLICT DO NOTHING} makes save idempotent: 1 if inserted, 0 if already present,
+     * never a duplicate-key exception. */
     @Modifying
     @Query(value = "insert into saved_properties (user_id, property_id) values (:userId, :propertyId) on conflict do nothing",
             nativeQuery = true)

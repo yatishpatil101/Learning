@@ -196,19 +196,20 @@ function SeekerFeed({ recent, recommended, go }) {
 export default function OverviewPanel({ isOwner, go, recent, recommended = [], stats = [], alertMatches = [], profile = null, actionItems = [], recentSearches = [] }) {
   const { t } = useTranslation();
   const [badgeOpen, setBadgeOpen] = useState(false);
-  const { verified } = useVerification();
+  const { verified, loading: verifying } = useVerification();
   const statTiles = stats.map(statTile);
   const showProfile = profile && profile.percent < 100;
   const nudge = alertMatches.length
     ? <AlertNudge matches={alertMatches} go={go} />
-    : !verified
+    : verifying
+      ? null
+      : !verified
       ? <VerifyNudge onStart={() => setBadgeOpen(true)} t={t} />
       : showProfile
         ? <ProfileNudge profile={profile} go={go} />
         : null;
   const seekerVisitOnly = !isOwner && actionItems.length > 0 && actionItems.every((item) => item.kind === 'visit' || String(item.id || '').startsWith('visit:'));
 
-      {/* Primary quick actions — the user's main next steps. */}
   return (
     <div className="space-y-5 sm:space-y-6">
       <ActionCenter items={actionItems} limit={3} onSeeAll={isOwner ? () => go('leads') : seekerVisitOnly ? () => go('visits') : undefined} />

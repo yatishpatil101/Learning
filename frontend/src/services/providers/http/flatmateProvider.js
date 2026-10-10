@@ -6,14 +6,19 @@ import {
   conflictSubCode,
   CONFLICT_MARKER,
   toGroupViewModel,
+  toGroupCardViewModel,
   toRequestViewModel,
   toRoomViewModel,
+  toRoomCardViewModel,
   toSeekerPostViewModel,
   vocab,
 } from './flatmateMapper.js';
 import {
   toGroupApplicationViewModel,
+  toModerationItemViewModel,
   toModerationRowViewModel,
+  toModerationSummaryViewModel,
+  toReviewRowViewModel,
   toReviewViewModel,
   toViewModelPage,
 } from './flatmateModerationMapper.js';
@@ -295,6 +300,11 @@ export async function myFlatmateInterests() {
   return unwrapFullPage(res, 'flatmate');
 }
 
+export async function myFlatmateInterestKeys() {
+  if (!signedIn()) return [];
+  return get('/me/flatmate-interests/keys');
+}
+
 /** `PATCH /me/flatmate-requests/{id}` — accept or decline. Host only. */
 export async function decideRequest(id, decision) {
   return withConflictCode(async () => toRequestViewModel(
@@ -306,6 +316,11 @@ export async function myFlatmatePosts({ page = 0, size = 20 } = {}) {
   const res = await get('/me/flatmate-posts', clean({ page, size }), { ttl: PAGE_LOAD_TTL });
   const paged = unwrapPage(res, { page, size });
   return { ...paged, items: paged.items.map(toSeekerPostViewModel) };
+}
+
+/** `GET /me/flatmate-posts/{id}` — one of the caller's own posts, in full, for the edit form. */
+export async function getMyFlatmatePost(id) {
+  return toSeekerPostViewModel(await get(`/me/flatmate-posts/${encodeURIComponent(id)}`));
 }
 
 /** The rooms inherit the listing's `propertyId`, which makes them owner-verified without a second verification. */
@@ -465,7 +480,7 @@ export async function unsaveFlatmatePost(kind, id) {
 // server's 403.
 
 /** `status` and `flagged` are server filters: a desk filtering in-browser would report a total true only of its
- * window. */
+ * window. Rows are cards; the agreement file and the host's number come with the detail read. */
 export async function listFlatmateReviews({ status, flagged, page = 0, size = 20 } = {}) {
   const res = await get('/admin/flatmate-reviews', clean({
     status,
@@ -473,7 +488,7 @@ export async function listFlatmateReviews({ status, flagged, page = 0, size = 20
     page,
     size,
   }));
-  return toViewModelPage(unwrapPage(res, { page, size }), toReviewViewModel);
+  return toViewModelPage(unwrapPage(res, { page, size }), toReviewRowViewModel);
 }
 
 /** `PATCH /admin/flatmate-reviews/{id}` — a rejection without a reason is a 400 (and a DB constraint) because a host
@@ -494,8 +509,13 @@ export async function listFlatmateModeration({ kind = 'post', modStatus, sort, p
   return toViewModelPage(unwrapPage(res, { page, size }), toModerationRowViewModel);
 }
 
+/** `GET /admin/flatmates/moderation/summary` — the true size of each tab. */
+export async function getFlatmateModerationSummary() {
+  return toModerationSummaryViewModel(await get('/admin/flatmates/moderation/summary'));
+}
+
 const toModerationDetail = (res) => ({
-  item: toModerationRowViewModel(res?.item),
+  item: toModerationItemViewModel(res?.item),
   room: res?.room ? toRoomViewModel(res.room) : null,
   group: res?.group ? toGroupViewModel(res.group) : null,
   post: res?.post ? toSeekerPostViewModel(res.post) : null,
@@ -539,13 +559,13 @@ export async function moderateGroupApplication(id, modStatus, note) {
 export async function myFlatmateGroups({ page = 0, size = 20 } = {}) {
   const res = await get('/me/flatmate-groups', clean({ page, size }), { ttl: PAGE_LOAD_TTL });
   const paged = unwrapPage(res, { page, size });
-  return { ...paged, items: paged.items.map(toGroupViewModel) };
+  return { ...paged, items: paged.items.map(toGroupCardViewModel) };
 }
 
 export async function myFlatmateRooms({ page = 0, size = 20 } = {}) {
   const res = await get('/me/flatmate-rooms', clean({ page, size }), { ttl: PAGE_LOAD_TTL });
   const paged = unwrapPage(res, { page, size });
-  return { ...paged, items: paged.items.map(toRoomViewModel) };
+  return { ...paged, items: paged.items.map(toRoomCardViewModel) };
 }
 
 // The consumer ends of group applications: host applies, owner answers; all three write the owner

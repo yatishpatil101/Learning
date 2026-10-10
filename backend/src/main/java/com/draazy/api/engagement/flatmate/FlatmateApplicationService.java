@@ -8,12 +8,9 @@ import com.draazy.api.common.error.BadRequestException;
 import com.draazy.api.common.error.ConflictException;
 import com.draazy.api.common.error.NotFoundException;
 import com.draazy.api.common.trust.Notifier;
-import com.draazy.api.identity.user.User;
-import com.draazy.api.identity.user.UserRepository;
 import com.draazy.api.security.AuthPrincipal;
 import java.time.Instant;
 import java.util.List;
-import java.util.Map;
 import java.util.UUID;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
@@ -29,43 +26,33 @@ public class FlatmateApplicationService {
     private final FlatmateGroupRepository groups;
     private final PropertyRepository properties;
     private final GroupApplicationHydrator hydrator;
-    private final FlatmateMapper mapper;
-    private final UserRepository users;
     private final Notifier notifier;
     private final AuditService audit;
 
-    private final FlatmateReviewStatuses reviewStatuses;
-
     public FlatmateApplicationService(FlatmateGroupApplicationRepository applications,
             FlatmateGroupRepository groups, PropertyRepository properties,
-            GroupApplicationHydrator hydrator, FlatmateMapper mapper, UserRepository users,
-            Notifier notifier, AuditService audit, FlatmateReviewStatuses reviewStatuses) {
+            GroupApplicationHydrator hydrator, Notifier notifier, AuditService audit) {
         this.applications = applications;
         this.groups = groups;
         this.properties = properties;
         this.hydrator = hydrator;
-        this.mapper = mapper;
-        this.users = users;
         this.notifier = notifier;
         this.audit = audit;
-        this.reviewStatuses = reviewStatuses;
     }
 
-    /** Host view can expose full rows, including moderation state the feed card hides. */
+    /** Host view: the card draws the moderation state and the seats; the edit form reads the one group it opens. */
     @Transactional(readOnly = true)
-    public Page<FlatmateGroupDto> myGroups(AuthPrincipal caller, Pageable pageable) {
+    public Page<FlatmateGroupCard> myGroups(AuthPrincipal caller, Pageable pageable) {
+        return groups.findMine(caller.userId(), pageable).map(FlatmateApplicationService::card);
+    }
 
-        // The caller's own view of their own rows: name and number both present, because it is
-        // their number on a request they authenticated. One lookup for the whole page.
-        User me = users.findById(caller.userId()).orElse(null);
-        String name = me == null ? null : me.getName();
-        String mobile = me == null ? null : me.getMobile();
-        Page<FlatmateGroup> page = groups.findMine(caller.userId(), pageable);
-
-        /** Hosts need the review verdict so pending badges do not look like silent failures. */
-        Map<UUID, String> verdicts = reviewStatuses.forGroups(page.getContent());
-        return page.map(g -> mapper.toDto(g,
-                new FlatmateMapper.PartyView(name, mobile, verdicts.get(g.getId()))));
+    private static FlatmateGroupCard card(FlatmateGroup group) {
+        List<String> localities = group.isHunting() && !group.getLocalities().isEmpty()
+                ? List.copyOf(group.getLocalities())
+                : group.getLocality() == null ? List.of() : List.of(group.getLocality());
+        return new FlatmateGroupCard(group.getId(), group.getTitle(), group.getLocality(), localities,
+                group.getRent(), group.getSeatsTotal(), group.openSeats(), group.getMembers().size(),
+                group.getPropertyId(), group.getModStatus(), group.getCreatedAt());
     }
 
     /** Host-only: applying binds every group member to a flat and rent. */

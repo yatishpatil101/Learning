@@ -9,6 +9,7 @@ import com.draazy.api.security.Roles;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
+import java.util.List;
 import java.util.UUID;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.web.PageableDefault;
@@ -71,6 +72,12 @@ public class FlatmateSeekerController {
         return PageResponse.of(service.myPosts(principal, Pageables.unsorted(pageable)), dto -> dto);
     }
 
+    /** The edit form's single read. 404 for another author's post, so an id leaks nothing about who owns it. */
+    @GetMapping(Routes.Flatmates.MY_POST_BY_ID)
+    public FlatmateSeekerPostDto myPost(@CurrentUser AuthPrincipal principal, @PathVariable UUID id) {
+        return service.myPost(principal, id);
+    }
+
     /** Inbox is paged because rows are created by strangers answering the ad. */
     @GetMapping(Routes.Flatmates.MY_REQUESTS)
     public PageResponse<FlatmateRequestDto> inbox(@CurrentUser AuthPrincipal principal,
@@ -93,6 +100,11 @@ public class FlatmateSeekerController {
             @PageableDefault(size = 20) Pageable pageable) {
         return PageResponse.of(
                 service.outbox(principal, status, Pageables.unsorted(pageable)), dto -> dto);
+    }
+
+    @GetMapping(Routes.Flatmates.MY_INTEREST_KEYS)
+    public List<FlatmateInterestKeyDto> outboxKeys(@CurrentUser AuthPrincipal principal) {
+        return service.outboxKeys(principal);
     }
 
     /** 204 with no body because withdrawal is a command, not a deleted-row read. */

@@ -92,7 +92,7 @@ export function useFlatmates() {
   useEffect(() => {
     let alive = true;
     if (!user) { setInterests({}); return () => { alive = false; }; }
-    flatmateService.myFlatmateInterests()
+    flatmateService.myFlatmateInterestKeys()
       .then((rows) => {
         if (!alive) return;
         setInterests(Object.fromEntries(rows.map((row) => [interestKey(row), row])));
@@ -233,12 +233,13 @@ export function useFlatmates() {
     toast(t('flatmates.messageSentOwner', { society: name }));
   };
 
-  // Interest state is device-scoped; repeat requests remain a server-resolved conflict.
+  // Interest state is device-scoped; repeat requests remain a server-resolved conflict. Returns the
+  // server row (carrying `status`) once loaded, `true` for a tap not yet confirmed, `false` otherwise.
   const interestedFor = (item) => {
     if (!item) return false;
-    if (item.kind === 'room') return !!interests['room-' + item.id];
-    if (item.kind === 'group') return !!interests['group-' + item.id];
-    return !!interests[item.id];
+    if (item.kind === 'room') return interests['room-' + item.id] || false;
+    if (item.kind === 'group') return interests['group-' + item.id] || false;
+    return interests[item.id] || false;
   };
 
   const goToPosting = (prefix, id, locality) => {

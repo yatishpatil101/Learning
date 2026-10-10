@@ -21,6 +21,11 @@ export function VerificationProvider({ children }) {
   const { isIn } = useAuth();
   const [badge, setBadge] = useState(NONE);
   const [loading, setLoading] = useState(false);
+  // Until the first read lands a consumer must not take `verified: false` as an answer.
+  const [settled, setSettled] = useState(false);
+  // Read only once a screen asks: the shell itself draws no badge.
+  const [wanted, setWanted] = useState(false);
+  const want = useCallback(() => setWanted(true), []);
 
   const refresh = useCallback(async () => {
     const next = await getAadhaarStatus();
@@ -31,8 +36,10 @@ export function VerificationProvider({ children }) {
   useEffect(() => {
     if (!isIn) {
       setBadge(NONE);
+      setSettled(false);
       return undefined;
     }
+    if (!wanted) return undefined;
     let alive = true;
     setLoading(true);
     getAadhaarStatus()
@@ -40,9 +47,9 @@ export function VerificationProvider({ children }) {
       // An unreachable badge reads as none. Under-stating trust is recoverable (the user sees a
       // nudge they can act on); over-stating it would put a "Verified" ribbon on an unproven account.
       .catch(() => { if (alive) setBadge(NONE); })
-      .finally(() => { if (alive) setLoading(false); });
+      .finally(() => { if (alive) { setLoading(false); setSettled(true); } });
     return () => { alive = false; };
-  }, [isIn]);
+  }, [isIn, wanted]);
 
   const submitVerification = useCallback(async (details) => {
     const next = await submitIdentityVerification(details);
@@ -76,16 +83,20 @@ export function VerificationProvider({ children }) {
     mobileMatch: badge.mobileMatch,
     verifiedAt: badge.verifiedAt,
     aadhaarMobile: badge.aadhaarMobile,
-    loading,
+    loading: loading || (isIn && !settled),
+    want,
     refresh,
     submitVerification,
     withdrawVerification,
-  }), [badge, loading, refresh, submitVerification, withdrawVerification]);
+  }), [badge, loading, isIn, settled, want, refresh, submitVerification, withdrawVerification]);
 
   return <VerificationContext.Provider value={value}>{children}</VerificationContext.Provider>;
 }
 
 /** Null-safe outside the provider, so a component rendered in isolation degrades to the none tier. */
 export function useVerification() {
-  return useContext(VerificationContext) ?? EMPTY;
+  const ctx = useContext(VerificationContext);
+  const want = ctx?.want;
+  useEffect(() => { want?.(); }, [want]);
+  return ctx ?? EMPTY;
 }

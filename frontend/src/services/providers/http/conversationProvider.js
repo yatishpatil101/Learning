@@ -18,7 +18,7 @@ const QUEUE_KEY = 'dzPendingRequests';
 export async function listConversations() {
   const page = await get('/messages', { size: PAGE_SIZE });
   warnIfTruncated(page);
-  const live = toViewModelList(page, viewerId());
+  const live = toViewModelList(page);
   // Staged rows sort in with the real ones so the Requests tab is one list, not a special case.
   const staged = readQueue().map(stagedToViewModel);
   return [...live, ...staged].sort((a, b) => (b.at || 0) - (a.at || 0));
@@ -29,7 +29,7 @@ export async function getConversation(id) {
     return readQueue().map(stagedToViewModel).find((c) => c.id === id) ?? null;
   }
   try {
-    return toViewModel(await get(`/messages/${encodeURIComponent(id)}`), viewerId());
+    return toViewModel(await get(`/messages/${encodeURIComponent(id)}`));
   } catch (err) {
     // A non-participant gets 404 by design — the id is the secret — and the page renders a
     // "not found" state from `null`, so translate rather than making every caller catch.
@@ -42,7 +42,7 @@ export async function getConversation(id) {
    request — the guard stopping this endpoint being a way to test mobiles against the user base. */
 export async function startConversation({ counterpartyMobile, propertyId, firstMessage } = {}) {
   const body = toConversationCreate({ counterpartyMobile, propertyId, body: firstMessage });
-  return toViewModel(await post('/messages', body), viewerId());
+  return toViewModel(await post('/messages', body));
 }
 
 export async function replyToConversation(id, body) {
@@ -51,7 +51,7 @@ export async function replyToConversation(id, body) {
     body: input.body,
     clientId: input.clientId,
     replyToId: input.replyToId,
-  }), viewerId());
+  }));
 }
 
 export async function sendConversationPhoto(id, { file, caption, clientId }) {
@@ -59,7 +59,7 @@ export async function sendConversationPhoto(id, { file, caption, clientId }) {
   form.set('file', file);
   if (clientId) form.set('clientId', clientId);
   if (caption) form.set('caption', caption);
-  return toMessage(await postMultipart(`/messages/${encodeURIComponent(id)}/photos`, form), viewerId());
+  return toMessage(await postMultipart(`/messages/${encodeURIComponent(id)}/photos`, form));
 }
 
 export async function updateConversationState(id, state) {
@@ -79,7 +79,7 @@ export async function setConversationBlocked(id, blocked) {
 
 export async function openGroupConversation(groupId) {
   try {
-    return toViewModel(await post(`/messages/flatmate-groups/${encodeURIComponent(groupId)}`, {}), viewerId());
+    return toViewModel(await post(`/messages/flatmate-groups/${encodeURIComponent(groupId)}`, {}));
   } catch (err) {
     if (err?.status === 404) return null;
     throw err;
@@ -87,7 +87,7 @@ export async function openGroupConversation(groupId) {
 }
 
 export async function openFlatmateRequestConversation(requestId) {
-  return toViewModel(await post(`/messages/flatmate-requests/${encodeURIComponent(requestId)}`, {}), viewerId());
+  return toViewModel(await post(`/messages/flatmate-requests/${encodeURIComponent(requestId)}`, {}));
 }
 
 export async function markConversationRead(id) {
@@ -104,8 +104,6 @@ export async function openMessageStream(opts) {
   return openEventStream('/messages/stream', opts);
 }
 
-/* No count endpoint exists, so this sums the inbox page. Accurate up to the ceiling, and audibly wrong
-   beyond it rather than silently. */
 export async function unreadCount() {
   const res = await get('/messages/unread-count');
   return Number(res?.count) || 0;

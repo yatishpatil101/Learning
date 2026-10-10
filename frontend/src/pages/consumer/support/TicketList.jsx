@@ -22,13 +22,9 @@ export default function TicketList({ tickets, openThread }) {
       ) : (
         <div className="space-y-3">
           {tickets.map((t) => {
-            const unread = t.unreadCustomer > 0;
-            const last = t.messages[t.messages.length - 1] || {};
-            const prevText = last.system
-              ? last.text
-              : last.by === 'staff'
-              ? tr('misc.tlSupportPrefix') + (last.text || (last.images?.length ? tr('misc.tlImage') : ''))
-              : tr('misc.tlYouPrefix') + (last.text || (last.images?.length ? tr('misc.tlImage') : ''));
+            const unread = t.unread;
+            const last = t.lastMessage || {};
+            const prevText = (last.by === 'staff' ? tr('misc.tlSupportPrefix') : tr('misc.tlYouPrefix')) + (last.text || '');
             return (
               <button
                 key={t.id}

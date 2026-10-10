@@ -1,16 +1,10 @@
-import { loadMyListings } from './myListings.js';
-import { listManaged } from '../../services/managedService.js';
 import { passportPercent } from '../../pages/consumer/owner-hub/helpers.js';
 
 const isProperty = (l) => !l.flatmate && !l.flatmatePost && !l.flatmateGroup;
 const listingKeys = (listing) => [listing.uuid, listing.id].filter(Boolean).map(String);
 
-export async function loadOwnerProperties(user) {
-  const [posted, managed] = await Promise.all([
-    loadMyListings(user),
-    listManaged(),
-  ]);
-
+/* The dashboard's own listings and managed records, composed into the panel's rows; reads nothing. */
+export function composeOwnerProperties(posted, managed) {
   const managedByPublishedId = new Map();
   managed.forEach((record) => {
     if (record.publishedListingId) managedByPublishedId.set(String(record.publishedListingId), record);

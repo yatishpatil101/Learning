@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import Icon from '../../../components/Icon.jsx';
-import { useSavedSearches } from '../../../context/SavedSearchContext.jsx';
+import { useSavedSearchCreate } from '../../../context/SavedSearchContext.jsx';
 import { useAuth } from '../../../context/AuthContext.jsx';
 import { useSignInGate } from '../../../lib/useSignInGate.js';
 import { buildFlatmateAlertRecord, flatmateCriteriaChips } from './alertCriteria.js';
@@ -20,7 +20,7 @@ export default function FlatmateAlertCard({ filters, tab, toast }) {
   const [sent, setSent] = useState(false);
   const [saving, setSaving] = useState(false);
   const [confirmingReturn, setConfirmingReturn] = useState(false);
-  const { create: createSavedSearch } = useSavedSearches();
+  const createSavedSearch = useSavedSearchCreate();
   const sendToSignIn = useSignInGate();
   const consumedReturn = useRef(false);
 

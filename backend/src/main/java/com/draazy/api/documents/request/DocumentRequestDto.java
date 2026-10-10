@@ -3,17 +3,6 @@ package com.draazy.api.documents.request;
 import java.time.Instant;
 import java.util.List;
 
-/**
- * Contract schema {@code DocumentRequest} — the owner's inbox row.
- *
- * @param requester   the asking buyer, mobile always masked (this surface never reveals a number;
- *                    the contact gate is the only place that does)
- * @param shareToken  present only once granted. Owner-facing by contract, so the owner can resend
- *                    the link they issued
- * @param expiresAt   spec fix S37 — when the grant lapses; {@code null} until granted
- * @param sharedDocumentCount the number of uploaded files this request's category scope unlocks;
- *                    zero when no matching file has been uploaded yet
- */
 public record DocumentRequestDto(
         String id,
         String propertyId,
@@ -21,7 +10,6 @@ public record DocumentRequestDto(
         List<String> categories,
         String status,
         int sharedDocumentCount,
-        String shareToken,
         Instant expiresAt,
         boolean acknowledgedDisclaimer,
         Instant createdAt) {

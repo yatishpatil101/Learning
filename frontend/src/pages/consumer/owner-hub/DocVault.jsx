@@ -7,8 +7,9 @@ import {
   DOC_CATEGORIES, formatSize, docIcon,
 } from '../../../lib/data/documents.js';
 import {
-  listManagedDocuments, uploadManagedDocument, deleteManagedDocument,
+  listManagedDocuments, uploadManagedDocument, deleteManagedDocument, getDocumentUrl,
 } from '../../../services/documentService.js';
+import { openDocFrom } from '../../../lib/openDoc.js';
 import { DOC_CAT_KEYS } from './constants.js';
 import { DOCUMENT_ACCEPT, DOCUMENT_GUIDANCE_KEY, PDF_GUIDANCE_KEY } from '../../../lib/uploads/policy.js';
 
@@ -25,32 +26,8 @@ const CAT_ICON = {
 };
 const catIcon = (c) => CAT_ICON[c] || 'file-text';
 
-/* Two sources, because the backings store bytes differently: a signed object-storage `url` is
-   already a normal link and opens directly, while an inline base64 `dataUrl` is not — Chrome blocks
-   top-frame navigation to `data:` — so it is converted to a Blob URL first. */
-function openDoc(d, toast, t) {
-  if (d.url) {
-    const w = window.open(d.url, '_blank', 'noopener,noreferrer');
-    if (!w) toast(t('ownerHub.allowPopups'), 'info');
-    return;
-  }
-  if (!d.dataUrl) return;
-  try {
-    const [meta, b64] = d.dataUrl.split(',');
-    const mime = (/data:(.*?);base64/.exec(meta) || [])[1] || d.mime || 'application/octet-stream';
-    // A blob: URL typed text/html executes script in this origin when opened as a
-    // top-level document, so the stored MIME is allowlisted before the Blob is built.
-    if (!/^(image\/[a-z0-9.+-]+|application\/pdf)$/i.test(mime)) { toast(t('ownerHub.cantOpen'), 'error'); return; }
-    const bin = atob(b64);
-    const bytes = new Uint8Array(bin.length);
-    for (let i = 0; i < bin.length; i += 1) bytes[i] = bin.charCodeAt(i);
-    const url = URL.createObjectURL(new Blob([bytes], { type: mime }));
-    const w = window.open(url, '_blank', 'noopener,noreferrer');
-    if (!w) toast(t('ownerHub.allowPopups'), 'info');
-    setTimeout(() => URL.revokeObjectURL(url), 60000);
-  } catch {
-    toast(t('ownerHub.cantOpen'), 'error');
-  }
+async function openDoc(d, toast, t) {
+  if (!(await openDocFrom(() => getDocumentUrl(d.id)))) toast(t('ownerHub.cantOpen'), 'error');
 }
 
 // A passport's managed-property id exists independently of any public listing.
@@ -176,13 +153,11 @@ export default function DocVault({ mobile, propId, onChange }) {
                       <span className="w-9 h-9 rounded-lg bg-brand-teal/10 flex items-center justify-center flex-shrink-0"><Icon name={docIcon(d.mime)} className="w-4 h-4 text-brand-teal-3" /></span>
                       <div className="min-w-0 flex-1">
                         <p className="text-white text-sm font-medium truncate">{d.name}</p>
-                        <p className="text-gray-500 text-[11px]">{d.size ? formatSize(d.size) : ''}{(d.dataUrl || d.url) ? '' : (d.size ? ` · ${t('ownerHub.metadataOnly')}` : t('ownerHub.metadataOnly'))}</p>
+                        <p className="text-gray-500 text-[11px]">{d.size ? formatSize(d.size) : ''}</p>
                       </div>
-                      {(d.dataUrl || d.url) ? (
-                        <button onClick={() => openDoc(d, toast, t)} aria-label={t('ownerHub.viewDoc', { name: d.name })} className="p-2 rounded-lg text-gray-500 hover:text-brand-teal-3 hover:bg-brand-teal/10 transition-all">
-                          <Icon name="eye" className="w-4 h-4" />
-                        </button>
-                      ) : null}
+                      <button onClick={() => openDoc(d, toast, t)} aria-label={t('ownerHub.viewDoc', { name: d.name })} className="p-2 rounded-lg text-gray-500 hover:text-brand-teal-3 hover:bg-brand-teal/10 transition-all">
+                        <Icon name="eye" className="w-4 h-4" />
+                      </button>
                       <button onClick={() => remove(d.id)} aria-label={t('ownerHub.deleteDoc', { name: d.name })} className="p-2 rounded-lg text-gray-500 hover:text-rose-300 hover:bg-rose-500/10 transition-all">
                         <Icon name="trash-2" className="w-4 h-4" />
                       </button>

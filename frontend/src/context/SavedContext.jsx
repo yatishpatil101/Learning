@@ -1,67 +1,60 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
-import { listSaved, saveProperty, unsaveProperty } from '../services/savedService.js';
+import { listSaved, listSavedKeys, saveProperty, unsaveProperty } from '../services/savedService.js';
 import { useAuth } from './AuthContext.jsx';
 
-/* Saved membership is a Set so result cards answer from memory, not thirty requests. */
+/* Saved membership is held as keys, so result cards answer from memory and the shell never
+   downloads the cards themselves; the pages that draw them read `useSavedItems`. */
 const SavedContext = createContext(null);
 
-const PAGE_SIZE = 500;
+const ITEMS_PAGE_SIZE = 100;
 const FOREGROUND_RELOAD_MS = 30000;
 
 export function SavedProvider({ children }) {
   const { isIn } = useAuth();
-  const [items, setItems] = useState([]);
-  const [ids, setIds] = useState(() => new Set());
+  // routing token (slug || uuid) -> uuid, because the writes take the uuid
+  const [keys, setKeys] = useState(() => new Map());
   const [loading, setLoading] = useState(false);
   const [status, setStatus] = useState(isIn ? 'loading' : 'ready');
   const [error, setError] = useState(null);
   const [busyIds, setBusyIds] = useState(() => new Set());
-  const idsRef = useRef(ids);
-  const itemsRef = useRef(items);
+  const keysRef = useRef(keys);
   const busyRef = useRef(new Set());
   const lastForegroundReload = useRef(0);
 
-  useEffect(() => { idsRef.current = ids; }, [ids]);
-  useEffect(() => { itemsRef.current = items; }, [items]);
+  useEffect(() => { keysRef.current = keys; }, [keys]);
 
-  const applyRows = useCallback((rows) => {
-    setItems(rows);
-    setIds(new Set(rows.map((p) => p.id)));
+  const applyKeys = useCallback((rows) => {
+    setKeys(new Map(rows.map((k) => [k.token, k.uuid])));
     setError(null);
     setStatus('ready');
   }, []);
 
-  /* One large page rather than paging: a paged id set would leave hearts wrong on the results
-     page for anyone who has saved more than one page worth. */
   const loadAll = useCallback(async ({ silent = false } = {}) => {
     if (!isIn) {
-      applyRows([]);
-      return { items: [] };
+      applyKeys([]);
+      return [];
     }
     if (!silent) {
       setLoading(true);
       setStatus('loading');
     }
-    const res = await listSaved({ size: PAGE_SIZE });
-    applyRows(res.items);
+    const rows = await listSavedKeys();
+    applyKeys(rows);
     if (!silent) setLoading(false);
-    return res;
-  }, [applyRows, isIn]);
+    return rows;
+  }, [applyKeys, isIn]);
 
   useEffect(() => {
     if (!isIn) {
-      applyRows([]);
+      applyKeys([]);
       setLoading(false);
       return undefined;
     }
     let alive = true;
     setLoading(true);
     setStatus('loading');
-    listSaved({ size: PAGE_SIZE })
-      .then((res) => {
-        if (!alive) return;
-        applyRows(res.items);
-      })
+    listSavedKeys()
+      .then((rows) => { if (alive) applyKeys(rows); })
       .catch((err) => {
         if (!alive) return;
         setError(err);
@@ -71,7 +64,7 @@ export function SavedProvider({ children }) {
         if (alive) setLoading(false);
       });
     return () => { alive = false; };
-  }, [applyRows, isIn]);
+  }, [applyKeys, isIn]);
 
   useEffect(() => {
     if (!isIn) return undefined;
@@ -90,7 +83,8 @@ export function SavedProvider({ children }) {
     };
   }, [isIn, loadAll]);
 
-  const has = useCallback((id) => ids.has(id), [ids]);
+  const ids = useMemo(() => new Set(keys.keys()), [keys]);
+  const has = useCallback((id) => keys.has(id), [keys]);
 
   const setBusy = useCallback((id, busy) => {
     if (busy) busyRef.current.add(id);
@@ -100,48 +94,38 @@ export function SavedProvider({ children }) {
 
   const write = useCallback(async (id, uuid, next) => {
     if (!id || busyRef.current.has(id)) return false;
-    const wasSaved = idsRef.current.has(id);
+    const wasSaved = keysRef.current.has(id);
     if (wasSaved === next) return true;
-    const address = uuid || itemsRef.current.find((p) => p.id === id)?.uuid || id;
-    const previousItem = itemsRef.current.find((p) => p.id === id);
+    const address = uuid || keysRef.current.get(id) || id;
+    const flip = (on) => setKeys((prev) => {
+      const copy = new Map(prev);
+      if (on) copy.set(id, address); else copy.delete(id);
+      return copy;
+    });
 
     setBusy(id, true);
     setError(null);
-    setIds((prev) => {
-      const copy = new Set(prev);
-      if (next) copy.add(id); else copy.delete(id);
-      return copy;
-    });
-    if (!next) setItems((prev) => prev.filter((p) => p.id !== id));
-
+    flip(next);
     try {
       if (next) await saveProperty(address); else await unsaveProperty(address);
-      if (next) await loadAll({ silent: true }).catch(() => {});
       return true;
     } catch (err) {
       setError(err);
-      setIds((prev) => {
-        const copy = new Set(prev);
-        if (next) copy.delete(id); else copy.add(id);
-        return copy;
-      });
-      if (!next && previousItem) {
-        setItems((prev) => (prev.some((p) => p.id === id) ? prev : [previousItem, ...prev]));
-      }
+      flip(!next);
       return false;
     } finally {
       setBusy(id, false);
     }
-  }, [loadAll, setBusy]);
+  }, [setBusy]);
 
   const save = useCallback((id, uuid) => write(id, uuid, true), [write]);
   const unsave = useCallback((id, uuid) => write(id, uuid, false), [write]);
 
   /** Two identifiers, deliberately: `id` is the routing token this context keys on, `uuid` the row's primary key. */
   const toggle = useCallback(async (id, uuid) => {
-    const next = !idsRef.current.has(id);
+    const next = !keysRef.current.has(id);
     const ok = await write(id, uuid, next);
-    return ok ? next : idsRef.current.has(id);
+    return ok ? next : keysRef.current.has(id);
   }, [write]);
 
   const reload = useCallback(async () => {
@@ -156,8 +140,8 @@ export function SavedProvider({ children }) {
   }, [loadAll]);
 
   const value = useMemo(
-    () => ({ items, ids, count: ids.size, loading, status, error, busyIds, has, save, unsave, toggle, reload, refresh: reload }),
-    [items, ids, loading, status, error, busyIds, has, save, unsave, toggle, reload],
+    () => ({ ids, count: ids.size, loading, status, error, busyIds, has, save, unsave, toggle, reload, refresh: reload }),
+    [ids, loading, status, error, busyIds, has, save, unsave, toggle, reload],
   );
   return <SavedContext.Provider value={value}>{children}</SavedContext.Provider>;
 }
@@ -168,8 +152,58 @@ export function useSaved() {
   return useContext(SavedContext) ?? EMPTY;
 }
 
+/** The shortlist's cards, for the pages that draw them. Re-read only when the key set gains an id
+ * (or, for a short `size`, loses one that may have hidden others); removals filter locally. */
+export function useSavedItems({ size = ITEMS_PAGE_SIZE } = {}) {
+  const saved = useSaved();
+  const { isIn } = useAuth();
+  const [rows, setRows] = useState([]);
+  const [status, setStatus] = useState(isIn ? 'loading' : 'ready');
+  const loadedFor = useRef(null);
+  const seq = useRef(0);
+
+  const load = useCallback(async () => {
+    const n = ++seq.current;
+    try {
+      const res = await listSaved({ size });
+      if (n === seq.current) {
+        setRows(res.items);
+        setStatus('ready');
+      }
+      return res;
+    } catch (err) {
+      if (n === seq.current) setStatus('error');
+      throw err;
+    }
+  }, [size]);
+
+  const { ids, status: keysStatus, busyIds, reload: reloadKeys } = saved;
+
+  useEffect(() => {
+    if (!isIn) {
+      loadedFor.current = null;
+      setRows([]);
+      setStatus('ready');
+      return;
+    }
+    // A heart mid-write is in `ids` before the server has the row; read once the write settles.
+    if (keysStatus !== 'ready' || busyIds.size) return;
+    const prev = loadedFor.current;
+    const stale = !prev
+      || [...ids].some((id) => !prev.has(id))
+      || (ids.size < prev.size && prev.size > size);
+    if (!stale) return;
+    loadedFor.current = ids;
+    load().catch(() => {});
+  }, [isIn, keysStatus, busyIds, ids, size, load]);
+
+  const items = useMemo(() => rows.filter((p) => ids.has(p.id)), [rows, ids]);
+  const reload = useCallback(() => Promise.all([reloadKeys(), load()]), [reloadKeys, load]);
+  const merged = saved.status === 'error' ? 'error' : saved.status === 'loading' ? 'loading' : status;
+  return { ...saved, items, status: merged, reload, refresh: reload };
+}
+
 const EMPTY = {
-  items: [],
   ids: new Set(),
   count: 0,
   loading: false,

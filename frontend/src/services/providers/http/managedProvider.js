@@ -51,12 +51,11 @@ export async function recordRentReceipt(id, rentMonth) {
   return receipt;
 }
 
-/** The server sends no `already` marker on an idempotent publish, so it is rebuilt from the pre-call state. */
-export async function publishManaged(id) {
-  const before = await getManaged(id);
-  const already = !!before?.publishedListingId;
+/** The server sends no `already` marker on an idempotent publish, so the caller says whether the record it holds was
+ * already published. */
+export async function publishManaged(id, { published = false } = {}) {
   const after = toManaged(await post(`/me/managed-properties/${encodeURIComponent(id)}/publish`, {}));
-  return { id: after?.publishedListingId || '', already, record: after };
+  return { id: after?.publishedListingId || '', already: published, record: after };
 }
 
 /** Deduped by the caller beforehand; the server's 409 is only the race, which the caller handles by re-reading. */

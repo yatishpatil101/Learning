@@ -111,12 +111,14 @@ public class ConversationMapper {
                     boolean available = listing != null && listing.isDirectlyReachable();
                     UUID latestAuthor = latestAuthors.get(c.getId());
                     ContactVisibility visibility = visibilityFor(readerId, other, listing, approved);
+                    // Number and presence serve the open thread's header, not a hundred inbox rows.
+                    boolean detail = threads.containsKey(c.getId());
                     return new ConversationDto(
                             c.getId().toString(),
                             c.isGroup() ? ConversationDto.GROUP : ConversationDto.DIRECT,
                             other == null ? null : other.getName(),
                             other == null ? null : other.getRole(),
-                            other == null ? null : MobileMask.applyTo(other.getMobile(), visibility),
+                            other == null || !detail ? null : MobileMask.applyTo(other.getMobile(), visibility),
                             youAre(readerId, c, listing),
                             c.getPropertyId() == null ? null : c.getPropertyId().toString(),
                             listing == null ? null : listing.getTitle(),
@@ -136,8 +138,8 @@ public class ConversationMapper {
                             mine.muted(),
                             other != null && blocks.byReader().contains(other.getId()),
                             latestAuthor != null && !readerId.equals(latestAuthor),
-                            presence(c, reader, other, other != null && blocks.eitherWay().contains(other.getId())),
-                            threads.containsKey(c.getId())
+                            detail ? presence(c, reader, other, other != null && blocks.eitherWay().contains(other.getId())) : null,
+                            detail
                                     ? toMessages(c, threads.get(c.getId()), people, readerId,
                                             visibility == ContactVisibility.REVEALED, reader, other,
                                             other != null && blocks.eitherWay().contains(other.getId()))
@@ -205,9 +207,8 @@ public class ConversationMapper {
                             : MessageTextMask.body(m.getBody());
                     return new MessageDto(
                             m.getId().toString(),
-                            m.getAuthorId().toString(),
+                            readerId.equals(m.getAuthorId()),
                             author == null ? null : author.getName(),
-                            m.getAuthorRole(),
                             body,
                             m.getCreatedAt(),
                             m.getClientId(),

@@ -28,7 +28,13 @@ const writeLocal = (slugs) => {
 export function FollowProvider({ children }) {
   const { isIn } = useAuth();
   const [slugs, setSlugs] = useState(() => new Set());
+  // slug -> {slug, name, localitySlug, listingCount}, for the dashboard panel; `slugs` stays the toggle's truth.
+  const [rows, setRows] = useState(() => new Map());
   const [loading, setLoading] = useState(false);
+  const [writes, setWrites] = useState(0);
+  // Read only once a screen asks: the shell itself draws no follow state.
+  const [wanted, setWanted] = useState(false);
+  const want = useCallback(() => setWanted(true), []);
 
   /** A 404 means the slug is still browser-local (expected); a success is a society ops have since created. */
   const promote = useCallback(async (pending) => {
@@ -49,16 +55,25 @@ export function FollowProvider({ children }) {
   const loadAll = useCallback(async () => {
     const remote = await listFollowedSocieties();
     const still = await promote(readLocal());
-    const next = new Set([...remote, ...still]);
+    const next = new Set([...remote.map((r) => r.slug), ...still]);
+    setRows(new Map(remote.map((r) => [r.slug, r])));
     setSlugs(next);
     return next;
   }, [promote]);
 
+  // Describes rows only; `slugs` is left to the optimistic toggle so a read racing a write cannot undo it.
+  const refreshRows = useCallback(async () => {
+    const remote = await listFollowedSocieties();
+    setRows(new Map(remote.map((r) => [r.slug, r])));
+  }, []);
+
   useEffect(() => {
     if (!isIn) {
       setSlugs(new Set());
+      setRows(new Map());
       return undefined;
     }
+    if (!wanted) return undefined;
     let alive = true;
     setLoading(true);
     loadAll()
@@ -67,11 +82,11 @@ export function FollowProvider({ children }) {
       .catch(() => { if (alive) setSlugs(new Set()); })
       .finally(() => { if (alive) setLoading(false); });
     return () => { alive = false; };
-  }, [isIn, loadAll]);
+  }, [isIn, wanted, loadAll]);
 
   const has = useCallback((slug) => slugs.has(slug), [slugs]);
 
-  /** Flip one society's followed state by slug (never the UUID id); resolves to the state it settled on so a rollback is reported accurately. */
+  /** Flips by slug (never the UUID id); resolves to the settled state so a rollback is reported accurately. */
   const toggle = useCallback(async (slug) => {
     if (!slug) return false;
     const wasFollowed = slugs.has(slug);
@@ -83,6 +98,7 @@ export function FollowProvider({ children }) {
       return copy;
     });
 
+    setWrites((n) => n + 1);
     try {
       if (next) await followSociety(slug); else await unfollowSociety(slug);
       // A successful server write means the slug is real, so drop any local placeholder for it.
@@ -100,26 +116,34 @@ export function FollowProvider({ children }) {
         return copy;
       });
       return !next;
+    } finally {
+      setWrites((n) => n - 1);
     }
   }, [slugs]);
 
   const value = useMemo(
-    () => ({ slugs, count: slugs.size, loading, has, toggle, refresh: loadAll }),
-    [slugs, loading, has, toggle, loadAll],
+    () => ({ slugs, rows, count: slugs.size, loading, busy: writes > 0, want, has, toggle, refresh: loadAll, refreshRows }),
+    [slugs, rows, loading, writes, want, has, toggle, loadAll, refreshRows],
   );
   return <FollowContext.Provider value={value}>{children}</FollowContext.Provider>;
 }
 
 /** Outside the provider a null-safe stub means nothing followed, so isolated renders don't throw on `.has`. */
 export function useFollows() {
-  return useContext(FollowContext) ?? EMPTY;
+  const ctx = useContext(FollowContext);
+  const want = ctx?.want;
+  useEffect(() => { want?.(); }, [want]);
+  return ctx ?? EMPTY;
 }
 
 const EMPTY = {
   slugs: new Set(),
+  rows: new Map(),
   count: 0,
   loading: false,
+  busy: false,
   has: () => false,
   toggle: async () => false,
   refresh: async () => new Set(),
+  refreshRows: async () => {},
 };

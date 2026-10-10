@@ -60,4 +60,10 @@ public class NotificationService {
                 .orElseThrow(() -> NotFoundException.of("Notification"));
         repo.delete(entity);
     }
+
+    /** Another user's ids are skipped, as on mark-read, so a batch cannot probe the id space. */
+    @Transactional
+    public void dismiss(UUID userId, Collection<UUID> ids) {
+        repo.deleteMine(userId, ids);
+    }
 }

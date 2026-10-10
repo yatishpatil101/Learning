@@ -1,5 +1,3 @@
-/** The one behaviour with no endpoint — client-derived alerts, which have no server row — is handled here rather than
- * being dropped or thrown, and is confined to this file so the page cannot tell. */
 import { del, get, post, put } from '../../http.js';
 import { toViewModelList } from './notificationMapper.js';
 
@@ -21,8 +19,6 @@ export async function listNotifications({ page = 0, size = DEFAULT_PAGE_SIZE } =
   return pageMeta(await get('/notifications', requested), requested);
 }
 
-/** There is no count endpoint, so this reads the same large page and counts it — accurate up to the ceiling, and
- * audibly wrong beyond it rather than silently. Deliberately excludes dismissed rows. */
 export async function unreadCount() {
   const body = await get('/notifications/unread-count');
   return Number(body?.count ?? 0);
@@ -39,9 +35,18 @@ export async function markAllRead() {
   await post('/notifications/read', {});
 }
 
+// Matches the server's per-call cap on POST /notifications/dismiss.
+const DISMISS_BATCH = 100;
+
 export async function dismiss(id) {
-  if (!id) return;
-  await del(`/notifications/${id}`);
+  const ids = (Array.isArray(id) ? id : [id]).filter(Boolean);
+  if (ids.length === 1) {
+    await del(`/notifications/${ids[0]}`);
+    return;
+  }
+  for (let i = 0; i < ids.length; i += DISMISS_BATCH) {
+    await post('/notifications/dismiss', { ids: ids.slice(i, i + DISMISS_BATCH) });
+  }
 }
 
 export async function getNotificationPreferences() {

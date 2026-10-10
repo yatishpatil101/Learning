@@ -54,8 +54,10 @@ export const postInterest = async (id, body) => (await provider()).postInterest(
 /* ─── Requests ──────────────────────────────────────────────────────────────────────────────── */
 
 export const myRequests = async (status) => (await provider()).myRequests(status);
-/** The caller's sent-interest outbox. Keys the Flatmates CTA state across devices. */
+/** The caller's sent-interest outbox, hydrated — the dashboard panel. */
 export const myFlatmateInterests = async () => (await provider()).myFlatmateInterests();
+/** `{id, kind, targetId, status}` per sent ask — keys the Flatmates CTA state across devices. */
+export const myFlatmateInterestKeys = async () => (await provider()).myFlatmateInterestKeys();
 /** Accept or decline. Host only. */
 export const decideRequest = async (id, decision) => (await provider()).decideRequest(id, decision);
 
@@ -90,8 +92,10 @@ export const listFlatmateReviews = async (params) => (await provider()).listFlat
  * fix anything. */
 export const decideFlatmateReview = async (id, decision, note) => (await provider()).decideFlatmateReview(id, decision, note);
 
-/** The post-moderation backlog. **One `kind` per call** — `post` | `room` | `group`; `modStatus` may be a list. */
+/** The post-moderation backlog. `kind` and `modStatus` may be lists; the page is global across them. */
 export const listFlatmateModeration = async (params) => (await provider()).listFlatmateModeration(params);
+/** Cards waiting on each moderation tab: `{ pending, published, hidden }`. */
+export const getFlatmateModerationSummary = async () => (await provider()).getFlatmateModerationSummary();
 /** One post/room/group in full for the review popup: `{ item, room, group, post, review }`. */
 export const getFlatmateModerationDetail = async (id) => (await provider()).getFlatmateModerationDetail(id);
 /** Correct headline, description, rent, deposit, localities or move-in. Only the fields sent change; no re-review. */
@@ -110,6 +114,7 @@ export const moderateGroupApplication = async (id, modStatus, note) => (await pr
 export const myFlatmateGroups = async (params) => (await provider()).myFlatmateGroups(params);
 export const myFlatmateRooms = async (params) => (await provider()).myFlatmateRooms(params);
 export const myFlatmatePosts = async (params) => (await provider()).myFlatmatePosts(params);
+export const getMyFlatmatePost = async (id) => (await provider()).getMyFlatmatePost(id);
 /** The group's host commits their members to a whole-flat rent listing. 409 if already applied. */
 export const applyGroupToListing = async (groupId, listingId) => (await provider()).applyGroupToListing(groupId, listingId);
 /** The owner inbox — applications on my own listings, newest first. Paged, caller-scoped. */

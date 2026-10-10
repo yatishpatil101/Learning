@@ -134,7 +134,9 @@ async function savedRow(mobile) {
   const rows = Array.isArray(body) ? body : (body.content ?? body.items ?? []);
   // A fresh account posts one listing and the free tier allows one, so this is unambiguous.
   expect(rows).toHaveLength(1);
-  return rows[0];
+  const stored = await fetch(`${API}/me/listings/${rows[0].id}`, { headers: await authHeaders(mobile) });
+  expect(stored.status).toBe(200);
+  return stored.json();
 }
 
 test('a rental post reaches the seam, the vault, the public read, the facets and the detail page', async ({ page }) => {
@@ -176,7 +178,9 @@ test('a rental post reaches the seam, the vault, the public read, the facets and
     expect(documents[0]).toMatchObject({ fileName: 'msedcl-signed.pdf', mimeType: 'application/pdf' });
     expect(documents[0].sizeBytes).toBe(issued.length);
 
-    const stored = await fetch(new URL(documents[0].url, API));
+    const signed = await fetch(`${API}/me/documents/${documents[0].id}/url`, { headers: await authHeaders(mobile) });
+    expect(signed.status).toBe(200);
+    const stored = await fetch(new URL((await signed.json()).url, API));
     expect(stored.status).toBe(200);
     // Byte-for-byte, because a re-encoded copy still opens, still says MSEDCL, and proves nothing:
     // the ByteRange digest a reviewer checks is over exactly these bytes.

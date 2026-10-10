@@ -6,9 +6,8 @@ import java.util.List;
 
 public record MessageDto(
         String id,
-        String authorId,
+        boolean mine,
         String author,
-        String authorRole,
         String body,
         Instant createdAt,
         String clientId,

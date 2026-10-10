@@ -22,7 +22,6 @@ import Inbox from './messages/Inbox.jsx';
 import Thread from './messages/Thread.jsx';
 
 // Canned openers keep a cold thread moving — the questions buyers actually ask.
-const THREAD_POLL_MS = 20000;
 const INBOX_POLL_MS = 60000;
 const THREAD_FALLBACK_POLL_MS = 4000;
 const INBOX_FALLBACK_POLL_MS = 30000;
@@ -54,12 +53,17 @@ export default function Messages() {
   const [typing, setTyping] = useState({});
   const wrapRef = useRef(null);
   const lastMsgId = useRef(null);
+  const activeAt = useRef(null);
+  const activeIdRef = useRef(null);
+  const inboxUnread = useRef(0);
+  const lastWake = useRef(0);
   const queue = useRef([]);
   const photoUrls = useRef(new Set());
   const loadedRef = useRef(false);
   const autoOpened = useRef(false);
   const flushQueueRef = useRef(() => {});
   const active = useMemo(() => convs.find((c) => c.id === activeId) || null, [activeId, convs]);
+  activeIdRef.current = activeId;
   const typingUntil = active ? typing[active.id] || 0 : 0;
 
   /* Optimistic local update. */
@@ -75,15 +79,25 @@ export default function Messages() {
       const list = await listConversations();
       setConvs((cur) => list.map((next) => {
         const old = cur.find((c) => c.id === next.id);
-        return old ? { ...old, ...next, messages: next.messages?.length ? mergeMessages(next.messages, old.messages) : old.messages } : next;
+        if (!old) return next;
+        // The inbox row carries no number or presence; keep what the thread read last brought.
+        return {
+          ...old,
+          ...next,
+          party: { ...next.party, mobile: next.party?.mobile || old.party?.mobile || '' },
+          presence: next.presence ?? old.presence ?? null,
+          messages: next.messages?.length ? mergeMessages(next.messages, old.messages) : old.messages,
+        };
       }));
       const firstLoad = !loadedRef.current;
       loadedRef.current = true;
       setError(null);
       setOffline(false);
       flushQueueRef.current();
-      // The badge was read at sign-in and the stream keeps it current; only a re-read can find it stale.
-      if (!firstLoad) refreshChatBadge();
+      const unreadTotal = list.reduce((sum, c) => sum + (c.unread || 0), 0);
+      // The badge was read at sign-in and the stream keeps it current; only a changed inbox can find it stale.
+      if (!firstLoad && unreadTotal !== inboxUnread.current) refreshChatBadge();
+      inboxUnread.current = unreadTotal;
       return list;
     } catch (err) {
       if (!quiet || !loadedRef.current) setError(err);
@@ -93,20 +107,19 @@ export default function Messages() {
     }
   }, [refreshChatBadge]);
 
-  /* Pull one thread's transcript in. */
-  /* Pull down from the top of the conversation list to re-read the inbox. */
   const hydrate = useCallback((id, onlyIfNew = false) => {
     if (!id || String(id).startsWith('staged:')) return;
     getConversation(id)
       .then((full) => {
         if (!full) return;
+        activeAt.current = full.at;
         const lastId = full.messages.at(-1)?.id ?? null;
         if (onlyIfNew && lastId === lastMsgId.current) return;
         lastMsgId.current = lastId;
         patchConv(id, (c) => ({ ...c, ...full, unread: 0, messages: mergeMessages(full.messages, c.messages) }));
         setOffline(false);
         flushQueueRef.current();
-        if (!document.hidden) markConversationRead(id).then(refreshChatBadge).catch(() => {});
+        if (!document.hidden && full.unread > 0) markConversationRead(id).then(refreshChatBadge).catch(() => {});
       })
       .catch(() => {});
   }, [patchConv, refreshChatBadge]);
@@ -120,28 +133,34 @@ export default function Messages() {
     window.addEventListener('resize', resize);
     return () => window.removeEventListener('resize', resize);
   }, []);
-  // Click-away-to-close for attach popup
 
+  // Mobile: opening a thread pushes a history entry so the back button collapses to the list.
   useEffect(() => {
     const onPop = (event) => {
       if (!event.state?.pcThread) setShowThread(false);
-  // Mobile: opening a thread pushes a history entry so the hardware/browser back
-  // button collapses back to the list instead of leaving the app.
     };
     window.addEventListener('popstate', onPop);
     return () => window.removeEventListener('popstate', onPop);
   }, []);
-  // Auto-open the first active conversation on desktop (matches chat.js init). A `?c=<id>` or
-  // `?openProp=<propertyId>` deep-link opens that specific thread on any width.
 
+  // With the stream up, the inbox poll is a backstop for events published on another instance; it
+  // re-reads the open thread only when its row moved.
   useEffect(() => {
-    const timer = setInterval(() => { if (!document.hidden) reload({ quiet: true }).catch(() => {}); }, streamConnected ? INBOX_POLL_MS : INBOX_FALLBACK_POLL_MS);
+    const timer = setInterval(() => {
+      if (document.hidden) return;
+      reload({ quiet: true })
+        .then((list) => {
+          const row = streamConnected && list.find((c) => c.id === activeIdRef.current);
+          if (row && row.at !== activeAt.current) hydrate(row.id);
+        })
+        .catch(() => {});
+    }, streamConnected ? INBOX_POLL_MS : INBOX_FALLBACK_POLL_MS);
     return () => clearInterval(timer);
-  }, [reload, streamConnected]);
+  }, [hydrate, reload, streamConnected]);
 
   useEffect(() => {
-    if (!activeId || String(activeId).startsWith('staged:')) return undefined;
-    const timer = setInterval(() => { if (!document.hidden) hydrate(activeId); }, streamConnected ? THREAD_POLL_MS : THREAD_FALLBACK_POLL_MS);
+    if (streamConnected || !activeId || String(activeId).startsWith('staged:')) return undefined;
+    const timer = setInterval(() => { if (!document.hidden) hydrate(activeId); }, THREAD_FALLBACK_POLL_MS);
     return () => clearInterval(timer);
   }, [activeId, hydrate, streamConnected]);
 
@@ -153,7 +172,7 @@ export default function Messages() {
       return;
     }
     if (event.type === 'message') reload({ quiet: true }).catch(() => {});
-    if (id === activeId && ['message', 'read', 'presence'].includes(event.type)) hydrate(id);
+    if (id === activeId && ['message', 'read', 'delivered', 'presence'].includes(event.type)) hydrate(id);
   }), [activeId, hydrate, reload, subscribe]);
 
   useEffect(() => {
@@ -164,13 +183,12 @@ export default function Messages() {
     return () => window.clearTimeout(timer);
   }, [activeId, typingUntil]);
 
+  // Desktop auto-opens the first thread; `?c=<id>` or `?openProp=<propertyId>` opens that one on any width.
   useEffect(() => {
     if (!convs.length) return;
     const params = new URLSearchParams(window.location.search);
     const want = params.get('c');
     const openProp = params.get('openProp');
-  /* Chats vs Requests is the `staged` flag and nothing else. */
-    // eslint-disable-next-line react-hooks/exhaustive-deps
     const target = (want && convs.find((c) => c.id === want)) || (openProp && convs.find((c) => c.propertyId === openProp && c.youAre === 'buyer'));
     if (target && target.id !== activeId && !autoOpened.current) {
       autoOpened.current = true;
@@ -183,8 +201,7 @@ export default function Messages() {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- auto-open only follows conversation list changes
   }, [convs.length]);
 
-    // Optimistic: the badge clears on tap, not on the round trip. `markConversationRead` is
-    // idempotent on both providers, which is what makes firing it on every open safe.
+  // Optimistic: the badge clears on tap; `hydrate` posts the read only when the thread had unread.
   const openConv = (id, opts = {}) => {
     if (opts.report) setReportOpen(true);
     patchConv(id, (c) => ({ ...c, unread: 0 }));
@@ -204,9 +221,8 @@ export default function Messages() {
       lastMessage: sent.text,
       messages: c.messages.map((m) => (m.clientId === id ? sent : m)),
     }));
-    refreshChatBadge();
     window.setTimeout(() => hydrate(conversationId), 1000);
-  }, [hydrate, patchConv, refreshChatBadge]);
+  }, [hydrate, patchConv]);
 
   const sendPhotoNow = useCallback(async ({ conversationId, file, caption, id, previewUrl }) => {
     const sent = await sendConversationPhoto(conversationId, { file, caption, clientId: id });
@@ -220,9 +236,8 @@ export default function Messages() {
       URL.revokeObjectURL(previewUrl);
       photoUrls.current.delete(previewUrl);
     }
-    refreshChatBadge();
     window.setTimeout(() => hydrate(conversationId), 1000);
-  }, [hydrate, patchConv, refreshChatBadge]);
+  }, [hydrate, patchConv]);
 
   const markFailed = useCallback((conversationId, id, message) => {
     patchConv(conversationId, (c) => ({
@@ -240,7 +255,13 @@ export default function Messages() {
   useEffect(() => {
     const onOnline = () => { setOffline(false); flushQueue(); reload({ quiet: true }).catch(() => {}); };
     const onOffline = () => setOffline(true);
-    const onVisible = () => { if (!document.hidden) { reload({ quiet: true }).catch(() => {}); if (activeId) hydrate(activeId); } };
+    // Returning to the tab fires both focus and visibilitychange; one re-read answers both.
+    const onVisible = () => {
+      if (document.hidden || Date.now() - lastWake.current < 1000) return;
+      lastWake.current = Date.now();
+      reload({ quiet: true }).catch(() => {});
+      if (activeId) hydrate(activeId);
+    };
     window.addEventListener('online', onOnline);
     window.addEventListener('offline', onOffline);
     window.addEventListener('focus', onVisible);

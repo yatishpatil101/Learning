@@ -1,11 +1,14 @@
-// `listSaved` returns full property view models, not ids — ids would cost 31 requests for a
-// shortlist of 30. There is no `isSaved(id)`: hearts read the set `SavedContext` holds in memory.
+// `listSaved` returns full property view models for the pages that draw them; hearts and the count
+// read `listSavedKeys` through `SavedContext`.
 import { createProvider } from './config.js';
 
 const provider = createProvider('saved');
 
 /** The shortlist, newest save first. */
 export const listSaved = async (opts) => (await provider()).listSaved(opts);
+
+/** The whole shortlist as `{ token, uuid }`, newest save first: `token` is the routing id cards key on. */
+export const listSavedKeys = async () => (await provider()).listSavedKeys();
 
 /** Add to the shortlist. Idempotent. */
 export const saveProperty = async (propertyId) => (await provider()).saveProperty(propertyId);

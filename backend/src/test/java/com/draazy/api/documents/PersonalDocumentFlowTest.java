@@ -17,15 +17,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpHeaders;
 import org.springframework.mock.web.MockMultipartFile;
 
-/**
- * The personal (KYC) vault: {@code GET/POST /me/documents/personal} and
- * {@code DELETE /me/documents/personal/{docId}} (slice A, V32).
- *
- * <p>Organised around the invariants that make this a separate resource from the property vault:
- * it is owned by the <em>person</em>, its {@code personal} route out-ranks the vault's
- * {@code {propId}} template, and — as with {@link DocumentVaultTest} — a stored row never carries a
- * persisted URL and the sniffed type wins over the declared one.
- */
+/** Owned by the person, not a property: the {@code personal} route outranks {@code {propId}},
+ * and a stored row never carries a persisted URL while the sniffed type wins over the declared one. */
 class PersonalDocumentFlowTest extends AbstractApiTest {
 
     @Autowired
@@ -73,19 +66,17 @@ class PersonalDocumentFlowTest extends AbstractApiTest {
     }
 
     @Test
-    void uploadPersonal_carriesTheLiteralPersonalBucketOnTheWire() throws Exception {
+    void uploadPersonal_returnsMetadataOnly() throws Exception {
         User owner = user("9821002003");
 
-        // propertyId="personal" is the same bucket key the front end already reads with; the client
-        // mapper drops the field, but the contract stays a single Document shape.
         mvc.perform(multipart(Routes.MeDocuments.PERSONAL)
                         .file(pdf("pan.pdf"))
                         .param("category", "PAN Card")
                         .header(HttpHeaders.AUTHORIZATION, bearer(owner)))
                 .andExpect(status().isCreated())
-                .andExpect(jsonPath("$.propertyId").value("personal"))
                 .andExpect(jsonPath("$.category").value("PAN Card"))
-                .andExpect(jsonPath("$.url").exists());
+                .andExpect(jsonPath("$.propertyId").doesNotExist())
+                .andExpect(jsonPath("$.url").doesNotExist());
     }
 
     // ---------------- list ----------------
@@ -103,7 +94,8 @@ class PersonalDocumentFlowTest extends AbstractApiTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.length()").value(2))
                 .andExpect(jsonPath("$[0].category").value("PAN Card"))
-                .andExpect(jsonPath("$[0].propertyId").value("personal"));
+                .andExpect(jsonPath("$[0].propertyId").doesNotExist())
+                .andExpect(jsonPath("$[0].url").doesNotExist());
     }
 
     // ---------------- delete ----------------

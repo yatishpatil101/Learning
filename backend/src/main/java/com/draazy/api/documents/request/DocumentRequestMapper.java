@@ -5,15 +5,8 @@ import com.draazy.api.identity.user.User;
 import java.time.Instant;
 import org.springframework.stereotype.Component;
 
-/**
- * Entity→wire projection for document requests.
- *
- * <p><strong>The requester's mobile is masked unconditionally.</strong> Unlike the contact gate,
- * this surface has no reveal at all: granting document access is a decision about <em>documents</em>,
- * and letting it also hand over a phone number would quietly route around the contact gate that
- * exists to make that a separate, explicit choice. Hand-written rather than MapStruct so that
- * property is five readable lines with no configuration that could turn it off.
- */
+/** Requester mobile is masked unconditionally: granting documents must not also hand over a number and
+ * bypass the contact gate. Hand-written so no configuration can turn that off. */
 @Component
 public class DocumentRequestMapper {
 
@@ -26,27 +19,12 @@ public class DocumentRequestMapper {
                 row.getCategories(),
                 status,
                 sharedDocumentCount,
-                row.getShareToken(),
                 row.getExpiresAt(),
                 row.isAcknowledgedDisclaimer(),
                 row.getCreatedAt());
     }
 
-    /**
-     * The same row as {@link #toDto}, projected for the <em>requester</em>: identical but for the
-     * share token, which is always {@code null} here (D123).
-     *
-     * <p>{@code shareToken} is owner-facing by contract — the owner is shown it so they can forward
-     * the link deliberately. The buyer's own list is a status view: it says whether the ask was
-     * granted, not what the grant unlocks. Echoing the token onto a paged list would make one
-     * leaked response, or one shoulder-surfed screen, worth every vault the caller has ever been
-    * granted, for the full seven days of each grant. The buyer needs no token: their signed-in
-    * read is {@code /me/document-requests/{reqId}/documents}, requester-scoped by JWT.
-     *
-     * <p>A separate method rather than a boolean on {@link #toDto} so that the redaction cannot be
-     * switched off by a caller passing the wrong flag: the only way to get a token out of this
-     * mapper is to ask for the owner's projection by name.
-     */
+    /** The requester's own projection of the row: a document count only once the ask is granted. */
     public DocumentRequestDto toRequesterDto(
             DocumentRequest row, User requester, int sharedDocumentCount) {
         String status = projectedStatus(row);
@@ -57,16 +35,12 @@ public class DocumentRequestMapper {
                 row.getCategories(),
                 status,
                 DocumentRequestStatuses.GRANTED.equals(status) ? sharedDocumentCount : 0,
-                null,
                 row.getExpiresAt(),
                 row.isAcknowledgedDisclaimer(),
                 row.getCreatedAt());
     }
 
-    /**
-     * Expiry is a clock fact, not a background-job label. Deriving it here keeps a lapsed row from
-     * rendering "granted" while both document-read endpoints correctly refuse it.
-     */
+    /** Expiry is derived from the clock so a lapsed row never renders "granted" while reads refuse it. */
     private String projectedStatus(DocumentRequest row) {
         if (DocumentRequestStatuses.GRANTED.equals(row.getStatus())
                 && row.getExpiresAt() != null && !row.getExpiresAt().isAfter(Instant.now())) {

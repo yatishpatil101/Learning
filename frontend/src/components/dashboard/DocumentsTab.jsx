@@ -10,11 +10,11 @@ import useAsyncList from '../../hooks/useAsyncList.js';
 import LoadError from '../LoadError.jsx';
 import { fmtINR, timeAgo, avatarFor } from '../../lib/format.js';
 import { formatSize, checklistFromDocs, DOC_CATEGORIES, docInfo } from '../../lib/data/documents.js';
-import { listDocuments, uploadDocument, deleteDocument, listDocRequests, respondDocRequest } from '../../services/documentService.js';
+import { listDocuments, uploadDocument, deleteDocument, listDocRequests, respondDocRequest, getDocumentUrl } from '../../services/documentService.js';
 import { generateRentReceipts, fyStart, thisMonth } from '../../lib/data/rentReceiptGen.js';
 import { myTenancies, myRentAgreements } from '../../services/rentService.js';
 import { toRentalCards } from '../../lib/data/tenancy.js';
-import { openDocUrl } from '../../lib/openDoc.js';
+import { openDocFrom } from '../../lib/openDoc.js';
 import { DOCUMENT_ACCEPT, DOCUMENT_GUIDANCE_KEY, PDF_GUIDANCE_KEY } from '../../lib/uploads/policy.js';
 /* Owner-side document packs (property-based). */
 
@@ -373,10 +373,10 @@ export default function DocumentsTab({ user, listings, toast, isOwner = false })
       toast(t('dash.approvedNoDocToast'), 'info');
     }
   };
-  // `openDocUrl` refuses anything it cannot safely render as a passive document, including the dev
-  // storage stub host; a refusal gets the "no preview" toast.
-  const viewDoc = (doc) => {
-    if (!openDocUrl(doc.url || doc.dataUrl)) toast(t('dash.noPreviewToast'));
+  // `openDocFrom` refuses anything it cannot safely render as a passive document, including the dev
+  // storage stub host; a refusal or a failed mint gets the "no preview" toast.
+  const viewDoc = async (doc) => {
+    if (!(await openDocFrom(() => getDocumentUrl(doc.id)))) toast(t('dash.noPreviewToast'));
   };
   const genHraReceipts = () => {
     if (!hraForm.landlordName || !hraForm.tenantName || !hraForm.rentAmt || !hraForm.propertyAddr) { toast(t('dash.fillRequiredToast'), 'error'); return; }
@@ -521,7 +521,8 @@ export default function DocumentsTab({ user, listings, toast, isOwner = false })
                         </div>
                       ) : r.status === 'granted' ? (
                         <span className="inline-flex items-center gap-1 text-xs text-emerald-300 font-medium flex-shrink-0"><Icon name="badge-check" className="w-3.5 h-3.5" /> {t('dash.granted')}</span>
-                        /* Its own arm: the `else` below reads "Declined", and this owner granted — the window simply lapsed. */
+                        /* Its own arm: the else below reads "Declined",
+                           and this owner granted; the window simply lapsed. */
                       ) : r.status === 'expired' ? (
                         <span className="inline-flex items-center gap-1 text-xs text-gray-400 font-medium flex-shrink-0"><Icon name="clock" className="w-3.5 h-3.5" /> {t('dash.accessExpired')}</span>
                       ) : (

@@ -174,6 +174,22 @@ class VisitEndpointsTest extends AbstractApiTest {
     }
 
     @Test
+    void listVisits_propertyIdNarrowsToThatListing() throws Exception {
+        User owner = user("9820200098", "owner");
+        User visitor = user("9820200099", "buyer");
+        Property p1 = listing(owner, "Narrow one");
+        Property p2 = listing(owner, "Narrow two");
+        scheduleVisit(visitor, p1);
+        scheduleVisit(visitor, p2);
+
+        mvc.perform(get(Routes.Visits.BASE).param("propertyId", p2.getId().toString())
+                        .header(HttpHeaders.AUTHORIZATION, bearer(visitor)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.totalElements").value(1))
+                .andExpect(jsonPath("$.content[0].propertyId").value(p2.getId().toString()));
+    }
+
+    @Test
     void myVisitRequests_returnsOnlyCallersListings_S3PrivacyFix() throws Exception {
         User owner1 = user("9820200021", "owner");
         User owner2 = user("9820200022", "owner");
@@ -475,6 +491,28 @@ class VisitEndpointsTest extends AbstractApiTest {
                 "select type, title, body, link from notifications where user_id = ?", u.getId());
     }
 
+    private java.util.List<java.util.Map<String, Object>> notificationsFor(User u, String type) {
+        return jdbc.queryForList(
+                "select type, title, body, link from notifications where user_id = ? and type = ?",
+                u.getId(), type);
+    }
+
+    @Test
+    void schedule_notifiesOwnerNotVisitor() throws Exception {
+        User owner = user("9820200058", "owner");
+        User visitor = user("9820200059", "buyer");
+        Property p = listing(owner, "Request notify test");
+        scheduleVisit(visitor, p);
+
+        assertThat(notificationsFor(owner)).singleElement().satisfies(row -> {
+            assertThat(row.get("type")).isEqualTo("visit.requested");
+            assertThat(row.get("link")).isEqualTo("/dashboard#visits");
+            assertThat((String) row.get("body")).contains("Request notify test")
+                    .doesNotContain(visitor.getMobile());
+        });
+        assertThat(notificationsFor(visitor)).isEmpty();
+    }
+
     @Test
     void ownerConfirms_notifiesVisitorOnly() throws Exception {
         User owner = user("9820200050", "owner");
@@ -494,14 +532,14 @@ class VisitEndpointsTest extends AbstractApiTest {
             assertThat((String) row.get("body")).contains("Confirm notify test");
         });
 
-        assertThat(notificationsFor(owner)).isEmpty();
+        assertThat(notificationsFor(owner, "visit.confirmed")).isEmpty();
     }
 
     @Test
-    void visitorCancels_notifiesNobody() throws Exception {
+    void visitorCancels_notifiesOwner() throws Exception {
         User owner = user("9820200052", "owner");
         User visitor = user("9820200053", "buyer");
-        Property p = listing(owner, "Cancel silence test");
+        Property p = listing(owner, "Cancel notify test");
         String visitId = scheduleVisit(visitor, p);
 
         mvc.perform(patch(Routes.Visits.STATUS.replace("{id}", visitId))
@@ -510,8 +548,29 @@ class VisitEndpointsTest extends AbstractApiTest {
                         .content("{\"status\":\"cancelled\"}"))
                 .andExpect(status().isOk());
 
-        assertThat(notificationsFor(owner)).isEmpty();
+        assertThat(notificationsFor(owner, "visit.cancelled")).singleElement().satisfies(row ->
+                assertThat((String) row.get("body")).contains("The visitor", "Cancel notify test"));
         assertThat(notificationsFor(visitor)).isEmpty();
+    }
+
+    @Test
+    void ownerCancels_notifiesVisitor() throws Exception {
+        User owner = user("9820200060", "owner");
+        User visitor = user("9820200061", "buyer");
+        Property p = listing(owner, "Owner cancel test");
+        String visitId = scheduleVisit(visitor, p);
+
+        mvc.perform(patch(Routes.Visits.STATUS.replace("{id}", visitId))
+                        .header(HttpHeaders.AUTHORIZATION, bearer(owner))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"status\":\"cancelled\"}"))
+                .andExpect(status().isOk());
+
+        assertThat(notificationsFor(visitor)).singleElement().satisfies(row -> {
+            assertThat(row.get("type")).isEqualTo("visit.cancelled");
+            assertThat((String) row.get("body")).contains("The owner");
+        });
+        assertThat(notificationsFor(owner, "visit.cancelled")).isEmpty();
     }
 
     @Test
@@ -527,7 +586,7 @@ class VisitEndpointsTest extends AbstractApiTest {
                         .content("{\"slot\":\"" + rescheduledSlot() + "\"}"))
                 .andExpect(status().isOk());
 
-        assertThat(notificationsFor(owner)).singleElement().satisfies(row -> {
+        assertThat(notificationsFor(owner, "visit.rescheduled")).singleElement().satisfies(row -> {
             assertThat(row.get("type")).isEqualTo("visit.rescheduled");
             assertThat(row.get("link")).isEqualTo("/dashboard#visits");
             assertThat((String) row.get("body")).contains("The visitor");
@@ -552,6 +611,6 @@ class VisitEndpointsTest extends AbstractApiTest {
             assertThat(row.get("type")).isEqualTo("visit.rescheduled");
             assertThat((String) row.get("body")).contains("The owner");
         });
-        assertThat(notificationsFor(owner)).isEmpty();
+        assertThat(notificationsFor(owner, "visit.rescheduled")).isEmpty();
     }
 }

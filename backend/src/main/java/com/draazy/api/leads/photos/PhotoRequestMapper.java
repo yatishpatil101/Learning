@@ -5,22 +5,13 @@ import com.draazy.api.common.trust.MobileMask;
 import com.draazy.api.identity.user.User;
 import org.springframework.stereotype.Component;
 
-/**
- * Projects {@link PhotoRequest} rows onto the wire.
- *
- * <p>Takes the {@link Property} and {@link User} already resolved rather than looking them up: the
- * entity holds ids, not associations, so a mapper that fetched its own would issue two queries per
- * row and turn the owner's inbox into a textbook N+1. {@link PhotoRequestService} batch-loads both
- * sides once per page and hands them in.
- */
+/** Takes {@link Property} and {@link User} already resolved: {@link PhotoRequestService} batch-loads both
+ * per page, so the mapper never issues two queries per row. */
 @Component
 public class PhotoRequestMapper {
 
-    /**
-     * @param property  may be {@code null} only if a listing vanished between the page query and the
-     *                  batch load; the row still renders, with nulls, rather than 500-ing an inbox
-     * @param requester likewise
-     */
+    /** Either may be {@code null} if a row vanished between the page query and the batch load;
+     * the inbox still renders it with nulls rather than 500-ing. */
     public PhotoRequestResponse toResponse(PhotoRequest row, Property property, User requester) {
         return new PhotoRequestResponse(
                 row.getId().toString(),
@@ -29,16 +20,10 @@ public class PhotoRequestMapper {
                 property == null ? null : property.getTitle(),
                 toRequester(requester),
                 row.getStatus(),
-                row.getCreatedAt(),
-                row.getDecidedAt());
+                row.getCreatedAt());
     }
 
-    /**
-     * The masked party. There is no revealed variant and no {@code ContactVisibility} parameter —
-     * unlike every other mapper in {@code leads} and {@code deals} — because this domain has no
-     * reveal. See {@link PhotoRequestResponse} for why that is a security property rather than an
-     * omission.
-     */
+    /** No reveal variant: photo requests move no PII, see {@link PhotoRequestResponse}. */
     private PhotoRequestResponse.Requester toRequester(User requester) {
         if (requester == null) {
             return null;

@@ -48,17 +48,22 @@ function PostRow({ item, saved, onSave, onInterest, onRoomInterest, onJoin, inte
   const interested = interestedFor(item);
 
   let action;
+  const accepted = interested?.status === 'accepted';
   if (item.kind === 'room') {
-    action = interested
-      ? <button className="dz-sp-cta is-done" disabled><Icon name="check-check" /> {t('flatmates.sent')}</button>
-      : <button className="dz-sp-cta" onClick={() => onRoomInterest(item)}><Icon name="hand-heart" /> {t('flatmates.message')}</button>;
+    action = accepted
+      ? <button className="dz-sp-cta" onClick={() => goToPosting(m.prefix, item.id, locality)}><Icon name="message-circle" /> {t('flatmates.messageOwner')}</button>
+      : interested
+        ? <button className="dz-sp-cta is-done" disabled><Icon name="check-check" /> {t('flatmates.sent')}</button>
+        : <button className="dz-sp-cta" onClick={() => onRoomInterest(item)}><Icon name="hand-heart" /> {t('flatmates.message')}</button>;
   } else if (item.kind === 'group') {
     const full = seatsLeft(item) <= 0;
-    action = full
-      ? <button className="dz-sp-cta is-off" disabled><Icon name="lock" /> {t('flatmates.full')}</button>
-      : interested
-        ? <button className="dz-sp-cta is-done" disabled><Icon name="check-check" /> {item.policy === 'any' ? t('flatmates.joined') : t('flatmates.sent')}</button>
-        : <button className="dz-sp-cta" onClick={() => onJoin(item)}><Icon name={item.policy === 'any' ? 'user-plus' : 'user-check'} /> {item.policy === 'any' ? t('flatmates.join') : t('flatmates.request')}</button>;
+    action = accepted
+      ? <button className="dz-sp-cta is-done" disabled><Icon name="check-check" /> {t('flatmates.joined')}</button>
+      : full
+        ? <button className="dz-sp-cta is-off" disabled><Icon name="lock" /> {t('flatmates.full')}</button>
+        : interested
+          ? <button className="dz-sp-cta is-done" disabled><Icon name="check-check" /> {item.policy === 'any' ? t('flatmates.joined') : t('flatmates.sent')}</button>
+          : <button className="dz-sp-cta" onClick={() => onJoin(item)}><Icon name={item.policy === 'any' ? 'user-plus' : 'user-check'} /> {item.policy === 'any' ? t('flatmates.join') : t('flatmates.request')}</button>;
   } else {
     action = interested
       ? <button className="dz-sp-cta is-done" disabled><Icon name="check-check" /> {t('flatmates.interested')}</button>

@@ -106,17 +106,17 @@ export function DocumentsSection({ p, user, isIn, toast }) {
   const requestPropertyId = p.uuid || p.id;
 
   useEffect(() => {
-    if (!isIn || !user?.mobile || !p.id) {
+    if (!isIn || !user?.mobile || !p.id || !count) {
       setMyReqs([]);
       setRequestsStatus('ready');
       return undefined;
     }
     let alive = true;
     setRequestsStatus('loading');
-    listMyDocumentRequests({ ownerMobile: p.ownerMobile, buyerMobile: user.mobile })
+    listMyDocumentRequests({ propertyId: requestPropertyId })
       .then((rows) => {
         if (alive) {
-          setMyReqs((rows || []).filter((request) => request.propId === requestPropertyId));
+          setMyReqs(rows || []);
           setRequestsStatus('ready');
         }
       })
@@ -124,7 +124,7 @@ export function DocumentsSection({ p, user, isIn, toast }) {
         if (alive) setRequestsStatus('error');
       });
     return () => { alive = false; };
-  }, [isIn, p.id, p.ownerMobile, requestPropertyId, requestReload, user?.mobile]);
+  }, [isIn, p.id, count, requestPropertyId, requestReload, user?.mobile]);
 
   if (!count) return null;
   // Commercial and land sales derive their title-chain from `docsFor`, so a buyer never sees a
@@ -133,7 +133,6 @@ export function DocumentsSection({ p, user, isIn, toast }) {
     ? buildDocs(p, 'rent')
     : (propertyKind(p) === 'residential' ? SALE_DOCS : buildDocs(p, 'buy'))
   ).slice(0, count);
-  const seeker = isRent ? 'tenant' : 'buyer';
 
   // First match wins and the server returns newest-first, so a fresh pending row beats an older
   // expired one for the same category — that ordering is load-bearing.
@@ -162,18 +161,12 @@ export function DocumentsSection({ p, user, isIn, toast }) {
     setRequesting(true);
     try {
       await requestDocumentAccess({
-        ownerMobile: p.ownerMobile,
         propertyId: requestPropertyId,
-        buyerName: user?.name,
-        buyerMobile: user?.mobile,
         categories: docs.map((document) => document.name),
         acknowledgedDisclaimer: true,
       });
-      const rows = await listMyDocumentRequests({
-        ownerMobile: p.ownerMobile,
-        buyerMobile: user?.mobile,
-      });
-      setMyReqs((rows || []).filter((request) => request.propId === requestPropertyId));
+      const rows = await listMyDocumentRequests({ propertyId: requestPropertyId });
+      setMyReqs(rows || []);
       setRequestsStatus('ready');
       toast(t('property.docsRequestSent'), 'success');
     } catch {

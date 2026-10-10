@@ -102,7 +102,8 @@ test('possession is an unanswered required choice, and the answer drives the sea
 
   const res = await fetch(`${API}/me/listings`, { headers: await authHeaders(mobile) });
   const body = await res.json();
-  const row = (Array.isArray(body) ? body : (body.content ?? body.items ?? []))[0];
+  const listed = (Array.isArray(body) ? body : (body.content ?? body.items ?? []))[0];
+  const row = await (await fetch(`${API}/me/listings/${listed.id}`, { headers: await authHeaders(mobile) })).json();
   // The claim is not that the control rendered — it is that the owner's required answer reaches the
   // column the Ready-to-Move facet reads, with Age never consulted.
   expect(row).toMatchObject({ possession: 'ready-to-move' });
@@ -320,7 +321,8 @@ test('a commercial rental publishes the owner\'s own fit-out, not a tier-keyed g
 
   const res = await fetch(`${API}/me/listings`, { headers: await authHeaders(mobile) });
   const body = await res.json();
-  const row = (Array.isArray(body) ? body : (body.content ?? body.items ?? []))[0];
+  const listed = (Array.isArray(body) ? body : (body.content ?? body.items ?? []))[0];
+  const row = await (await fetch(`${API}/me/listings/${listed.id}`, { headers: await authHeaders(mobile) })).json();
 
   expect(row.commercial).toMatchObject({
     commercialType: 'warehouse',
@@ -386,7 +388,8 @@ test('a commercial sale is priced on its tenancy, and only a let one is asked wh
 
   const res = await fetch(`${API}/me/listings`, { headers: await authHeaders(mobile) });
   const body = await res.json();
-  const row = (Array.isArray(body) ? body : (body.content ?? body.items ?? []))[0];
+  const listed = (Array.isArray(body) ? body : (body.content ?? body.items ?? []))[0];
+  const row = await (await fetch(`${API}/me/listings/${listed.id}`, { headers: await authHeaders(mobile) })).json();
   /* `submit.js` scopes tenancy to the sale and GST to the letting, so each deal writes only its own screen's
      keys. An unasserted scoped branch is where the original defect lived. */
   expect(row.commercial).toMatchObject({

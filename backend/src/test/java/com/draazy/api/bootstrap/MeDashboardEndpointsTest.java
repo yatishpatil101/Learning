@@ -9,6 +9,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.draazy.api.common.web.Routes;
 import com.draazy.api.engagement.history.MeRecentSearchesController;
+import com.draazy.api.finance.tenancy.TenancyController;
 import com.draazy.api.identity.user.User;
 import com.draazy.api.identity.user.UserRepository;
 import com.draazy.api.support.AbstractApiTest;
@@ -39,20 +40,21 @@ class MeDashboardEndpointsTest extends AbstractApiTest {
         SECTION_READS.put("groupApplications", "/me/group-applications?page=0&size=100");
         SECTION_READS.put("visits", "/visits?size=100");
         SECTION_READS.put("visitRequests", "/me/visit-requests?size=100");
-        SECTION_READS.put("tenancies", "/me/tenancies");
         SECTION_READS.put("propertyReviews", "/me/property-reviews?page=0&size=100");
         SECTION_READS.put("recentSearches", "/me/recent-searches");
-        SECTION_READS.put("serviceRequestInvites", "/me/service-request-invites");
         SECTION_READS.put("managedProperties", "/me/managed-properties");
-        SECTION_READS.put("entitlements", "/me/entitlements");
-        SECTION_READS.put("deals", "/me/deals?size=100");
     }
+
+    // Only on ?listingTools=true, for a landing on the My Listings panel.
+    private static final Map<String, String> TOOL_READS = Map.of("entitlements", "/me/entitlements");
 
     @Autowired UserRepository users;
 
     @Autowired ObjectMapper objectMapper;
 
     @MockitoSpyBean MeRecentSearchesController recentSearches;
+
+    @MockitoSpyBean TenancyController tenancies;
 
     private User owner(String mobile) {
         User u = new User(mobile, "owner");
@@ -102,12 +104,33 @@ class MeDashboardEndpointsTest extends AbstractApiTest {
         String token = bearer(u);
         seed(u, token);
 
-        JsonNode dashboard = read(Routes.Bootstrap.ME_DASHBOARD, token);
+        JsonNode dashboard = read(Routes.Bootstrap.ME_DASHBOARD + "?listingTools=true", token);
 
         assertThat(dashboard.get("listings").get("content")).hasSize(1);
         assertThat(dashboard.get("managedProperties")).hasSize(1);
-        assertThat(dashboard.size()).isEqualTo(SECTION_READS.size());
-        SECTION_READS.forEach((section, uri) -> {
+        assertThat(dashboard.has("deals")).isFalse();
+        assertThat(dashboard.size()).isEqualTo(SECTION_READS.size() + TOOL_READS.size() + 2);
+        assertSectionsMatch(dashboard, token, SECTION_READS);
+        assertSectionsMatch(dashboard, token, TOOL_READS);
+    }
+
+    // A seeker's owner inboxes are skipped, so the skipped answer must still equal the real (empty) one.
+    @Test
+    void aSeekersDashboardSkipsTheOwnerInboxesButMatchesThem() throws Exception {
+        String token = bearer(owner("9877730106"));
+
+        JsonNode dashboard = read(Routes.Bootstrap.ME_DASHBOARD, token);
+
+        assertSectionsMatch(dashboard, token, SECTION_READS);
+        assertThat(dashboard.has("entitlements")).isFalse();
+        assertThat(dashboard.has("tenancies")).isFalse();
+        assertThat(dashboard.has("serviceRequestInvites")).isFalse();
+        assertThat(dashboard.get("hasTenancy").asBoolean()).isFalse();
+        assertThat(dashboard.get("hasRentalInvite").asBoolean()).isFalse();
+    }
+
+    private void assertSectionsMatch(JsonNode dashboard, String token, Map<String, String> reads) {
+        reads.forEach((section, uri) -> {
             try {
                 assertThat(dashboard.get(section)).as(section).isEqualTo(read(uri, token));
             } catch (Exception e) {
@@ -123,11 +146,11 @@ class MeDashboardEndpointsTest extends AbstractApiTest {
         seed(a, tokenA);
         String tokenB = bearer(owner("9877730103"));
 
-        JsonNode dashboard = read(Routes.Bootstrap.ME_DASHBOARD, tokenB);
+        JsonNode dashboard = read(Routes.Bootstrap.ME_DASHBOARD + "?listingTools=true", tokenB);
 
         assertThat(dashboard.get("listings").get("content")).isEmpty();
         assertThat(dashboard.get("managedProperties")).isEmpty();
-        assertThat(dashboard.get("deals").get("content")).isEmpty();
+        assertThat(dashboard.get("entitlements")).isNotNull();
     }
 
     @Test
@@ -136,10 +159,12 @@ class MeDashboardEndpointsTest extends AbstractApiTest {
         String token = bearer(u);
         seed(u, token);
         doThrow(new IllegalStateException("boom")).when(recentSearches).mine(any());
+        doThrow(new IllegalStateException("boom")).when(tenancies).myTenancies(any());
 
         JsonNode dashboard = read(Routes.Bootstrap.ME_DASHBOARD, token);
 
         assertThat(dashboard.get("recentSearches").isNull()).isTrue();
+        assertThat(dashboard.get("hasTenancy").isNull()).isTrue();
         assertThat(dashboard.get("listings").get("content")).hasSize(1);
     }
 

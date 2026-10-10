@@ -180,9 +180,8 @@ class PhotoRequestEndpointsTest extends AbstractApiTest {
                 .andExpect(jsonPath("$.content.length()").value(0));
     }
 
-    // Resolving someone else's row is a `404`, not a `403`: a 403 would confirm the id exists, which is itself a leak.
-    // The paired proof that the row was resolvable keeps the 404 from coming from an unknown id. The requester proves
-    // the checker cannot be the maker; the other owner proves one owner cannot reach another owner's rows.
+    // Resolving someone else's row is a 404, not a 403, which would confirm the id exists; the paired proof
+    // that the row is resolvable keeps the 404 from meaning an unknown id; a second owner proves isolation.
     @ParameterizedTest(name = "{0} gets 404 and leaves it pending")
     @ValueSource(strings = {"another owner", "the requester"})
     void resolvingARequestThatIsNotYours_is404_andLeavesItPending(String actor) throws Exception {
@@ -209,9 +208,8 @@ class PhotoRequestEndpointsTest extends AbstractApiTest {
                 .andExpect(jsonPath("$.status").value(PhotoRequestStatuses.RESOLVED));
     }
 
-    // A decision is terminal in both directions, and repeating it moves nothing: a decline cannot be converted into
-    // a `resolved` or the reverse, and answering twice keeps the original `decidedAt` — "when did the owner respond"
-    // cannot drift. Without this an owner could clear a badge by declining and then quietly re-mark the row satisfied.
+    // A decision is terminal and repeating it moves nothing: answering twice keeps the original `decidedAt`, and a
+    // decline cannot become `resolved`, else an owner could clear a badge by declining then re-marking it done.
     @ParameterizedTest(name = "{0} then {1} keeps the first decision")
     @CsvSource({"declined,resolved", "resolved,declined", "resolved,resolved", "declined,declined"})
     void aDecidedRequest_staysAsFirstDecided(String first, String second) throws Exception {
@@ -235,10 +233,8 @@ class PhotoRequestEndpointsTest extends AbstractApiTest {
                 .isEqualTo(decidedAt);
     }
 
-    // Without a duplicate guard the same buyer could re-nag an owner every time they added photos, and the count
-    // would stop meaning "distinct people who wanted this" — which is the only thing it is good for.
-    // `declined` is a real status, so it survives the CHECK and would be accepted by any guard written as "is this a
-    // known status".
+    // The duplicate guard keeps the count meaning "distinct people who wanted this"; `declined` is a real
+    // status that survives the CHECK, so a guard written as "is this a known status" would accept it.
     @ParameterizedTest(name = "asking again after the owner {0} is still a duplicate")
     @ValueSource(strings = {PhotoRequestStatuses.RESOLVED, PhotoRequestStatuses.DECLINED})
     void askingAgainAfterTheOwnerDecided_isStillADuplicate(String decision) throws Exception {
@@ -287,7 +283,7 @@ class PhotoRequestEndpointsTest extends AbstractApiTest {
     // A decline is announced too — the one place this domain parts company with the contact gate, which stays silent
     // on a decline because "a terminal no is not news the buyer needs pushed at them".
     @Test
-    void resolvingARequest_tellsTheBuyerPhotosArrived_andTellsTheOwnerNothing() throws Exception {
+    void resolvingARequest_tellsTheBuyerPhotosArrived_andTellsTheOwnerNothingNew() throws Exception {
         User owner = user("9000000130", "owner", "Rohan Kulkarni");
         User buyer = user(BUYER_MOBILE, "buyer", "Asha Patil");
         Property p = listing(owner, "2 BHK in Kothrud", "two-bhk-kothrud-resolved");
@@ -302,7 +298,8 @@ class PhotoRequestEndpointsTest extends AbstractApiTest {
         assertThat(notes.getFirst().get("type")).isEqualTo("photo.added");
         assertThat(notes.getFirst().get("link")).isEqualTo("/property/two-bhk-kothrud-resolved");
         assertThat((String) notes.getFirst().get("body")).contains("2 BHK in Kothrud");
-        assertThat(notificationsFor(owner)).isEmpty();
+        assertThat(notificationsFor(owner)).extracting(note -> note.get("type"))
+                .containsExactly("photo.requested");
     }
 
     @Test
@@ -316,13 +313,31 @@ class PhotoRequestEndpointsTest extends AbstractApiTest {
         mvc.perform(decide(decideUrl(row), owner, PhotoRequestStatuses.DECLINED))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value(PhotoRequestStatuses.DECLINED))
-                .andExpect(jsonPath("$.decidedAt").isNotEmpty());
+                .andExpect(jsonPath("$.decidedAt").doesNotExist());
 
         List<Map<String, Object>> notes = notificationsFor(buyer);
         assertThat(notes).hasSize(1);
         assertThat(notes.getFirst().get("type")).isEqualTo("photo.declined");
         assertThat(notes.getFirst().get("link")).isEqualTo("/property/two-bhk-kothrud-declined");
-        assertThat(notificationsFor(owner)).isEmpty();
+        assertThat(notificationsFor(owner)).extracting(note -> note.get("type"))
+                .containsExactly("photo.requested");
+    }
+
+    @Test
+    void askingTwice_notifiesTheOwnerOnce() throws Exception {
+        User owner = user("9000000132", "owner", "Rohan Kulkarni");
+        User buyer = user(BUYER_MOBILE, "buyer", "Asha Patil");
+        Property p = listing(owner, "2 BHK in Kothrud", "two-bhk-kothrud-asked");
+
+        mvc.perform(post(askUrl(p)).header(HttpHeaders.AUTHORIZATION, bearer(buyer)));
+        mvc.perform(post(askUrl(p)).header(HttpHeaders.AUTHORIZATION, bearer(buyer)));
+
+        assertThat(notificationsFor(owner)).singleElement().satisfies(row -> {
+            assertThat(row.get("type")).isEqualTo("photo.requested");
+            assertThat(row.get("link")).isEqualTo("/dashboard#leads");
+            assertThat((String) row.get("body")).contains("2 BHK in Kothrud");
+        });
+        assertThat(notificationsFor(buyer)).isEmpty();
     }
 
     private List<Map<String, Object>> notificationsFor(User user) {

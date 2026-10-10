@@ -3,15 +3,14 @@ import { useNavigate } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import Select from '../../../components/ui/Select.jsx';
 import Icon from '../../../components/Icon.jsx';
-import { setListingStatus, confirmListingFresh, confirmOwnerListing, takeListingDown, pauseListing, resumeListing } from '../../../services/propertyService.js';
-import { deleteGroup, deletePost, deleteRoom, myFlatmateRooms, renewFlatmate, splitProperty, unsplitProperty } from '../../../services/flatmateService.js';
-import { closeDeal, reopenDeal, reserveDeal, myDeals } from '../../../services/dealService.js';
-import { myContactRequests } from '../../../services/contactService.js';
-import { loadOwnerProperties } from '../../../lib/data/ownerProperties.js';
+import { confirmListingFresh, confirmOwnerListing, takeListingDown, pauseListing, resumeListing, myListingCard } from '../../../services/propertyService.js';
+import { deleteGroup, deletePost, deleteRoom, renewFlatmate, splitProperty, unsplitProperty } from '../../../services/flatmateService.js';
+import { closeDeal, reopenDeal, reserveDeal } from '../../../services/dealService.js';
+import { composeOwnerProperties } from '../../../lib/data/ownerProperties.js';
+import { getMyRooms, withRooms } from '../../../lib/data/myListings.js';
 import { publishManaged, deleteManaged, ensureManagedForListing } from '../../../services/managedService.js';
 import { listingFreshness } from '../../../lib/freshness.js';
 import { loadListingQuota } from '../../../lib/data/listingQuota.js';
-import { useAppFlags } from '../../../context/AppFlagsContext.jsx';
 import { Card, SectionHead } from './components.jsx';
 import AttentionBanner from './myListings/AttentionBanner.jsx';
 import EmptyState from './myListings/EmptyState.jsx';
@@ -22,115 +21,71 @@ import VerifyListingsBanner from './myListings/VerifyListingsBanner.jsx';
 import SplitFlatModal from '../flatmates/SplitFlatModal.jsx';
 import { useFlatmateEditing } from './myListings/useFlatmateEditing.jsx';
 
-export default function MyListingsPanel({ listings, user, toast, openReview, reviewsByProp, onChanged }) {
+/* Posts, groups, rooms and properties can share an id, so the kind is part of a row's identity. */
+const rowKey = (l) => `${l.flatmateGroup ? 'group' : l.flatmatePost ? 'post' : l.flatmate ? 'room' : 'property'}:${l.uuid || l.id}`;
+
+export default function MyListingsPanel({ listings, setListings, managed = [], onManagedChanged, user, toast, openReview, reviewsByProp, onChanged }) {
   const { t } = useTranslation();
   /* Full My Listings tab with lifecycle actions: Mark Under Offer, Finalize, Reopen, Edit, Delete */
-  const [listingsState, setListingsState] = useState(listings);
+  const listingsState = useMemo(() => composeOwnerProperties(listings, managed), [listings, managed]);
   const [showDealModal, setShowDealModal] = useState(null);
   // The rent listing the owner is carving into rooms, if any.
   const [splitTarget, setSplitTarget] = useState(null);
   const [dealForm, setDealForm] = useState({ buyerName: '', buyerMobile: '', finalPrice: '', date: new Date().toISOString().slice(0, 10) });
-  const { flagEnabled } = useAppFlags();
   const navigate = useNavigate();
-  // Real per-listing leads = buyers who requested this owner's contact for that
-  // property. Refetched when the list changes so counts stay in sync after actions.
-  const [contactReqs, setContactReqs] = useState([]);
-  useEffect(() => {
-    let alive = true;
-    if (!user?.mobile) { setContactReqs([]); return undefined; }
-    myContactRequests()
-      /* Lead counts are decoration here; the listing actions beside them are the point. */
-      // A failed count renders as zero rather than blanking the owner's listings.
-      .then((res) => alive && setContactReqs(res.items))
-      .catch(() => alive && setContactReqs([]));
-    return () => { alive = false; };
-  }, [user, listingsState]);
-  const leadsFor = useCallback(
-    (id) => contactReqs.filter((r) => String(r.propertyId) === String(id) && String(r.status || '').toLowerCase() === 'pending').length,
-    [contactReqs],
-  );
-  /* One owner-scoped read of the whole deal book, so per-card lookups do not become one request per row. */
-
-  const listingKey = useMemo(
-    () => listingsState.map((l) => l.uuid || l.id).join(','),
-    [listingsState],
-  );
-  const [dealsByProp, setDealsByProp] = useState({});
-  const refreshDeals = useCallback(async (key) => {
-    // No listings, nothing to ask about. The panel mounts before `loadOwnerProperties` resolves, so
-    // without this the first render spends a request to be told the caller's empty book is empty.
-    if (!key) { setDealsByProp({}); return; }
-    try {
-      const rows = await myDeals();
-      const map = {};
-      (rows || []).forEach((d) => { map[String(d.propId)] = d.status; });
-      setDealsByProp(map);
-    } catch {
-      // A card whose deal state is unknown renders its listing status, which is the pre-deal truth.
-      setDealsByProp({});
-    }
-  }, []);
-  /* Keyed by UUID: `/me/deals` returns `propertyId` as the real key, while a listing's `id` in the seam is its slug. */
-  useEffect(() => { refreshDeals(listingKey); }, [refreshDeals, listingKey]);
-  const dealStatusOf = useCallback(
-    (l) => dealsByProp[String(l.uuid || l.id)] || 'active',
-    [dealsByProp],
-  );
-  /* One owner-scoped read for the whole page: `propertyRooms(id)` per card would be twenty requests to draw one chip. */
-
-  const [splitByProp, setSplitByProp] = useState({});
-  const refreshSplits = useCallback(async (key) => {
-    if (!key) { setSplitByProp({}); return; }
-    try {
-      const page = await myFlatmateRooms({ size: 100 });
-      const map = {};
-      (page?.items || []).forEach((room) => {
-        if (!room.propertyId) return;
-        const at = map[String(room.propertyId)] || { rooms: 0, movedIn: 0 };
-        at.rooms += 1;
-        at.movedIn += Number(room.occupants) || 0;
-        map[String(room.propertyId)] = at;
-      });
-      setSplitByProp(map);
-    } catch {
-      // Unknown split state renders as "not split", which is the pre-split truth and leaves the
-      // owner an action rather than a chip they cannot act on.
-      setSplitByProp({});
-    }
-  }, []);
-  useEffect(() => { refreshSplits(listingKey); }, [refreshSplits, listingKey]);
+  /* Lead counts, deal state and room splits all ride on the dashboard's own rows, so mounting this panel reads
+     nothing and an action re-reads only the row it moved. */
+  const splitByProp = useMemo(() => {
+    const map = {};
+    listings.forEach((room) => {
+      if (!room.flatmate || !room.propertyId) return;
+      const at = map[String(room.propertyId)] || { rooms: 0, movedIn: 0 };
+      at.rooms += 1;
+      at.movedIn += Number(room.occupants) || 0;
+      map[String(room.propertyId)] = at;
+    });
+    return map;
+  }, [listings]);
   const splitOf = useCallback(
     (l) => splitByProp[String(l.uuid || l.id)] || null,
     [splitByProp],
   );
-  // Paid owner plans toggle featuring themselves; free plans see an upsell. `isPaidOwner` is false
-  // until a subscription is active, so an abandoned checkout never hands out a paid tool.
-  const featuringOn = flagEnabled('paidFeaturedListings');
 
-  // A failed reload keeps the list on screen rather than blanking it.
-  const refreshListings = useCallback(async ({ notifyParent = false } = {}) => {
+  const patchRow = useCallback((row) => {
+    setListings((rows) => rows.map((r) => (rowKey(r) === rowKey(row) ? { ...r, ...row } : r)));
+  }, [setListings]);
+  const dropRow = useCallback((l) => {
+    setListings((rows) => rows.filter((r) => rowKey(r) !== rowKey(l)));
+  }, [setListings]);
+  // A failed row read falls back to the dashboard's full refresh rather than leaving the row stale.
+  const reloadRow = useCallback(async (l) => {
     try {
-      const next = await loadOwnerProperties(user);
-      setListingsState(next);
-      if (notifyParent) await onChanged?.();
-    } catch (err) {
-      console.error('Failed to load properties', err);
+      patchRow(await myListingCard(l.uuid || l.id));
+    } catch {
+      await onChanged?.();
     }
-  }, [onChanged, user]);
-
-  useEffect(() => { refreshListings(); }, [refreshListings]);
+  }, [onChanged, patchRow]);
+  const reloadRooms = useCallback(async () => {
+    try {
+      const rooms = await getMyRooms();
+      setListings((rows) => withRooms(rows, rooms));
+    } catch {
+      await onChanged?.();
+    }
+  }, [onChanged, setListings]);
   const flatmateEditing = useFlatmateEditing({
-    user, toast, refresh: () => refreshListings({ notifyParent: true }),
+    user, toast, refresh: () => onChanged?.(),
   });
-
   const [quota, setQuota] = useState({ used: 0, allowance: null });
+  // Slots held change only when a posted property is added or taken down, not on every row patch.
+  const postedCount = listingsState.filter((l) => !l.flatmate && !l.private).length;
   useEffect(() => {
     let live = true;
     loadListingQuota()
       .then((next) => { if (live) setQuota(next); })
       .catch(() => { if (live) setQuota({ used: 0, allowance: null }); });
     return () => { live = false; };
-  }, [user, listingsState]);
+  }, [user, postedCount]);
   // Categorize each item so the type filter can group properties, flatmate rooms,
   // flatmate requests and flatmate groups — the things a user can post.
 
@@ -170,7 +125,7 @@ export default function MyListingsPanel({ listings, user, toast, openReview, rev
     () => (typeFilter === 'all' ? listingsState : listingsState.filter((l) => catOf(l) === typeFilter)),
     [listingsState, typeFilter],
   );
-  /* The deal routes take the property's UUID; `l.id` in the seam is its slug. See `dealStatusOf`. */
+  /* The deal routes take the property's UUID; `l.id` in the seam is its slug. */
 
   const dealIdOf = (l) => String(l.uuid || l.id);
 
@@ -178,8 +133,7 @@ export default function MyListingsPanel({ listings, user, toast, openReview, rev
     try {
       await reserveDeal(dealIdOf(l));
       toast(`${l.title} marked as Under Offer`, 'success');
-      await refreshDeals(listingKey);
-      await refreshListings({ notifyParent: true });
+      await reloadRow(l);
     } catch (err) {
       toast(err?.body?.error || err?.message || 'Could not mark under offer', 'error');
     }
@@ -206,28 +160,20 @@ export default function MyListingsPanel({ listings, user, toast, openReview, rev
       toast(err?.body?.error || err?.message || 'Could not finalize the deal', 'error');
       return;
     }
-    // `sold`/`rented` are not server statuses (the column allows pending|approved|rejected|flagged|
-    // archived), so the listing's own state stays a local mark the API would otherwise reject.
-    setListingStatus(l.id, isSale ? 'sold' : 'rented');
     toast(`${l.title} finalized as ${isSale ? 'Sold' : 'Rented'}!`, 'success');
     setShowDealModal(null);
-    await refreshDeals(listingKey);
-    await refreshListings({ notifyParent: true });
+    await reloadRow(l);
   };
 
   const handleReopen = async (l) => {
     try {
-      /* Awaited, unlike the `sold`/`rented` mark above, because this one can be refused: the server will not return a
-         listing to `approved` while it has no locality. */
       await reopenDeal(dealIdOf(l));
-      await setListingStatus(l.id, 'approved');
     } catch (err) {
       toast(err?.body?.error || err?.message || 'Could not reopen the listing', 'error');
       return;
     }
     toast(`${l.title} reopened for listing`, 'success');
-    await refreshDeals(listingKey);
-    await refreshListings({ notifyParent: true });
+    await reloadRow(l);
   };
   /* Carve a live rent listing into per-room supply through the seam, so the rooms reach seekers rather than one
      browser's localStorage. */
@@ -249,8 +195,7 @@ export default function MyListingsPanel({ listings, user, toast, openReview, rev
         : `${count} room${count > 1 ? 's' : ''} listed in Flatmates`,
       'success',
     );
-    await refreshSplits(listingKey);
-    await refreshListings({ notifyParent: true });
+    await reloadRooms();
   };
   /* Undoing a split is one decision about a flat, not a stack of per-room deletes — the per-room withdraw answers 409
      `split_room` for exactly that reason. */
@@ -268,23 +213,21 @@ export default function MyListingsPanel({ listings, user, toast, openReview, rev
       return;
     }
     toast(`${l.title} is no longer let room by room`, 'info');
-    await refreshSplits(listingKey);
-    await refreshListings({ notifyParent: true });
+    await reloadRooms();
   };
   // The confirmation is stamped server-side and freshness is derived from that instant on read, so
-  // refreshing the list is all there is to do.
+  // the row the call answers with is all there is to draw.
 
   const handleConfirmFresh = async (l) => {
-    await confirmListingFresh(l.id);
+    patchRow(await confirmListingFresh(l.id));
     toast(`"${l.title}" confirmed as available`, 'success');
-    await refreshListings({ notifyParent: true });
   };
 
   const handleConfirmListing = async (l) => {
     try {
       await confirmOwnerListing(l.uuid || l.id);
       toast(`Thanks — "${l.title}" is now with our review team`, 'success');
-      await refreshListings({ notifyParent: true });
+      await reloadRow(l);
     } catch (err) {
       toast(err?.body?.message || err?.message || 'Could not confirm this listing', 'error');
     }
@@ -293,9 +236,8 @@ export default function MyListingsPanel({ listings, user, toast, openReview, rev
   const handlePause = async (l) => {
     if (!window.confirm(t('listingLifecycle.pauseConfirm', { title: l.title }))) return;
     try {
-      await pauseListing(l.uuid || l.id);
+      patchRow(await pauseListing(l.uuid || l.id));
       toast(t('listingLifecycle.pauseToast', { title: l.title }), 'info');
-      await refreshListings({ notifyParent: true });
     } catch (err) {
       toast(err?.body?.message || err?.message || t('listingLifecycle.pauseError'), 'error');
     }
@@ -305,7 +247,7 @@ export default function MyListingsPanel({ listings, user, toast, openReview, rev
     try {
       await renewFlatmate(kind, l.id);
       toast(`"${l.title}" is back on the board for 30 days`, 'success');
-      await refreshListings({ notifyParent: true });
+      await onChanged?.();
     } catch (err) {
       toast(err?.body?.message || err?.message || 'Could not renew this post', 'error');
     }
@@ -313,9 +255,8 @@ export default function MyListingsPanel({ listings, user, toast, openReview, rev
 
   const handleResume = async (l) => {
     try {
-      await resumeListing(l.uuid || l.id);
+      patchRow(await resumeListing(l.uuid || l.id));
       toast(t('listingLifecycle.resumeToast', { title: l.title }), 'success');
-      await refreshListings({ notifyParent: true });
     } catch (err) {
       toast(err?.body?.message || err?.message || t('listingLifecycle.resumeError'), 'error');
     }
@@ -341,10 +282,10 @@ export default function MyListingsPanel({ listings, user, toast, openReview, rev
       return;
     }
     try {
-      const managed = await ensureManagedForListing(l);
-      if (!managed?.id) throw new Error('Could not open property tools for this listing.');
-      await refreshListings({ notifyParent: true });
-      navigate(`/owner-hub/property/${managed.id}`);
+      const created = await ensureManagedForListing(l);
+      if (!created?.id) throw new Error('Could not open property tools for this listing.');
+      await onManagedChanged?.();
+      navigate(`/owner-hub/property/${created.id}`);
     } catch (err) {
       toast(err?.message || 'Could not open property tools. Please try again.', 'error');
     }
@@ -354,9 +295,8 @@ export default function MyListingsPanel({ listings, user, toast, openReview, rev
 
   const handleConfirmAll = async () => {
     const stale = listingsState.filter((l) => !l.flatmate && listingFreshness(l).owner.cta);
-    for (const l of stale) await confirmListingFresh(l.id);
+    for (const l of stale) patchRow(await confirmListingFresh(l.id));
     toast(`${stale.length} listing${stale.length === 1 ? '' : 's'} confirmed as available`, 'success');
-    await refreshListings({ notifyParent: true });
   };
   /* No WhatsApp chaser here: `POST /properties/{id}/outreach` 403s for an owner deliberately, since outreach is the
      platform speaking *to* an owner — handing owners a message from us, to them, to send to themselves. */
@@ -389,7 +329,8 @@ export default function MyListingsPanel({ listings, user, toast, openReview, rev
     }
 
     toast(`${l.title} taken down`, 'info');
-    await refreshListings({ notifyParent: true });
+    if (l.private) await onManagedChanged?.();
+    else dropRow(l);
   };
   /* Publish a managed-only property into the pending-review flow. */
 
@@ -403,7 +344,7 @@ export default function MyListingsPanel({ listings, user, toast, openReview, rev
     }
     if (res?.already) { toast('This property is already listed.', 'info'); return; }
     toast('Submitted for review — buyers will see it once verified.', 'success');
-    await refreshListings({ notifyParent: true });
+    await Promise.all([onManagedChanged?.(), onChanged?.()]);
   };
 
   return (
@@ -459,11 +400,8 @@ export default function MyListingsPanel({ listings, user, toast, openReview, rev
                 <ListingCard
                   key={l.id}
                   l={l}
-                  dealStatus={dealStatusOf(l)}
                   split={splitOf(l)}
                   review={reviewsByProp?.get(l.id) || null}
-                  leadsFor={leadsFor}
-                  featuringOn={featuringOn}
                   navigate={navigate}
                   openReview={openReview}
                   onConfirmFresh={handleConfirmFresh}

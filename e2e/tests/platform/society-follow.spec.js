@@ -49,8 +49,7 @@ test.describe('LIVE — society follows', () => {
       .toEqual(expect.arrayContaining(['200 GET /api/me/societies/following']));
     await expect(card.getByRole('button', { name: 'Following', exact: true })).toBeVisible({ timeout: 20000 });
 
-    /* Two different surfaces, one server fact. The panel does not have a page of societies to read
-       `followedByMe` from; this is the assertion that it and the directory agree. */
+    // Two surfaces, one server fact: the alerts panel and the directory both read the follow list.
     await page.goto('/dashboard#alerts');
     await expect(page.getByRole('link', { name, exact: true }).first()).toBeVisible({ timeout: 30000 });
 

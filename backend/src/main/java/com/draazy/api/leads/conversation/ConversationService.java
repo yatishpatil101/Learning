@@ -67,7 +67,7 @@ public class ConversationService {
     // They are bound after `#mine` has answered, so a stranger never gets as far as touching an attachment row.
     @Transactional
     public Page<ConversationDto> inbox(AuthPrincipal caller, Pageable pageable) {
-        messages.markInboxDelivered(caller.userId());
+        events.delivered(caller.userId(), messages.markInboxDelivered(caller.userId()));
         List<UUID> groups = roster.groupsOf(caller.userId());
         Page<Conversation> page = groups.isEmpty()
                 ? conversations.inboxOf(caller.userId(), pageable)
@@ -94,9 +94,8 @@ public class ConversationService {
         return mapper.toDetail(conversation, caller.userId());
     }
 
-    @Transactional
+    @Transactional(readOnly = true)
     public UnreadCount unreadCount(AuthPrincipal caller) {
-        messages.markInboxDelivered(caller.userId());
         long direct = conversations.directUnreadCount(caller.userId());
         List<UUID> groups = roster.groupsOf(caller.userId());
         long group = groups.isEmpty() ? 0L : conversations.groupUnreadCount(caller.userId(), groups);
@@ -105,7 +104,7 @@ public class ConversationService {
 
     @Transactional
     public SseEmitter stream(AuthPrincipal caller) {
-        messages.markInboxDelivered(caller.userId());
+        events.delivered(caller.userId(), messages.markInboxDelivered(caller.userId()));
         return events.stream(caller.userId());
     }
 
@@ -230,6 +229,10 @@ public class ConversationService {
                 return new Written(message, false);
             }
         }
+        // The stream hands it over, so the badge's unread-count read need not write delivery.
+        if (!conversation.isGroup() && events.isOnline(conversation.other(author.userId()))) {
+            message.markDelivered();
+        }
         conversation.setLastMessage(body);
         conversations.saveAndFlush(conversation);
         conversations.unarchiveOthers(conversation.getId(), author.userId());
@@ -251,9 +254,18 @@ public class ConversationService {
         if (recipient == null || recipient.equals(author.userId())) {
             return;
         }
-        notifier.notify(recipient, "message.received",
-                senderName + " sent you a message", preview(body), link(conversation));
+        // One bell row per unread run, as notifyGroup does; reading the chat clears it via markRead.
+        if (unreadFor(conversation, recipient) == 1) {
+            notifier.notify(recipient, "message.received",
+                    senderName + " sent you a message", preview(body), link(conversation));
+        }
         schedulePush(recipient, conversation);
+    }
+
+    private long unreadFor(Conversation conversation, UUID reader) {
+        return messages.unreadCounts(List.of(conversation.getId()), reader).stream()
+                .mapToLong(row -> ((Number) row[1]).longValue())
+                .sum();
     }
 
     private void notifyGroup(Conversation conversation, AuthPrincipal author, String senderName,
@@ -359,9 +371,8 @@ public class ConversationService {
         }
         return new MessageDto(
                 message.getId().toString(),
-                message.getAuthorId().toString(),
+                viewerId.equals(message.getAuthorId()),
                 author == null ? null : author.getName(),
-                message.getAuthorRole(),
                 message.getBody(),
                 message.getCreatedAt(),
                 message.getClientId(),
@@ -391,8 +402,8 @@ public class ConversationService {
     }
 
     private void markDelivered(Conversation conversation, UUID readerId) {
-        if (!conversation.isGroup()) {
-            messages.markDelivered(conversation.getId(), readerId);
+        if (!conversation.isGroup() && messages.markDelivered(conversation.getId(), readerId) > 0) {
+            events.delivered(readerId, List.of(conversation.getId()));
         }
     }
 

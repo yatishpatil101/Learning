@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import { useAuth } from '../../context/AuthContext.jsx';
@@ -11,8 +11,7 @@ import { firstName } from '../../lib/auth.js';
 import { useConversationUnread } from '../../context/ConversationContext.jsx';
 import { useVerification } from '../../context/VerificationContext.jsx';
 import { listRecentSearches } from '../../services/recentSearchService.js';
-import { myTenancies } from '../../services/rentService.js';
-import { primeMeDashboard } from '../../services/meDashboardService.js';
+import { dashboardCaps, primeMeDashboard } from '../../services/meDashboardService.js';
 import VisitsTab from '../../components/dashboard/VisitsTab.jsx';
 import DocumentsTab from '../../components/dashboard/DocumentsTab.jsx';
 import FinancesTab from '../../components/dashboard/FinancesTab.jsx';
@@ -20,7 +19,6 @@ import ProfileTab from '../../components/dashboard/ProfileTab.jsx';
 import { TABS, TAB_ALIAS, REVIEW_STATUS_MAP, buildDashboardGroups } from './dashboard/constants.js';
 import { profileCompletion } from './dashboard/retention.js';
 import { listManaged } from '../../services/managedService.js';
-import { listMyServiceRequestInvites } from '../../services/serviceRequestService.js';
 import LoadError from '../../components/LoadError.jsx';
 import OverviewPanel from './dashboard/OverviewPanel.jsx';
 import MyPropertiesPanel from './dashboard/MyPropertiesPanel.jsx';
@@ -45,14 +43,32 @@ export default function Dashboard() {
   const { toast } = useToast();
   const location = useLocation();
   const navigate = useNavigate();
-  // During render, so the seeds exist before any panel's effect makes its own read.
-  useState(primeMeDashboard);
+  // Resolve the active tab from either the hash (#listings) or a ?tab= query
+  // param, so deep-links from anywhere in the app land on the right tab.
+  const tabFromLocation = () => {
+    const h = location.hash.replace('#', '');
+    const q = new URLSearchParams(location.search).get('tab') || '';
+    return h || q;
+  };
+  // Map a raw candidate (real tab id OR legacy alias) to { tab, sub }. Aliases keep
+  // every historical deep-link working.
+  const resolveTarget = (candidate) => {
+    if (candidate && TAB_ALIAS[candidate]) return TAB_ALIAS[candidate];
+    return { tab: candidate || 'overview' };
+  };
+  // During render, so the seeds exist before any panel's effect makes its own read. A landing on My Listings
+  // also takes that panel's quota and deal book.
+  const [dashboardDoc] = useState(() => primeMeDashboard({ listingTools: resolveTarget(tabFromLocation()).tab === 'properties' }));
+  const [caps, setCaps] = useState({});
+  useEffect(() => {
+    let live = true;
+    dashboardCaps(dashboardDoc).then((next) => { if (live) setCaps(next); });
+    return () => { live = false; };
+  }, [dashboardDoc]);
   const { unread: chatUnread } = useConversationUnread();
-  /* Loaded into state because this is a request: the first paint has an empty array and the tabs appear when the
-     answer lands. */
+  const { verified } = useVerification();
   // Management tabs unlock on actual inventory, not on role, so a brand-new owner is not handed
   // empty "My Listings / Enquiries / Finances" dead-ends.
-  const { verified } = useVerification();
   const [managedProps, setManagedProps] = useState([]);
   useEffect(() => {
     let live = true;
@@ -61,10 +77,12 @@ export default function Dashboard() {
       .catch(() => { if (live) setManagedProps([]); });
     return () => { live = false; };
   }, [user?.mobile]);
-  const hasManaged = managedProps.length > 0;
-  const ownsInventory = hasManaged;
-  /* Loaded above the tab logic because `listings` decides whether this user is an owner, and that gates which tabs
-     exist at all. */
+  const refreshManaged = useCallback(async () => {
+    try {
+      const rows = await listManaged();
+      setManagedProps(Array.isArray(rows) ? rows : []);
+    } catch { /* the rows on screen stay */ }
+  }, []);
 
   const {
     listings, visits, recent, recommended, alertMatches,
@@ -78,31 +96,12 @@ export default function Dashboard() {
     photoReqsStatus, photoReqsError, retryPhotoReqs,
     flatmateReqsStatus, flatmateReqsError, retryFlatmateReqs,
     appsStatus, appsError, retryApps,
-    isBusy, refreshData,
-  } = useDashboardData({ user, toast });
-  /* "My Rental" (the home you rent) shows for buyers/tenants and anyone with a finalised tenancy — but not for a pure
-     owner who rents nothing. */
-  const isOwner = (listings || []).length > 0 || ownsInventory;
-  const [hasTenancy, setHasTenancy] = useState(false);
-  useEffect(() => {
-    let live = true;
-    myTenancies()
-      .then((rows) => { if (live) setHasTenancy((rows || []).length > 0); })
-      .catch(() => { if (live) setHasTenancy(false); });
-    return () => { live = false; };
-  /* A pending co-fill invite (owner asked this user to add their tenant details) also belongs in "My Rental", so an
-     invited tenant always has a place to act. */
-  }, [user?.mobile]);
-  const [hasRentalInvite, setHasRentalInvite] = useState(false);
-  useEffect(() => {
-    let live = true;
-    listMyServiceRequestInvites()
-      .then((rows) => {
-        if (live) setHasRentalInvite((rows || []).some((row) => row?.status === 'invited'));
-      })
-      .catch(() => { if (live) setHasRentalInvite(false); });
-    return () => { live = false; };
-  }, [user?.mobile]);
+    isBusy, refreshData, setListings,
+  } = useDashboardData({ user, toast, ownsProperty: caps.ownsProperty });
+  /* "My Rental" shows for buyers/tenants and anyone with a finalised tenancy, not a pure owner; a pending co-fill
+     invite also belongs there so an invited tenant always has a place to act. */
+  const isOwner = (listings || []).length > 0 || managedProps.length > 0;
+  const { hasTenancy = false, hasRentalInvite = false } = caps;
   const showRental = hasTenancy || !isOwner || hasRentalInvite;
   const hasRentalGroup = hasTenancy || hasRentalInvite;
 
@@ -114,20 +113,7 @@ export default function Dashboard() {
     () => buildDashboardGroups({ visibleTabs, isOwner, showRental, hasRentalGroup }),
     [visibleTabs, isOwner, showRental, hasRentalGroup],
   );
-  // Resolve the active tab from either the hash (#listings) or a ?tab= query
-  // param, so deep-links from anywhere in the app land on the right tab.
 
-  const tabFromLocation = () => {
-    const h = location.hash.replace('#', '');
-    const q = new URLSearchParams(location.search).get('tab') || '';
-    return h || q;
-  };
-  // Map a raw candidate (real tab id OR legacy alias) to { tab, sub }. Aliases keep
-  // every historical deep-link working after the 13→9 tab consolidation.
-  const resolveTarget = (candidate) => {
-    if (candidate && TAB_ALIAS[candidate]) return TAB_ALIAS[candidate];
-    return { tab: candidate || 'overview' };
-  };
   const urlTarget = resolveTarget(tabFromLocation());
   const urlDef = visibleTabs.find((t) => t.tab === urlTarget.tab);
   const { tab, sub } = urlDef && !urlDef.link ? urlTarget : { tab: 'overview', sub: undefined };
@@ -141,11 +127,9 @@ export default function Dashboard() {
     // Link-out tabs (e.g. Messages) open a standalone page, not an inline panel.
     if (def.link) { navigate(def.link); return; }
     const apply = () => { navigate('#' + next, { replace }); window.scrollTo(0, 0); };
-    // Use View Transition API for smooth tab cross-fade (if supported)
     if (document.startViewTransition) document.startViewTransition(apply);
     else apply();
   };
-  // Keep the active tab in sync with the URL (deep links + back/forward).
 
   useEffect(() => {
     // A deep link to a link-out tab (#messages) redirects to its real page so we
@@ -171,8 +155,8 @@ export default function Dashboard() {
   // From the context, so the tile agrees with the same user's count on another device and with the
   // follower count the society hub computes server-side.
   const followCount = follows.count;
-  // Seekers only — owners have their own flow, so asking for a rail nothing will render is a wasted
-  // call. Starts empty, the same shape as "no history yet", so nothing flashes before the read.
+  // Rendered for owners too (Resume search). Starts empty, the same shape as "no history yet", so nothing flashes
+  // before the read.
   const [recentSearches, setRecentSearches] = useState([]);
   useEffect(() => {
     let alive = true;
@@ -182,10 +166,9 @@ export default function Dashboard() {
       .catch(() => undefined);
     return () => { alive = false; };
   }, [user?.mobile]);
-  // Real profile-completion meter (name/email/city + Aadhaar verification).
   const profile = useMemo(() => profileCompletion(user, verified), [user, verified]);
-  // ---- Action Center: what is waiting on this user. Computed per render (small arrays) so the
-  // inline handlers below are never stale, and sorted stale-first. ----
+  // Action Center: what is waiting on this user. Computed per render (small arrays) so the
+  // inline handlers below are never stale, and sorted stale-first.
 
   const scheduledVisits = useMemo(() => visits.filter((v) => v.status === 'scheduled'), [visits]);
   const actionItems = buildActionItems({
@@ -213,7 +196,7 @@ export default function Dashboard() {
     if (tab === 'overview' && personaPending) return <DashboardOverviewSkeleton />;
     switch (tab) {
       case 'properties':
-        return <MyPropertiesPanel key={'prop:' + (sub || '')} initialSub={sub} isOwner={isOwner} listings={listings} user={user} toast={toast} REVIEW_STATUS={REVIEW_STATUS} openReview={openReview} reviewsByProp={reviewsByProp} onChanged={refreshData} />;
+        return <MyPropertiesPanel key={'prop:' + (sub || '')} initialSub={sub} isOwner={isOwner} listings={listings} setListings={setListings} managed={managedProps} onManagedChanged={refreshManaged} user={user} toast={toast} REVIEW_STATUS={REVIEW_STATUS} openReview={openReview} reviewsByProp={reviewsByProp} onChanged={refreshData} />;
       case 'rental':
         return <MyRentalPanel user={user} toast={toast} />;
       case 'activity':

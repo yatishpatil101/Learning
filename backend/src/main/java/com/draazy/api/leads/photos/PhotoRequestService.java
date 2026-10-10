@@ -58,6 +58,12 @@ public class PhotoRequestService {
                 .orElseGet(() -> {
                     PhotoRequest saved =
                             photoRequests.save(new PhotoRequest(property.getId(), requesterId));
+                    if (owner != null) {
+                        notifier.notify(owner.getId(), "photo.requested",
+                                "Someone wants more photos",
+                                "A buyer asked for more photos of " + property.getTitle() + ".",
+                                "/dashboard#leads");
+                    }
                     return new PhotoRequestCreateResponse(true, project(saved, property));
                 });
     }

@@ -22,9 +22,9 @@ async function pickListings() {
   expect(rent.length, 'the catalogue does not have two rentals to shortlist').toBe(2);
   return { buy, rent };
 }
+
 /* `PUT /me/saved/{propId}` binds a UUID and the card rows carry a slug, so each id is resolved
    through the detail read the same way `propertyMapper` does for the browser. */
-
 async function shortlist(headers, listings) {
   const uuids = [];
   for (const p of listings) {
@@ -191,4 +191,46 @@ test('shows the empty state when the account has nothing saved', async ({ page }
   await expect(page.getByRole('heading', { name: 'No saved properties yet' })).toBeVisible();
   await expect(page.getByRole('link', { name: /Browse Properties/ })).toBeVisible();
   await expect(page.locator('.saved-tabs .saved-tab')).toHaveCount(0);
+});
+
+const SAVED_CARD_KEYS = ['id', 'slug', 'title', 'deal', 'propertyType', 'bhk', 'price', 'area', 'locality', 'coverImage', 'available'];
+
+test('the shortlist reads slim cards once, and alert rows carry no mobile', async ({ page }) => {
+  const { mobile, headers } = await actor();
+  const { buy } = await pickListings();
+  await shortlist(headers, buy);
+  const created = await api('/me/saved-searches', headers, {
+    method: 'POST', body: JSON.stringify({ kind: 'listings', query: 'baner', filters: { deal: 'buy' } }),
+  });
+  expect(created.status).toBe(201);
+
+  const cardReads = [];
+  page.on('request', (req) => { if (/\/api\/me\/saved\?/.test(req.url())) cardReads.push(req.url()); });
+
+  await openSaved(page, mobile);
+  await expect(page.locator('.property-card')).toHaveCount(2);
+
+  for (const row of await rows(headers)) {
+    expect(Object.keys(row).filter((k) => !SAVED_CARD_KEYS.includes(k)), 'saved card carries extra keys').toEqual([]);
+    expect(row.available).toBe(true);
+  }
+  const alerts = await (await api('/me/saved-searches', headers)).json();
+  expect(alerts.length).toBeGreaterThan(0);
+  for (const a of alerts) expect('mobile' in a, 'alert row carries mobile').toBe(false);
+
+  await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
+  await page.waitForTimeout(1000);
+  expect(cardReads, 'cards re-read with no new key').toHaveLength(1);
+});
+
+test('the listings grid reads no alert list or saved cards', async ({ page }) => {
+  const { mobile } = await actor();
+  const lazy = [];
+  page.on('request', (req) => { if (/\/api\/me\/(saved-searches|saved\?)/.test(req.url())) lazy.push(req.url()); });
+  await seedConsent(page);
+  await signedInAs(page, mobile);
+  await page.goto('/listings');
+  await expect(page.locator('a[href^="/property/"]').first()).toBeVisible();
+  await page.waitForTimeout(1000);
+  expect(lazy).toEqual([]);
 });

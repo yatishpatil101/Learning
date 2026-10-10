@@ -6,7 +6,7 @@ import { fmtINR } from '../../lib/format.js';
 import { PALETTE } from '../charts/index.jsx';
 import TenantFinancesTab from './TenantFinancesTab.jsx';
 import {
-  INCOME_CATS, EXPENSE_CATS, CAT_KEYS, filterByPeriod,
+  INCOME_CATS, EXPENSE_CATS, CAT_KEYS, filterByPeriod, summaryAfter, cashflowAfter,
   exportTransactionsCSV, exportStatementPDF,
 } from '../../lib/data/finances.js';
 import {
@@ -64,12 +64,11 @@ function OwnerFinances({ user, listings, toast }) {
   const [showTxForm, setShowTxForm] = useState(false);
   const [showAllTx, setShowAllTx] = useState(false);
   const [showBasisModal, setShowBasisModal] = useState(false);
-  const [tick, setTick] = useState(0);
 
   const mob = user?.mobile || '';
 
-  /* Server endpoints, not client reductions over `txs`: the ledger is paged, so reducing over what
-     the client holds summarises page one. Keyed on `tick` so a save re-reads rather than patches. */
+  /* Server endpoints, not client reductions over txs: the ledger is paged, so reducing what the client holds
+     summarises page one; only a recurring row changes what is due, and the server owns that date rule. */
   const EMPTY = { basis: null, txs: [], duesRaw: [], cf: [] };
   const [fin, setFin] = useState(EMPTY);
   useEffect(() => {
@@ -91,7 +90,7 @@ function OwnerFinances({ user, listings, toast }) {
     });
     return () => { alive = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [finProp, tick]);
+  }, [finProp]);
 
   /* Its own read because it is the only one of the five scoped to the period selector; fetching it
      period-less makes the KPI strip answer all-time while the table answers the chosen window. */
@@ -105,7 +104,15 @@ function OwnerFinances({ user, listings, toast }) {
       .then((row) => { if (alive) setSummary(row || EMPTY_SUMMARY); });
     return () => { alive = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [finProp, finPeriod, tick]);
+  }, [finProp, finPeriod]);
+
+  const applyConfirmed = (tx, sign, txsNext) => {
+    setSummary((s) => summaryAfter(s, tx, sign, finPeriod));
+    setFin((f) => ({ ...f, txs: txsNext(f.txs), cf: cashflowAfter(f.cf, tx, sign) }));
+    if (tx.recurring && tx.recurring !== 'none') {
+      duesApi(finProp).then((rows) => setFin((f) => ({ ...f, duesRaw: rows || [] }))).catch(() => {});
+    }
+  };
 
   const { basis, txs, duesRaw } = fin;
   const dues = useMemo(() => ({ overdue: duesRaw.filter((d) => d.daysUntil < 0), upcoming: duesRaw.filter((d) => d.daysUntil >= 0) }), [duesRaw]);
@@ -198,10 +205,11 @@ function OwnerFinances({ user, listings, toast }) {
       toast(t('fin.fillCatAmount'), 'error');
       return;
     }
+    let saved;
     try {
       // The store called the repeat interval `repeat`; the wire calls it `recurring`. One name wins
       // at the seam, and it is the wire's.
-      await addTransaction(finProp, {
+      saved = await addTransaction(finProp, {
         type: txForm.type,
         category: txForm.category,
         amount: parseFloat(txForm.amount),
@@ -215,17 +223,18 @@ function OwnerFinances({ user, listings, toast }) {
     }
     setTxForm({ type: 'income', category: '', amount: '', date: new Date().toISOString().slice(0, 10), notes: '', recurring: false });
     setShowTxForm(false);
-    setTick((tk) => tk + 1);
+    applyConfirmed(saved, 1, (rows) => [saved, ...rows]);
     toast(t('fin.txAdded'), 'success');
   };
   const removeTx = async (id) => {
+    const gone = txs.find((row) => row.id === id);
     try {
       await deleteTransaction(finProp, id);
     } catch (err) {
       toast(err?.body?.error || err?.message || t('fin.txRemoved'), 'error');
       return;
     }
-    setTick((tk) => tk + 1);
+    if (gone) applyConfirmed(gone, -1, (rows) => rows.filter((row) => row.id !== id));
     toast(t('fin.txRemoved'));
   };
   const doExportCSV = () => {
@@ -245,8 +254,9 @@ function OwnerFinances({ user, listings, toast }) {
     currentValue: basis?.currentValue || '',
   });
   const saveBasis = async () => {
+    let saved;
     try {
-      await setBasis(finProp, {
+      saved = await setBasis(finProp, {
         purchasePrice: parseFloat(basisForm.purchasePrice) || 0,
         purchaseDate: basisForm.purchaseDate,
         currentValue: parseFloat(basisForm.currentValue) || 0,
@@ -255,7 +265,7 @@ function OwnerFinances({ user, listings, toast }) {
       toast(err?.body?.error || err?.message || t('fin.basisSaved'), 'error');
       return;
     }
-    setTick((tk) => tk + 1);
+    setFin((f) => ({ ...f, basis: saved }));
     toast(t('fin.basisSaved'), 'success');
   };
   // The basis form mirrors whatever the load resolved, rather than re-fetching. `basis` is already

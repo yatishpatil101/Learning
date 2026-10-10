@@ -33,6 +33,8 @@ export const uploadManagedDocument = async (mobile, managedId, upload) => {
 export const deleteManagedDocument = async (mobile, managedId, docId) =>
   (await provider()).deleteManagedDocument(mobile, managedId, docId);
 
+export const getDocumentUrl = async (docId) => (await provider()).getDocumentUrl(docId);
+
 export const listDocRequests = async (mobile) => (await provider()).listDocRequests(mobile);
 
 // Only the owner decides access; the note supplies the server's audit context.
@@ -45,6 +47,11 @@ export const listMyDocumentRequests = async (opts) => (await provider()).listMyD
 
 export const listMyGrantedDocuments = async (requestId, opts) =>
   (await provider()).listMyGrantedDocuments(requestId, opts);
+
+export const getGrantedDocumentUrl = async (requestId, docId) =>
+  (await provider()).getGrantedDocumentUrl(requestId, docId);
+
+export const getSharedDocumentUrl = async (token, docId) => (await provider()).getSharedDocumentUrl(token, docId);
 
 // The token authorizes recipients without an account. Read it from location.hash and send it only
 // in X-Share-Token, never the request URL, to keep it out of URL-based access logs and Referer.

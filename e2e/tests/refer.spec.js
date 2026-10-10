@@ -26,6 +26,7 @@ test.describe('refer page, live', () => {
     expect(summary.code).toBeTruthy();
     expect(typeof summary.invited).toBe('number');
     expect(typeof summary.converted).toBe('number');
+    expect(summary).not.toHaveProperty('contactsEarned');
     expect(summary.code).not.toBe(BROWSER_MINTED);
 
     await page.context().grantPermissions(['clipboard-read', 'clipboard-write']);
@@ -86,18 +87,15 @@ test.describe('refer page, live', () => {
     // true of a button that is not wired up at all.
     await expect.poll(() => page.evaluate(() => (window.__opened || []).length)).toBe(1);
 
-    /* And prove it is a *referral* share. `toBe(1)` alone is satisfied by any `window.open`, so a
-       WhatsApp button that had lost its code — the exact failure this file was written for, just
-       on a different button — would sail through it. */
+    /* toBe(1) alone is satisfied by any window.open, so a WhatsApp button that lost its code would sail through;
+       this proves it is a referral share. */
     const opened = await page.evaluate(() => window.__opened);
     expect(opened[0]).toContain('wa.me');
     expect(decodeURIComponent(opened[0])).toContain('/signup?ref=');
     expect(decodeURIComponent(opened[0])).not.toContain(BROWSER_MINTED);
 
-    /* On the mock build this reads 1 by now, because there the number counts *shares* — a fact
-       about this browser's owner rather than about anybody they reached. Against the server it
-       counts redemptions, which is the only reading under which the copy "You've invited N" is
-       true. The difference is the point of the assertion, not an accident of it. */
+    /* On the mock build this reads 1 because the number counts shares, not people reached; against the server it
+       counts redemptions, the only reading under which the copy "You've invited N" is true. */
     await expect(counter).toContainText('0');
   });
 
@@ -107,9 +105,8 @@ test.describe('refer page, live', () => {
       headers: { authorization: `Bearer ${accessToken}` },
     })).json();
 
-    /* `canNativeShare` is read during render (`Refer.jsx:199`), so the stub has to be installed
-       before the bundle evaluates — an `addInitScript` after `goto` would leave the desktop build
-       showing WhatsApp and this test silently exercising the wrong button. */
+    /* canNativeShare is read during render (Refer.jsx:199), so the stub must be installed before the bundle
+       evaluates; addInitScript after goto would leave desktop showing WhatsApp and test the wrong button. */
     await page.addInitScript(() => {
       window.__shared = null;
       navigator.share = (d) => { window.__shared = d; return Promise.resolve(); };

@@ -6,12 +6,16 @@ import com.draazy.api.catalog.property.PropertyResponse;
 import com.draazy.api.common.trust.BackOfficeVisibility;
 import com.draazy.api.common.trust.ContactVisibility;
 import com.draazy.api.common.trust.OutreachCounts;
+import com.draazy.api.common.trust.PendingLeadLookup;
 import com.draazy.api.common.trust.PrivateFieldVisibility;
 import com.draazy.api.common.web.PageResponse;
 import com.draazy.api.common.web.Routes;
 import com.draazy.api.security.AuthPrincipal;
 import com.draazy.api.security.CurrentUser;
 import jakarta.validation.Valid;
+import java.util.List;
+import java.util.Map;
+import java.util.UUID;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.web.PageableDefault;
 import org.springframework.http.HttpStatus;
@@ -30,26 +34,33 @@ public class MeListingsController {
 
     private final ListingService listingService;
     private final PropertyMapper propertyMapper;
+    private final PendingLeadLookup pendingLeads;
 
-    public MeListingsController(ListingService listingService, PropertyMapper propertyMapper) {
+    public MeListingsController(ListingService listingService, PropertyMapper propertyMapper,
+            PendingLeadLookup pendingLeads) {
         this.listingService = listingService;
         this.propertyMapper = propertyMapper;
+        this.pendingLeads = pendingLeads;
     }
 
     @GetMapping(Routes.MeListings.BASE)
-    public PageResponse<PropertyResponse> myListings(@CurrentUser AuthPrincipal principal,
+    public PageResponse<OwnerListingCard> myListings(@CurrentUser AuthPrincipal principal,
             @PageableDefault(size = 20) Pageable pageable) {
-        return PageResponse.of(listingService.myListings(principal.userId(), pageable),
-                p -> ownerResponse(p));
+        var page = listingService.myListings(principal.userId(), pageable);
+        Map<UUID, Integer> leads = pendingLeads.pendingFor(page.getContent().stream().map(Property::getId).toList());
+        return PageResponse.of(page, p -> propertyMapper.toOwnerCard(p, leads));
     }
 
     @PostMapping(Routes.MeListings.BASE)
     @ResponseStatus(HttpStatus.CREATED)
-    public PropertyResponse create(@CurrentUser AuthPrincipal principal,
+    public ListingWriteResult create(@CurrentUser AuthPrincipal principal,
             @Valid @RequestBody ListingCreate body) {
-        return propertyMapper.toResponse(
-                listingService.create(principal.userId(), body), ContactVisibility.MASKED,
-                BackOfficeVisibility.HIDDEN, OutreachCounts.NONE, PrivateFieldVisibility.VISIBLE);
+        return propertyMapper.toWriteResult(listingService.create(principal.userId(), body));
+    }
+
+    @GetMapping(Routes.MeListings.QUOTA)
+    public ListingSlots quota(@CurrentUser AuthPrincipal principal) {
+        return listingService.slots(principal.userId());
     }
 
     @GetMapping(Routes.MeListings.BY_ID)
@@ -59,6 +70,12 @@ public class MeListingsController {
                 BackOfficeVisibility.HIDDEN, OutreachCounts.NONE, PrivateFieldVisibility.VISIBLE);
     }
 
+    /** The one row a client re-reads after an action that moved it, instead of the whole list. */
+    @GetMapping(Routes.MeListings.CARD)
+    public OwnerListingCard getMineCard(@CurrentUser AuthPrincipal principal, @PathVariable String id) {
+        return card(listingService.getMine(principal.userId(), id));
+    }
+
     @PostMapping(Routes.MeListings.DUPLICATE_CHECK)
     public ListingDuplicateVerdict duplicateCheck(@CurrentUser AuthPrincipal principal,
             @Valid @RequestBody ListingDuplicateCheck body) {
@@ -66,46 +83,35 @@ public class MeListingsController {
     }
 
     @PatchMapping(Routes.MeListings.BY_ID)
-    public PropertyResponse update(@CurrentUser AuthPrincipal principal, @PathVariable String id,
+    public ListingWriteResult update(@CurrentUser AuthPrincipal principal, @PathVariable String id,
             @Valid @RequestBody ListingUpdate body) {
-        return propertyMapper.toResponse(
-                listingService.update(principal, id, body), ContactVisibility.MASKED,
-                BackOfficeVisibility.HIDDEN, OutreachCounts.NONE, PrivateFieldVisibility.VISIBLE);
+        return propertyMapper.toWriteResult(listingService.update(principal, id, body));
     }
 
     /** No body: the only date that matters is the server's receipt of the owner action. */
     @PostMapping(Routes.MeListings.CONFIRM_AVAILABLE)
-    public PropertyResponse confirmAvailable(@CurrentUser AuthPrincipal principal,
+    public OwnerListingCard confirmAvailable(@CurrentUser AuthPrincipal principal,
             @PathVariable String id) {
-        return propertyMapper.toResponse(
-                listingService.confirmAvailable(principal.userId(), id), ContactVisibility.MASKED,
-                BackOfficeVisibility.HIDDEN, OutreachCounts.NONE, PrivateFieldVisibility.VISIBLE);
+        return card(listingService.confirmAvailable(principal.userId(), id));
     }
 
     @PostMapping(Routes.MeListings.PAUSE)
-    public PropertyResponse pause(@CurrentUser AuthPrincipal principal, @PathVariable String id) {
-        return propertyMapper.toResponse(
-                listingService.pause(principal, id), ContactVisibility.MASKED,
-                BackOfficeVisibility.HIDDEN, OutreachCounts.NONE, PrivateFieldVisibility.VISIBLE);
+    public OwnerListingCard pause(@CurrentUser AuthPrincipal principal, @PathVariable String id) {
+        return card(listingService.pause(principal, id));
     }
 
     @PostMapping(Routes.MeListings.RESUME)
-    public PropertyResponse resume(@CurrentUser AuthPrincipal principal, @PathVariable String id) {
-        return propertyMapper.toResponse(
-                listingService.resume(principal, id), ContactVisibility.MASKED,
-                BackOfficeVisibility.HIDDEN, OutreachCounts.NONE, PrivateFieldVisibility.VISIBLE);
+    public OwnerListingCard resume(@CurrentUser AuthPrincipal principal, @PathVariable String id) {
+        return card(listingService.resume(principal, id));
     }
 
     /** Archive frees the one-listing free-tier slot without hard-deleting the row. */
     @DeleteMapping(Routes.MeListings.BY_ID)
-    public PropertyResponse archive(@CurrentUser AuthPrincipal principal, @PathVariable String id) {
-        return propertyMapper.toResponse(
-                listingService.archive(principal.userId(), id), ContactVisibility.MASKED,
-                BackOfficeVisibility.HIDDEN, OutreachCounts.NONE, PrivateFieldVisibility.VISIBLE);
+    public ListingWriteResult archive(@CurrentUser AuthPrincipal principal, @PathVariable String id) {
+        return propertyMapper.toTakenDown(listingService.archive(principal.userId(), id));
     }
 
-    private PropertyResponse ownerResponse(Property property) {
-        return propertyMapper.toResponse(property, ContactVisibility.MASKED,
-                BackOfficeVisibility.HIDDEN, OutreachCounts.NONE, PrivateFieldVisibility.VISIBLE);
+    private OwnerListingCard card(Property property) {
+        return propertyMapper.toOwnerCard(property, pendingLeads.pendingFor(List.of(property.getId())));
     }
 }

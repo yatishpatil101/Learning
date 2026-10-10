@@ -26,10 +26,8 @@ export default function Support() {
   const { user } = useAuth();
   const [params] = useSearchParams();
 
-  /* No ticket priority or image attachment control: neither exists on the wire. `SupportTicketCreate`
-     is `{subject, category, body}` and `MessageCreate` is `{body}`. An unknown property is ignored
-     rather than rejected, so sending one would *appear* to work — the user marks a ticket urgent,
-     gets a success toast, and ops never sees it. */
+  /* No priority or image-attachment control: neither is on the wire, and unknown properties are ignored rather
+     than rejected, so sending one would appear to work while ops never sees it. */
 
   const [tickets, setTickets] = useState([]);
   const [faqs, setFaqs] = useState([]);
@@ -46,12 +44,6 @@ export default function Support() {
   const [curTicket, setCurTicket] = useState(null);
   const [replyText, setReplyText] = useState('');
 
-  /**
-   * Re-read the caller's tickets.
-   *
-   * Nothing is passed: the server keys on the authenticated caller, so "whose tickets?" is answered
-   * by the session, and the form's mobile field is contact detail rather than a lookup key.
-   */
   const reload = useCallback(async () => {
     const list = await listTickets().catch(() => []);
     setTickets(list);
@@ -66,18 +58,17 @@ export default function Support() {
     };
   }, []);
 
+  const openId = params.get('open');
   useEffect(() => {
     let alive = true;
     reload().then((list) => {
       if (!alive) return;
       // Deep-link: auto-open a ticket from URL ?open=<id>. Resolved from the list we just loaded
       // rather than on a timer, which would race the request and lose.
-      const openId = params.get('open');
-      const t = openId && list.find((x) => x.id === openId);
-      if (t) { setCurTicket(t); setThreadOpen(true); }
+      if (openId && list.some((x) => x.id === openId)) openThread(openId);
     });
     return () => { alive = false; };
-  }, [user, reload, params]);
+  }, [user, reload, openId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (user?.name && !form.name) setForm((p) => ({ ...p, name: user.name }));
@@ -90,17 +81,8 @@ export default function Support() {
   const set = (k, v) => setForm((p) => ({ ...p, [k]: v }));
 
   const submit = async () => {
-    /**
-     * `name` and `digits` are validated but not *sent*.
-     *
-     * The server takes the raiser from the session and `SupportTicketCreate` has no identity field.
-     * Both are prefilled from the signed-in user on a `ProtectedRoute`, and the validation stays
-     * because they are still contact details a human reads.
-     *
-     * The gap: a user who *edits* the mobile to a different callback number is telling us something
-     * the API cannot carry. Support still reaches them through the account and the thread, so this
-     * is recorded as debt rather than papered over.
-     */
+    /** `name` and `digits` are validated but not sent: the server takes the raiser from the session and
+     * `SupportTicketCreate` has no identity field, yet a human still reads them as contact details. */
     const name = form.name.trim();
     const digits = form.mobile.replace(/\D/g, '').replace(/^91(?=\d{10}$)/, '');
     const subject = form.subject.trim();
@@ -203,9 +185,8 @@ export default function Support() {
             </p>
           </div>
 
-          {/* Deflection: most tickets are questions the help centre already answers,
-              and a self-served answer arrives in seconds rather than hours. Offered
-              before the form, not after, or nobody reads it. */}
+          {/* Deflection: most tickets are questions the help centre answers, and offering it before the form,
+              not after, is what gets it read. */}
           <Link
             to="/help"
             className="reveal mb-6 flex items-center gap-3 rounded-xl border border-white/10 bg-white/[0.03] px-4 py-3.5 transition-colors hover:border-teal-400/40 hover:bg-white/[0.05]"

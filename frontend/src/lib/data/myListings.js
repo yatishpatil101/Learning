@@ -47,7 +47,6 @@ export function flatmateGroupToListing(g) {
     image: FLATMATE_GROUP_IMG,
     img: FLATMATE_GROUP_IMG,
     views: 0,
-    ownerMobile: g.ownerMobile || '',
     real: true,
     flatmate: true,
     flatmateGroup: true,
@@ -65,22 +64,22 @@ export async function getMyFlatmateGroups() {
 /* A room is already a live view model. This small adapter only gives the dashboard its shared
    card shape; it never reads or writes browser storage. */
 export function roomToListing(room) {
-  const image = room.image || room.img || room.photos?.[0] || null;
+  const image = room.cover || null;
   const locality = room.locality || room.localities?.[0] || 'Pune';
   return {
     id: room.id,
     title: room.title || ('Flatmate — ' + (room.flatType ? room.flatType + ' ' : '') + (room.society || locality)),
     locality,
-    price: room.price ?? room.budget ?? 0,
+    price: room.budget ?? 0,
     deal: 'rent',
     status: cardStatus(room.modStatus),
     image,
     img: image,
-    views: room.views || 0,
-    ownerMobile: room.ownerMobile || '',
+    views: 0,
     real: true,
     flatmate: true,
     propertyId: room.propertyId || null,
+    occupants: room.occupants || 0,
     type: 'Flatmate',
     createdAt: room.createdAt,
   };
@@ -90,6 +89,11 @@ export function roomToListing(room) {
 export async function getMyRooms() {
   const page = await myFlatmateRooms({ size: 100 });
   return page.items.map(roomToListing);
+}
+
+/* The rows with the room rows swapped, in the order `loadMyListings` builds them. */
+export function withRooms(rows, rooms) {
+  return [...rows.filter((l) => l.flatmatePost), ...rows.filter((l) => l.flatmateGroup), ...rooms, ...rows.filter((l) => !l.flatmate)];
 }
 
 /* Combined "My Listings": the owner's property listings plus their flatmate posts. */

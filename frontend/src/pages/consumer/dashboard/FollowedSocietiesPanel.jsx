@@ -1,38 +1,32 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import { Link } from 'react-router';
 import Icon from '../../../components/Icon.jsx';
 import { useFollows } from '../../../context/FollowContext.jsx';
-import { listFollowedSocietyRows } from '../../../services/societyService.js';
 import { Card, SectionHead } from './components.jsx';
 import SocietyFinder from './SocietyFinder.jsx';
 
 const titleCase = (slug) => String(slug || '').replace(/-/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
 
-/** Followed societies: the follow context decides what is followed (its optimistic toggle), `listFollowedSocietyRows()` describes each;
- * joined on slug, so an unresolved slug still gets a row (title-cased) and can be unfollowed. */
+/** Followed societies: the follow context decides what is followed and describes each from the same read;
+ * an unresolved slug (browser-local) still gets a title-cased row and can be unfollowed. */
 export default function FollowedSocietiesPanel() {
   const follows = useFollows();
-  const [socs, setSocs] = useState([]);
+  const { slugs, rows: bySlug, busy, loading, refreshRows } = follows;
 
-  /* Keyed on the follow set's size rather than the Set itself: the context replaces the Set on
-     every toggle, and a follow made in the finder below needs the new society's row. */
+  // A follow made in the finder below has no row yet: re-read once its write settles, once per missing set.
+  const missing = useMemo(() => [...slugs].filter((s) => !bySlug.has(s)).join(','), [slugs, bySlug]);
+  const tried = useRef('');
   useEffect(() => {
-    let alive = true;
-    listFollowedSocietyRows()
-      .then((rows) => { if (alive) setSocs(rows); })
-      .catch(() => { if (alive) setSocs([]); });
-    return () => { alive = false; };
-  }, [follows.slugs.size]);
+    if (!missing || busy || loading || tried.current === missing) return;
+    tried.current = missing;
+    refreshRows().catch(() => {});
+  }, [missing, busy, loading, refreshRows]);
 
-  const bySlug = useMemo(() => new Map(socs.map((s) => [s.slug, s])), [socs]);
-
-  const rows = useMemo(() => [...follows.slugs].map((slug) => {
+  const rows = useMemo(() => [...slugs].map((slug) => {
     const soc = bySlug.get(slug) || null;
     return { slug, soc, name: soc ? soc.name : titleCase(slug), count: soc?.listingCount ?? 0 };
-  }), [follows.slugs, bySlug]);
+  }), [slugs, bySlug]);
 
-  /* No refresh handshake with the finder any more: both read the same context, so a follow made in
-     the search box appears in this list in the same frame the context's Set updates. */
   const unfollow = (slug) => { follows.toggle(slug); };
 
   return (

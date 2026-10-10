@@ -16,6 +16,7 @@ import com.draazy.api.documents.vault.DocumentRepository;
 import com.draazy.api.identity.user.User;
 import com.draazy.api.identity.user.UserRepository;
 import java.math.BigDecimal;
+import java.util.List;
 import java.util.UUID;
 import java.util.function.Supplier;
 import java.util.stream.Stream;
@@ -86,14 +87,13 @@ class DocumentVaultTest extends AbstractApiTest {
     }
 
     @Test
-    void uploadDocument_returnsAMintedUrlThatIsNotStoredOnTheRow() throws Exception {
+    void uploadDocument_returnsNoUrl_andStoresOnlyAnOpaqueKey() throws Exception {
         User owner = user("9820001001");
         Property p = listing(owner, "Vault flat");
 
         String id = upload(owner, p, "Sale Deed", pdf("deed.pdf"));
 
-        // The wire carries a signed URL; the row carries only an opaque storage key. A URL in the
-        // column would be a permanent, un-revocable credential to a title deed.
+        // A URL in the column would be a permanent, un-revocable credential to a title deed.
         assertThat(documents.findById(UUID.fromString(id)))
                 .get()
                 .satisfies(d -> {
@@ -208,8 +208,46 @@ class DocumentVaultTest extends AbstractApiTest {
                         .header(HttpHeaders.AUTHORIZATION, bearer(owner)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.length()").value(2))
-                .andExpect(jsonPath("$[0].propertyId").value(one.getId().toString()))
-                .andExpect(jsonPath("$[0].url").exists());
+                .andExpect(jsonPath("$[0].fileName").exists())
+                .andExpect(jsonPath("$[0].propertyId").doesNotExist())
+                .andExpect(jsonPath("$[0].url").doesNotExist());
+    }
+
+    @Test
+    void documentUrl_signsOnDemandForTheOwner_andIsA404ForAnyoneElse() throws Exception {
+        User owner = user("9820001031");
+        User stranger = user("9820001032");
+        Property p = listing(owner, "Open on click");
+        String propertyDoc = upload(owner, p, "Sale Deed", pdf("deed.pdf"));
+        String personalDoc = uploadPersonal(owner);
+        String strangersPersonalDoc = uploadPersonal(stranger);
+
+        for (String id : List.of(propertyDoc, personalDoc)) {
+            mvc.perform(get(Routes.MeDocuments.URL, id).header(HttpHeaders.AUTHORIZATION, bearer(owner)))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.url").isNotEmpty());
+            mvc.perform(get(Routes.MeDocuments.URL, id).header(HttpHeaders.AUTHORIZATION, bearer(stranger)))
+                    .andExpect(status().isNotFound());
+        }
+        mvc.perform(get(Routes.MeDocuments.URL, strangersPersonalDoc)
+                        .header(HttpHeaders.AUTHORIZATION, bearer(owner)))
+                .andExpect(status().isNotFound());
+        mvc.perform(get(Routes.MeDocuments.URL, UUID.randomUUID().toString())
+                        .header(HttpHeaders.AUTHORIZATION, bearer(owner)))
+                .andExpect(status().isNotFound());
+        mvc.perform(get(Routes.MeDocuments.URL, "not-a-uuid")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(owner)))
+                .andExpect(status().isNotFound());
+    }
+
+    private String uploadPersonal(User owner) throws Exception {
+        String json = mvc.perform(multipart(Routes.MeDocuments.PERSONAL)
+                        .file(pdf("pan.pdf"))
+                        .param("category", "PAN Card")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(owner)))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+        return json.replaceAll("^.*?\"id\":\"([^\"]+)\".*$", "$1");
     }
 
     @Test
@@ -268,6 +306,8 @@ class DocumentVaultTest extends AbstractApiTest {
         return Stream.of(
                 Arguments.of("GET vault", (Supplier<RequestBuilder>) () ->
                         get(Routes.MeDocuments.FOR_PROPERTY, id.toString())),
+                Arguments.of("GET document url", (Supplier<RequestBuilder>) () ->
+                        get(Routes.MeDocuments.URL, id.toString())),
                 Arguments.of("GET personal", (Supplier<RequestBuilder>) () ->
                         get(Routes.MeDocuments.PERSONAL)),
                 Arguments.of("GET managed", (Supplier<RequestBuilder>) () ->

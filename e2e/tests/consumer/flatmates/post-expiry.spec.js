@@ -45,7 +45,7 @@ test.describe('LIVE: flatmate post expiry', () => {
       if (!renewed) body.content = expire(body);
       await route.fulfill({ response: res, json: body });
     });
-    await page.route('**/api/me/dashboard', async (route) => {
+    await page.route(/\/api\/me\/dashboard(\?|$)/, async (route) => {
       const res = await route.fetch();
       const body = await res.json();
       if (!renewed && body.flatmatePosts) body.flatmatePosts.content = expire(body.flatmatePosts);
@@ -78,7 +78,7 @@ test.describe('LIVE: flatmate post expiry', () => {
       body.content = remove(body);
       await route.fulfill({ response: res, json: body });
     });
-    await page.route('**/api/me/dashboard', async (route) => {
+    await page.route(/\/api\/me\/dashboard(\?|$)/, async (route) => {
       const res = await route.fetch();
       const body = await res.json();
       if (body.flatmatePosts) body.flatmatePosts.content = remove(body.flatmatePosts);

@@ -1,14 +1,15 @@
 import { Link } from 'react-router';
 import { fmtINR } from '../../../lib/format.js';
-import { useSaved } from '../../../context/SavedContext.jsx';
+import { useSavedItems } from '../../../context/SavedContext.jsx';
 import PropertyImage from '../../../components/ui/PropertyImage.jsx';
 import { CARD_SIZES } from '../../../lib/imgSrcSet.js';
 import { Card, SectionHead } from './components.jsx';
 
+const PANEL_SIZE = 6;
+
 export default function SavedPanel() {
-  // SavedContext already holds resolved rows; resolving ids here would mean fetching the whole catalogue.
-  const { items, status, reload } = useSaved();
-  const saved = items.slice(0, 6);
+  const { items, status, reload } = useSavedItems({ size: PANEL_SIZE });
+  const saved = items.slice(0, PANEL_SIZE);
 
   return (
     <Card className="p-6">

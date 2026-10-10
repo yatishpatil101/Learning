@@ -25,14 +25,6 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 
-/**
- * Contract + behaviour proof for the offers sub-slice (A1), driven through the real filter chain
- * against the live Flyway'd Postgres under {@code ddl-auto=validate}.
- *
- * <p>Covers every test in the §11 bar: submit, counter, author-counter-back, accept, illegal
- * transition, third-party scoping, caller-scoped lists, mobile masking, duplicate prevention,
- * closed-deal block, and money round-trip.
- */
 class OfferEndpointsTest extends AbstractApiTest {
 
     @Autowired MockMvc mvc;
@@ -327,17 +319,9 @@ class OfferEndpointsTest extends AbstractApiTest {
                 .andExpect(status().isConflict());
     }
 
-    // ---- D77: the owner's offer book is paged, and the total counts the book not the page ----
 
-    /**
-     * The whole point of paging an inbound-demand collection: an owner whose listings attract more
-     * offers than fit on a page must still be told how many there are.
-     *
-     * <p>Asserted on {@code totalElements} rather than on {@code content.length()} alone because the
-     * failure this guards against is the plausible one — a count derived from the page, which agrees
-     * with the truth for every owner until the first one gets popular. That is the exact bug D78
-     * fixed for the contact inbox, arriving here by the same route.
-     */
+    /** Asserts {@code totalElements}, not {@code content.length()}: a count derived from the page is right
+     * for every owner until the first one gets popular. */
     @Test
     void offersOnMine_isPaged_andTotalCountsTheWholeBookNotThePage() throws Exception {
         User owner = user("9820100040", "owner");
@@ -367,13 +351,8 @@ class OfferEndpointsTest extends AbstractApiTest {
                 .andExpect(jsonPath("$.totalElements").value(3));
     }
 
-    /**
-     * The order is fixed server-side, so a client sort must be ignored rather than reach the query.
-     *
-     * <p>An unknown property name in {@code ?sort=} is otherwise appended to the JPA query and comes
-     * back as a 500 — a server error any signed-in caller can trigger by guessing. {@code
-     * Pageables.unsorted} is what prevents that, and this is the test that notices if it is dropped.
-     */
+    /** A client sort must be ignored: an unknown {@code ?sort=} property otherwise reaches the JPA query
+     * and becomes a 500 any signed-in caller can trigger by guessing. */
     @Test
     void offersOnMine_ignoresAClientSuppliedSort_ratherThanFailingOnAnUnknownField() throws Exception {
         User owner = user("9820100044", "owner");
@@ -387,11 +366,8 @@ class OfferEndpointsTest extends AbstractApiTest {
                 .andExpect(jsonPath("$.sort").doesNotExist());
     }
 
-    // ---- Regression: accept/decline are the owner's decision alone ----
-    //
-    // The first cut of respond() checked only that the caller was *a* participant, which let the
-    // buyer accept their own offer -- agreeing a price with no owner involvement, and flipping the
-    // status that drives the mobile reveal. Participation is not authorisation.
+    // Accept/decline are the owner's decision alone: a participant-only check lets the buyer accept their own
+    // offer, agreeing a price with no owner and flipping the status that drives the mobile reveal.
 
     @Test
     void buyerCannotAcceptTheirOwnOffer() throws Exception {
@@ -440,7 +416,6 @@ class OfferEndpointsTest extends AbstractApiTest {
                         OfferStatuses.BY_BUYER);
     }
 
-    // ---- Notification on offer submit (tech-debt D92) ----
 
     private List<Map<String, Object>> notificationsFor(User u) {
         return jdbc.queryForList(
@@ -459,7 +434,7 @@ class OfferEndpointsTest extends AbstractApiTest {
             assertThat(row.get("type")).isEqualTo("offer.received");
             assertThat(row.get("link")).isEqualTo("/property/" + p.getId());
             assertThat((String) row.get("title")).contains("Offer notify test");
-            assertThat((String) row.get("body")).contains("4100000");
+            assertThat((String) row.get("body")).contains("\u20b941,00,000");
             // D5/Q2: the amount and the buyer's display name are fair game, the mobile is not.
             assertThat((String) row.get("body")).doesNotContain(buyer.getMobile());
         });
@@ -469,18 +444,71 @@ class OfferEndpointsTest extends AbstractApiTest {
     }
 
     @Test
-    void ownerCounters_addsNoFurtherNotification() throws Exception {
+    void ownerCounters_notifiesTheBuyer() throws Exception {
         User owner = user("9820100039", "owner");
         User buyer = user("9820100040", "buyer");
-        Property p = listing(owner, "Counter silence test");
+        Property p = listing(owner, "Counter notify test");
         String offerId = submitOffer(buyer, p, 4_000_000L);
 
         respond(owner, offerId, "counter", 4_500_000L, null);
 
-        // Only the submit is announced, so the owner still has just the one row and the buyer none.
-        // A counter lands inside a negotiation both sides are already reading; announcing every
-        // turn of it would train people to ignore the bell.
+        assertThat(notificationsFor(buyer)).singleElement().satisfies(row -> {
+            assertThat(row.get("type")).isEqualTo("offer.countered");
+            assertThat(row.get("link")).isEqualTo("/property/" + p.getId());
+            assertThat((String) row.get("body")).contains("The owner", "\u20b945,00,000")
+                    .doesNotContain(owner.getMobile());
+        });
+        assertThat(notificationsFor(owner)).extracting(row -> row.get("type"))
+                .containsExactly("offer.received");
+    }
+
+    @Test
+    void buyerCounters_notifiesTheOwner() throws Exception {
+        User owner = user("9820100090", "owner");
+        User buyer = user("9820100091", "buyer");
+        Property p = listing(owner, "Buyer counter notify");
+        String offerId = submitOffer(buyer, p, 4_000_000L);
+        respond(owner, offerId, "counter", 4_500_000L, null);
+
+        respond(buyer, offerId, "counter", 4_200_000L, null);
+
+        assertThat(notificationsFor(owner)).extracting(row -> row.get("type"))
+                .containsExactlyInAnyOrder("offer.received", "offer.countered");
+        assertThat(notificationsFor(buyer)).hasSize(1);
+    }
+
+    @Test
+    void ownerAccepts_notifiesTheBuyer() throws Exception {
+        User owner = user("9820100092", "owner");
+        User buyer = user("9820100093", "buyer");
+        Property p = listing(owner, "Accept notify test");
+        String offerId = submitOffer(buyer, p, 4_000_000L);
+
+        respond(owner, offerId, "accept", null, null);
+
+        assertThat(notificationsFor(buyer)).singleElement().satisfies(row -> {
+            assertThat(row.get("type")).isEqualTo("offer.accepted");
+            assertThat((String) row.get("body")).contains("\u20b940,00,000", "Accept notify test");
+        });
         assertThat(notificationsFor(owner)).hasSize(1);
-        assertThat(notificationsFor(buyer)).isEmpty();
+    }
+
+    @Test
+    void ownerDeclines_notifiesTheBuyerNotTheOwner() throws Exception {
+        User owner = user("9820100094", "owner");
+        User buyer = user("9820100095", "buyer");
+        Property p = listing(owner, "Decline notify test");
+        String offerId = submitOffer(buyer, p, 4_000_000L);
+
+        respond(owner, offerId, "decline", null, null);
+
+        assertThat(notificationsFor(buyer)).singleElement().satisfies(row -> {
+            assertThat(row.get("type")).isEqualTo("offer.declined");
+            assertThat(row.get("title")).isEqualTo("Your offer was declined");
+            assertThat(row.get("body")).isEqualTo("The owner declined your offer on Decline notify test.");
+            assertThat(row.get("link")).isEqualTo("/property/" + p.getId());
+        });
+        assertThat(notificationsFor(owner)).extracting(row -> row.get("type"))
+                .containsExactly("offer.received");
     }
 }

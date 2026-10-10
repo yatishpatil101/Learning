@@ -26,6 +26,11 @@ export async function uploadPersonalDocument({ category, file } = {}) {
   return toDoc(await postMultipart('/me/documents/personal', form));
 }
 
+/** A short-lived signed link minted when a vault file is opened; rejects with the 404 for another user's file. */
+export async function getDocumentUrl(docId) {
+  return (await get(`/me/documents/${encodeURIComponent(docId)}/url`))?.url || null;
+}
+
 /** The endpoint answers 204, so the trimmed list has to be re-read rather than synthesised by filtering a stale one. */
 export async function deleteDocument(mobile, propId, docId) {
   await del(`/me/documents/${encodeURIComponent(propId)}/${encodeURIComponent(docId)}`);
@@ -61,7 +66,7 @@ export async function listDocRequests() {
 }
 
 /** Grant or decline a request. The endpoint returns 200 with an empty body and mints the share token server-side, so
- * re-read the inbox and hand back the updated row (now carrying `shareToken`). */
+ * re-read the inbox and hand back the updated row. */
 export async function respondDocRequest(mobile, reqId, decision, note) {
   await patch(`/me/documents/requests/${encodeURIComponent(reqId)}`, toStatusUpdate(decision, note));
   const reqs = await listDocRequests(mobile);
@@ -80,9 +85,9 @@ export async function requestDocumentAccess({
   }));
 }
 
-/** The signed-in buyer's own asks, newest first. */
-export async function listMyDocumentRequests() {
-  const res = await get('/me/document-requests', { size: MAX_PAGE_SIZE });
+/** `propertyId` (the server UUID) narrows to the asks on one listing. */
+export async function listMyDocumentRequests({ propertyId } = {}) {
+  const res = await get('/me/document-requests', { propertyId, size: MAX_PAGE_SIZE });
   return toRequestList(unwrapFullPage(res, 'document'));
 }
 
@@ -90,6 +95,18 @@ export async function listMyDocumentRequests() {
 export async function listMyGrantedDocuments(requestId) {
   const res = await get(`/me/document-requests/${encodeURIComponent(requestId)}/documents`);
   return toDocList(Array.isArray(res) ? res : (res?.content ?? []));
+}
+
+/** The signed link for one file of the caller's own live grant. */
+export async function getGrantedDocumentUrl(requestId, docId) {
+  const res = await get(`/me/document-requests/${encodeURIComponent(requestId)}/documents/${encodeURIComponent(docId)}/url`);
+  return res?.url || null;
+}
+
+/** The signed link for one file of a share token, sent as the header only. */
+export async function getSharedDocumentUrl(token, docId) {
+  const res = await get('/documents/shared/url', { docId }, { auth: false, headers: { 'X-Share-Token': token } });
+  return res?.url || null;
 }
 
 /** Read a granted share by token — the one operation here with no session behind it. */

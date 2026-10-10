@@ -2,6 +2,7 @@ package com.draazy.api.engagement.flatmate;
 
 import jakarta.persistence.LockModeType;
 import java.time.Instant;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import org.springframework.data.domain.Page;
@@ -18,6 +19,8 @@ public interface FlatmateRequestRepository extends JpaRepository<FlatmateRequest
     Optional<FlatmateRequest> findByKindAndTargetIdAndRequesterId(
             String kind, UUID targetId, UUID requesterId);
 
+    List<FlatmateRequest> findByKindAndTargetId(String kind, UUID targetId);
+
     /** Host inbox is paged because popular ads can collect hundreds of stranger asks. */
     Page<FlatmateRequest> findByHostIdOrderByRequestedAtDesc(UUID hostId, Pageable pageable);
 
@@ -33,6 +36,12 @@ public interface FlatmateRequestRepository extends JpaRepository<FlatmateRequest
 
     Page<FlatmateRequest> findByRequesterIdAndStatusOrderByCreatedAtDesc(
             UUID requesterId, String status, Pageable pageable);
+
+    @Query("""
+            select new com.draazy.api.engagement.flatmate.FlatmateInterestKeyDto(r.id, r.kind, r.targetId, r.status)
+            from FlatmateRequest r where r.requesterId = :requesterId
+            """)
+    List<FlatmateInterestKeyDto> findKeysByRequesterId(@Param("requesterId") UUID requesterId);
 
     /** Rate-limit interests by window because each one broadcasts a stranger's number. */
     long countByRequesterIdAndCreatedAtAfter(UUID requesterId, Instant since);

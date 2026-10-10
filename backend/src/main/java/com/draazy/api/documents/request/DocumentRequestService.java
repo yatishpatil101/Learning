@@ -9,9 +9,10 @@ import com.draazy.api.common.error.UnauthorizedException;
 import com.draazy.api.common.trust.Notifier;
 import com.draazy.api.common.web.Ids;
 import com.draazy.api.documents.vault.Document;
-import com.draazy.api.documents.vault.DocumentDto;
 import com.draazy.api.documents.vault.DocumentMapper;
 import com.draazy.api.documents.vault.DocumentRepository;
+import com.draazy.api.documents.vault.DocumentSummary;
+import com.draazy.api.documents.vault.DocumentUrl;
 import com.draazy.api.identity.user.User;
 import com.draazy.api.identity.user.UserRepository;
 import com.draazy.api.security.AuthPrincipal;
@@ -75,7 +76,7 @@ public class DocumentRequestService {
                         buyerId, property.getId(), DocumentRequestStatuses.PENDING)
                 .map(existing -> mapper.toRequesterDto(
                         existing, users.findById(buyerId).orElse(null), 0))
-                .orElseGet(() -> create(buyerId, property.getId(), body));
+                .orElseGet(() -> create(buyerId, property, body));
     }
 
     // Paged because the owner writes none of these rows.
@@ -100,9 +101,11 @@ public class DocumentRequestService {
     }
 
     @Transactional(readOnly = true)
-    public Page<DocumentRequestDto> myAsks(UUID requesterId, Pageable pageable) {
-        Page<DocumentRequest> rows =
-                requests.findByRequesterIdOrderByCreatedAtDesc(requesterId, pageable);
+    public Page<DocumentRequestDto> myAsks(UUID requesterId, UUID propertyId, Pageable pageable) {
+        Page<DocumentRequest> rows = propertyId == null
+                ? requests.findByRequesterIdOrderByCreatedAtDesc(requesterId, pageable)
+                : requests.findByRequesterIdAndPropertyIdOrderByCreatedAtDesc(
+                        requesterId, propertyId, pageable);
         if (rows.isEmpty()) {
             return Page.empty(pageable);
         }
@@ -161,41 +164,62 @@ public class DocumentRequestService {
     // Contract `getSharedDocuments` — read the documents a grant unlocked.
     // Unknown token, declined request, lapsed grant: one message, one status.
     @Transactional(readOnly = true)
-    public List<DocumentDto> shared(String token) {
+    public List<DocumentSummary> shared(String token) {
+        return documentMapper.toSummaries(unlocked(sharedGrant(token)));
+    }
 
-        if (token == null || token.isBlank()) {
-            throw new UnauthorizedException("This share link is not valid");
-        }
-        DocumentRequest grant = requests.findByShareToken(token)
-                .filter(r -> DocumentRequestStatuses.GRANTED.equals(r.getStatus()))
-                .filter(r -> r.getExpiresAt() != null && r.getExpiresAt().isAfter(Instant.now()))
-                .orElseThrow(() -> new UnauthorizedException("This share link is not valid"));
-
-        return unlocked(grant);
+    /** One file of a token grant, signed on open; the same grant checks as {@link #shared}. */
+    @Transactional(readOnly = true)
+    public DocumentUrl sharedUrl(String token, String docId) {
+        return urlOf(unlocked(sharedGrant(token)), docId);
     }
 
     @Transactional(readOnly = true)
-    public List<DocumentDto> myGranted(UUID requesterId, String reqId) {
-        DocumentRequest grant = Ids.parseUuid(reqId)
+    public List<DocumentSummary> myGranted(UUID requesterId, String reqId) {
+        return documentMapper.toSummaries(unlocked(requesterGrant(requesterId, reqId)));
+    }
+
+    /** One file of the caller's own grant, signed on open; the same checks as {@link #myGranted}. */
+    @Transactional(readOnly = true)
+    public DocumentUrl myGrantedUrl(UUID requesterId, String reqId, String docId) {
+        return urlOf(unlocked(requesterGrant(requesterId, reqId)), docId);
+    }
+
+    private DocumentRequest sharedGrant(String token) {
+        if (token == null || token.isBlank()) {
+            throw new UnauthorizedException("This share link is not valid");
+        }
+        return requests.findByShareToken(token)
+                .filter(r -> DocumentRequestStatuses.GRANTED.equals(r.getStatus()))
+                .filter(r -> r.getExpiresAt() != null && r.getExpiresAt().isAfter(Instant.now()))
+                .orElseThrow(() -> new UnauthorizedException("This share link is not valid"));
+    }
+
+    private DocumentRequest requesterGrant(UUID requesterId, String reqId) {
+        return Ids.parseUuid(reqId)
                 .flatMap(requests::findById)
                 .filter(r -> r.getRequesterId().equals(requesterId))
                 .filter(r -> DocumentRequestStatuses.GRANTED.equals(r.getStatus()))
                 .filter(r -> r.getExpiresAt() != null && r.getExpiresAt().isAfter(Instant.now()))
                 .orElseThrow(() -> NotFoundException.of("Document request"));
+    }
 
-        return unlocked(grant);
+    private DocumentUrl urlOf(List<Document> unlocked, String docId) {
+        return Ids.parseUuid(docId)
+                .flatMap(id -> unlocked.stream().filter(d -> d.getId().equals(id)).findFirst())
+                .map(d -> new DocumentUrl(documentMapper.urlOf(d)))
+                .orElseThrow(() -> NotFoundException.of("Document"));
     }
 
     // What a grant actually unlocks, given a row already proven live and already proven the caller's to read.
-    private List<DocumentDto> unlocked(DocumentRequest grant) {
+    private List<Document> unlocked(DocumentRequest grant) {
         List<String> categories = grant.getCategories();
         if (categories.isEmpty()) {
-            return documentMapper.toDtos(
-                    documents.findByPropertyIdAndServiceRequestIdIsNullOrderByUploadedAtDesc(
-                            grant.getPropertyId()));
+            return documents.findByPropertyIdAndServiceRequestIdIsNullOrderByUploadedAtDesc(
+                    grant.getPropertyId());
         }
-        return documentMapper.toDtos(documents.findSharable(grant.getPropertyId(),
-                categories.stream().map(c -> c.toLowerCase(Locale.ROOT)).toList()));
+        return documents.findSharable(grant.getPropertyId(),
+                categories.stream().map(c -> c.toLowerCase(Locale.ROOT)).toList());
     }
 
     // Count the actual files each request would unlock, in one document query for a whole page.
@@ -225,11 +249,21 @@ public class DocumentRequestService {
         }));
     }
 
-    private DocumentRequestDto create(UUID buyerId, UUID propertyId, DocumentRequestCreate body) {
+    private DocumentRequestDto create(UUID buyerId, Property property, DocumentRequestCreate body) {
+        UUID propertyId = property.getId();
         DocumentRequest row = new DocumentRequest(propertyId, buyerId, body.categories(),
                 body.message(), Boolean.TRUE.equals(body.acknowledgedDisclaimer()));
+        User buyer = users.findById(buyerId).orElse(null);
         try {
             requests.saveAndFlush(row);
+            if (property.getOwner() != null) {
+                notifier.notify(property.getOwner().getId(), "document.requested",
+                        "New document request",
+                        (buyer == null || buyer.getName() == null || buyer.getName().isBlank()
+                                ? "Someone" : buyer.getName())
+                                + " asked to see documents for " + property.getTitle() + ".",
+                        "/dashboard#leads");
+            }
         } catch (DataIntegrityViolationException concurrentDuplicate) {
 
             // A parallel tap won the race; its row is the one true request, so this call is simply
@@ -239,7 +273,7 @@ public class DocumentRequestService {
                             buyerId, propertyId, DocumentRequestStatuses.PENDING)
                     .orElseThrow(() -> concurrentDuplicate);
         }
-        return mapper.toRequesterDto(row, users.findById(buyerId).orElse(null), 0);
+        return mapper.toRequesterDto(row, buyer, 0);
     }
 
     private Property resolve(String idOrSlug) {

@@ -52,7 +52,8 @@ public class VisitService {
     @Transactional
     public VisitDto schedule(UUID callerId, VisitCreateRequest body) {
         UUID propertyId = Ids.parseUuid(body.propertyId()).orElse(null);
-        if (propertyId == null || properties.findById(propertyId).isEmpty()) {
+        Property property = propertyId == null ? null : properties.findById(propertyId).orElse(null);
+        if (property == null) {
             throw NotFoundException.of("Property");
         }
 
@@ -72,6 +73,14 @@ public class VisitService {
         }
 
         User visitor = users.findById(callerId).orElse(null);
+        UUID ownerId = property.getOwner().getId();
+        if (!ownerId.equals(callerId)) {
+            notifier.notify(ownerId, "visit.requested",
+                    "New visit request",
+                    displayName(visitor) + " wants to visit " + property.getTitle()
+                            + ". Confirm it or suggest another time.",
+                    "/dashboard#visits");
+        }
         return VisitMapper.toDto(visit, visitor, ContactVisibility.REVEALED);
     }
 
@@ -115,7 +124,6 @@ public class VisitService {
 
         if (VisitStatuses.CONFIRMED.equals(body.status())
                 && !visit.getVisitorId().equals(caller.userId())) {
-            // Confirmations notify only the visitor; the owner just made the decision.
             // `completed` and `no-show` are bookkeeping after the fact and change nothing either party has to act on.
             notifier.notify(visit.getVisitorId(), "visit.confirmed",
                     "Your visit is confirmed",
@@ -123,6 +131,19 @@ public class VisitService {
                             + ". Open your visits to see the slot.",
                     "/dashboard#visits");
         }
+        UUID other = isOwner ? visit.getVisitorId() : ownerId;
+        if (VisitStatuses.CANCELLED.equals(body.status()) && !other.equals(caller.userId())) {
+            notifier.notify(other, "visit.cancelled",
+                    "A visit was cancelled",
+                    (isOwner ? "The owner" : "The visitor") + " cancelled the visit to "
+                            + property.getTitle() + ".",
+                    "/dashboard#visits");
+        }
+    }
+
+    private static String displayName(User user) {
+        return user == null || user.getName() == null || user.getName().isBlank()
+                ? "Someone" : user.getName();
     }
 
     @Transactional
@@ -149,7 +170,7 @@ public class VisitService {
         visits.saveAndFlush(visit);
 
         // An owner can book their own listing, so both roles may point to one user.
-        // Reschedule is the one two-sided transition here, so the recipient is derived from who called rather than fixed.
+        // Reschedule is two-sided, so the recipient is derived from who called rather than fixed.
         UUID other = isOwner ? visit.getVisitorId() : ownerId;
         if (!other.equals(callerId)) {
             String mover = isOwner ? "The owner" : "The visitor";
@@ -162,8 +183,10 @@ public class VisitService {
     }
 
     @Transactional(readOnly = true)
-    public Page<VisitDto> myVisits(UUID callerId, Pageable pageable) {
-        Page<Visit> rows = visits.findByVisitorIdOrderByCreatedAtDesc(callerId, pageable);
+    public Page<VisitDto> myVisits(UUID callerId, UUID propertyId, Pageable pageable) {
+        Page<Visit> rows = propertyId == null
+                ? visits.findByVisitorIdOrderByCreatedAtDesc(callerId, pageable)
+                : visits.findByVisitorIdAndPropertyIdOrderByCreatedAtDesc(callerId, propertyId, pageable);
 
         return projectPage(rows, callerId, Set.of());
     }

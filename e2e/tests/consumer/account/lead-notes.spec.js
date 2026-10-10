@@ -1,6 +1,7 @@
 import { test, expect, ACTORS } from '../../../fixtures/live.js';
 import { API, authHeaders, uploadedListingPhotos, uniqueMobile, signedInAs } from '../../../helpers/liveAuth.js';
 import { approveListingWithFetch, rejectListingWithFetch } from '../../../helpers/moderation.js';
+import { pickDate } from '../../../helpers/datePicker.helper.js';
 
 const createdListings = new Set();
 let actorSequence = 0;
@@ -102,7 +103,7 @@ test('an owner note and follow-up date are stored on the server, not in the brow
     && response.request().method() === 'PUT'
     && response.status() === 200,
   );
-  await sheet.locator('#lead-followup').fill('2027-03-14');
+  await pickDate(page, '#lead-followup', '2027-03-14');
   await savedDate;
   /* Read back below the UI. This is the assertion the old localStorage implementation could not
      have passed: it proves the value left the browser that typed it. */

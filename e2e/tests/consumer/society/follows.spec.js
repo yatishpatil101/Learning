@@ -31,7 +31,7 @@ test('a follow made on the directory is what the society hub shows', async ({ pa
 
   const name = await followFirstUnfollowed(page);
 
-  /* The hub reads one society on its own while the card carries `followedByMe`; this keeps them agreeing. */
+  // The hub and the directory card both read the follow list; this keeps them agreeing.
   await cardFor(page, name).getByRole('link', { name, exact: true }).click();
   await expect(page.getByRole('heading', { level: 1, name })).toBeVisible({ timeout: 20_000 });
   await expect(page.getByRole('button', { name: 'Following', exact: true }).first())

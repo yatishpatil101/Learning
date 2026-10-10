@@ -2,12 +2,13 @@ import { expect, test } from '../../../fixtures/live.js';
 import { API, authHeaders, signedInAs, uniqueMobile } from '../../../helpers/liveAuth.js';
 import { mintSociety } from '../../../helpers/liveSociety.js';
 
-/* Each followed society's row description must come from the server's record (read back over HTTP for a society minted this run),
- * not a slug-derived stub; `follows.spec.js` already covers membership. */
+/* Each row description must come from the server's record (read back over HTTP for a society minted this run),
+   not a slug-derived stub; follows.spec.js already covers membership. */
 
 const BASE = process.env.BASE_URL || 'http://localhost:5173';
 
-/** Mint, follow, then sign the browser in, in that order: every `authHeaders` login rotates the refresh-token family, so a later API login signs the page out. */
+/** Mint, follow, then sign the browser in, in that order: every authHeaders login rotates the refresh-token
+ * family, so a later API login signs the page out. */
 async function followedSocietyFor(page, request, label) {
   const mobile = uniqueMobile();
   const headers = await authHeaders(mobile);
@@ -34,12 +35,19 @@ test('a followed society is described from the server record, not merely listed'
   expect(row.name).toBeTruthy();
 
   /* The panel lives on the dashboard's Alerts tab, not its landing pane. */
+  const reads = [];
+  page.on('response', (r) => { if (/\/api\/me\/societies\/following/.test(r.url())) reads.push(r); });
   await page.goto(`${BASE}/dashboard#alerts`);
 
   const card = page.locator('.rounded-2xl').filter({
     has: page.getByRole('link', { name: row.name, exact: true }),
   }).first();
   await expect(card, 'the followed society should appear under its own name').toBeVisible({ timeout: 30_000 });
+
+  /* One read serves the follow toggle and the panel, and its rows carry only what the panel draws. */
+  expect(reads, 'follow list read more than once').toHaveLength(1);
+  const { content } = await reads[0].json();
+  expect(content.map((r) => Object.keys(r).sort())).toEqual([['listingCount', 'localitySlug', 'name', 'slug']]);
 
   /* The locality chip is the strong assertion: the stub derives the name from the slug,
      so names can nearly coincide but the locality cannot. */
@@ -52,7 +60,8 @@ test('a followed society is described from the server record, not merely listed'
 });
 
 test('the panel draws no managed tag and the society record carries no claim state', async ({ page, request }) => {
-  /* The record must not carry `claimStatus` and the row must not draw a "Managed" tag, which would claim a committee runs the building. */
+  /* The record must not carry claimStatus and the row must not draw a "Managed" tag,
+     which would claim a committee runs the building. */
   const { row } = await followedSocietyFor(page, request, 'followclaim');
   expect(row, 'claim state left the society record').not.toHaveProperty('claimStatus');
 

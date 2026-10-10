@@ -18,6 +18,9 @@ export function SavedSearchProvider({ children }) {
   const [status, setStatus] = useState(isIn ? 'loading' : 'ready');
   const [error, setError] = useState(null);
   const lastForegroundReload = useRef(0);
+  // Read only once a screen asks: the shell itself draws no alerts.
+  const [wanted, setWanted] = useState(false);
+  const want = useCallback(() => setWanted(true), []);
 
   const refresh = useCallback(async ({ silent = false } = {}) => {
     if (!isIn) {
@@ -45,6 +48,7 @@ export function SavedSearchProvider({ children }) {
       setStatus('ready');
       return undefined;
     }
+    if (!wanted) return undefined;
     let alive = true;
     setLoading(true);
     setStatus('loading');
@@ -62,10 +66,10 @@ export function SavedSearchProvider({ children }) {
       })
       .finally(() => { if (alive) setLoading(false); });
     return () => { alive = false; };
-  }, [isIn]);
+  }, [isIn, wanted]);
 
   useEffect(() => {
-    if (!isIn) return undefined;
+    if (!isIn || !wanted) return undefined;
     const maybeReload = () => {
       if (document.visibilityState === 'hidden') return;
       const now = Date.now();
@@ -79,7 +83,7 @@ export function SavedSearchProvider({ children }) {
       document.removeEventListener('visibilitychange', maybeReload);
       window.removeEventListener('focus', maybeReload);
     };
-  }, [isIn, refresh]);
+  }, [isIn, wanted, refresh]);
 
   const create = useCallback(async (record) => {
     const created = await createSavedSearch(record);
@@ -132,15 +136,23 @@ export function SavedSearchProvider({ children }) {
   }, [searches]);
 
   const value = useMemo(
-    () => ({ searches, count: searches.length, loading, status, error, create, setFrequency, remove, reload, refresh: reload }),
-    [searches, loading, status, error, create, setFrequency, remove, reload],
+    () => ({ searches, count: searches.length, loading, status, error, want, create, setFrequency, remove, reload, refresh: reload }),
+    [searches, loading, status, error, want, create, setFrequency, remove, reload],
   );
   return <SavedSearchContext.Provider value={value}>{children}</SavedSearchContext.Provider>;
 }
 
 /** Null-safe outside the provider, so a component rendered in isolation degrades to "no alerts". */
 export function useSavedSearches() {
-  return useContext(SavedSearchContext) ?? EMPTY;
+  const ctx = useContext(SavedSearchContext);
+  const want = ctx?.want;
+  useEffect(() => { want?.(); }, [want]);
+  return ctx ?? EMPTY;
+}
+
+/** For screens that only create alerts: skips the list read, whose rows each run a match count. */
+export function useSavedSearchCreate() {
+  return (useContext(SavedSearchContext) ?? EMPTY).create;
 }
 
 const EMPTY = {

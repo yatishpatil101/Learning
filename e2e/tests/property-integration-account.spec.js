@@ -96,19 +96,20 @@ test.describe('LIVE: conversations against the real API', () => {
       (r) => /\/api\/messages\/[0-9a-f-]{36}$/.test(r.url()) && r.status() === 200,
       { timeout: 20000 },
     );
-    const read = page.waitForResponse(
-      (r) => /\/api\/messages\/[0-9a-f-]{36}\/read$/.test(r.url()) && r.request().method() === 'POST',
-      { timeout: 20000 },
-    );
+    const reads = [];
+    page.on('response', (r) => {
+      if (/\/api\/messages\/[0-9a-f-]{36}\/read$/.test(r.url()) && r.request().method() === 'POST') reads.push(r.status());
+    });
     await thread.click();
 
     const detailBody = await (await detail).json();
     // The seeded conversation has messages, so the author assertion needs a non-empty floor.
     expect(Array.isArray(detailBody.messages)).toBe(true);
     expect(detailBody.messages.length).toBeGreaterThan(0);
-    expect(detailBody.messages.every((m) => typeof m.authorId === 'string')).toBe(true);
+    expect(detailBody.messages.every((m) => typeof m.mine === 'boolean' && !('authorId' in m))).toBe(true);
 
-    expect((await read).status()).toBe(204);
+    // Read is posted only when the opened thread had unread messages.
+    if (detailBody.unread > 0) await expect.poll(() => reads, { timeout: 10000 }).toContain(204);
 
     const bubbles = page.locator('.pc-row');
     await expect(bubbles.first()).toBeVisible({ timeout: 10000 });
@@ -294,11 +295,12 @@ test.describe('LIVE: saved, alerts, visits and the contact gate against the real
     await signedInAs(page, CHATTER.mobile);
 
     await page.goto('/dashboard');
+    // Saved membership arrives as keys inside /me/bootstrap; the cards are read only on the Saved tab.
     await expect
-      .poll(() => calls.filter((c) => / GET \/api\/(me\/saved|me\/saved-searches|me\/dashboard)$/.test(c)),
+      .poll(() => calls.filter((c) => / GET \/api\/(me\/bootstrap|me\/saved-searches|me\/dashboard)$/.test(c)),
         { timeout: 30000, message: `API calls seen: ${calls.join(' | ') || 'none'}` })
       .toEqual(expect.arrayContaining([
-        '200 GET /api/me/saved',
+        '200 GET /api/me/bootstrap',
         '200 GET /api/me/saved-searches',
         '200 GET /api/me/dashboard',
       ]));

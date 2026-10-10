@@ -24,11 +24,8 @@ export default function PropertyPassport() {
   const [docCount, setDocCount] = useState(0);
   const [confirmDel, setConfirmDel] = useState(false);
 
-  /* `undefined` is "not asked yet" and renders the spinner; `null` is "asked, and there is no such
-     property of yours" and renders the empty state. Keeping them distinct matters more now that the
-     read is a request — collapsing them would flash the not-found page on every load. A rejection
-     is treated as not-found on purpose: the seam already turns a 404 into null, so anything left is
-     a fault the passport page cannot act on, and an empty state is a better answer than a blank. */
+  /* `undefined` is "not asked yet" (spinner); `null` is "no such property of yours" (empty state). A rejection
+     is treated as not-found: the seam already maps 404 to null, so the rest is a fault the page cannot act on. */
   const refresh = useCallback(async () => {
     try {
       setProp((await getManaged(id)) || null);
@@ -58,14 +55,14 @@ export default function PropertyPassport() {
   const publish = async () => {
     let res;
     try {
-      res = await publishManaged(prop.id);
+      res = await publishManaged(prop.id, { published: !!prop.publishedListingId });
     } catch (e) {
       toast(e?.message || t('ownerHub.publishFailed'), 'error');
       return;
     }
     if (res?.already) { toast(t('ownerHub.alreadyListed'), 'info'); return; }
     toast(t('ownerHub.submittedReview'), 'success');
-    refresh();
+    if (res?.record) setProp(res.record);
   };
 
   const remove = async () => {

@@ -90,6 +90,7 @@ test('Pill selection is keyboard-operable, and a rent "Charged Extra" maintenanc
   const body = await res.json();
   const rows = Array.isArray(body) ? body : (body.content ?? body.items ?? []);
   expect(rows).toHaveLength(1);
-  expect(rows[0].deal).toBe('rent');
-  expect(rows[0].maintenance).toBe(2500);
+  const stored = await (await fetch(`${API}/me/listings/${rows[0].id}`, { headers: await authHeaders(mobile) })).json();
+  expect(stored.deal).toBe('rent');
+  expect(stored.maintenance).toBe(2500);
 });

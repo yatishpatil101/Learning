@@ -21,20 +21,8 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.web.servlet.MockMvc;
 
-/**
- * D227 — {@code GET /me/societies/following}: which societies does this caller follow?
- *
- * <p>The two writes on this table shipped in slice 8 and were never called once. The browser kept
- * its own {@code dzFollowedSocieties} array instead, so following a society on a laptop did not
- * follow it on a phone, and the follower count on the hub counted nobody. The missing piece was
- * never a write — it was this read. {@code followedByMe} can only answer "do I follow this one?"
- * for societies the caller already has in hand, and the dashboard panel, the dashboard tile and the
- * society finder all ask the question with no page of societies to scope it to.
- *
- * <p>The assertions that carry weight here are ordering (newest follow first, because a follow made
- * ten seconds ago must not be buried), the envelope (paged, not a bare array), caller-scoping, and
- * that the cards are the directory's cards rather than a second, thinner shape assembled here.
- */
+/** {@code followedByMe} only answers for societies already in hand, so the dashboard and finder need this read;
+ * ordering is newest follow first, and the cards are the directory's own shape. */
 @DisplayName("Societies — which ones do I follow?")
 class SocietyFollowListTest extends AbstractApiTest {
 
@@ -51,12 +39,7 @@ class SocietyFollowListTest extends AbstractApiTest {
         return users.saveAndFlush(u);
     }
 
-    /**
-     * Three seeded societies, whichever they are.
-     *
-     * <p>Named slugs would tie these tests to the demo seed, and the seed is data rather than
-     * contract — a curation pass that renames a building should not turn this file red.
-     */
+    /** Any three seeded societies: named slugs would tie these tests to demo seed data, which is not contract. */
     private List<String> someSocieties(int n) {
         List<String> slugs = jdbc.queryForList(
                 "select slug from societies order by slug limit ?", String.class, n);
@@ -70,13 +53,7 @@ class SocietyFollowListTest extends AbstractApiTest {
                 .andExpect(status().isNoContent());
     }
 
-    /**
-     * Pin a follow's age.
-     *
-     * <p>Two follows made in the same test land within the same millisecond often enough that an
-     * ordering assertion on {@code now()} passes by luck. Backdating one of them makes the
-     * assertion about the ordering rather than about the clock.
-     */
+    /** Backdated because two follows in one test often share a millisecond, so ordering checks pass by luck. */
     private void followedAgo(User u, String slug, int minutes) {
         jdbc.update("""
                 update society_follows set created_at = ?
@@ -84,14 +61,9 @@ class SocietyFollowListTest extends AbstractApiTest {
                 Timestamp.from(Instant.now().minus(minutes, ChronoUnit.MINUTES)), u.getId(), slug);
     }
 
-    /**
-     * A card here must be the card the directory renders. If this endpoint assembled its own,
-     * thinner shape, the same society would show a different follower count or lose its star
-     * depending on which screen you found it on — and the drift would be silent. {@code followedByMe}
-     * is computed, not hard-coded {@code true}, so it can report a follow removed on another device.
-     */
+    /** The dashboard row: what it draws, nothing the directory card carries beyond that. */
     @Test
-    @DisplayName("a follow made through the toggle is readable as the directory's card")
+    @DisplayName("a follow made through the toggle is readable as a slim dashboard row")
     void followThenRead() throws Exception {
         User a = user("9821200002");
         User b = user("9821200009");
@@ -105,11 +77,12 @@ class SocietyFollowListTest extends AbstractApiTest {
                 .andExpect(jsonPath("$.totalElements").value(1))
                 .andExpect(jsonPath("$.content[0].slug").value(slug))
                 .andExpect(jsonPath("$.content[0].name").isNotEmpty())
-                .andExpect(jsonPath("$.content[0].followedByMe").value(true))
-                // Everyone's follows, not just the caller's — the same count the hub shows.
-                .andExpect(jsonPath("$.content[0].followerCount").value(2))
                 .andExpect(jsonPath("$.content[0].listingCount").exists())
-                .andExpect(jsonPath("$.content[0].reviewCount").exists());
+                .andExpect(jsonPath("$.content[0].followerCount").doesNotExist())
+                .andExpect(jsonPath("$.content[0].id").doesNotExist())
+                .andExpect(jsonPath("$.content[0].lat").doesNotExist())
+                .andExpect(jsonPath("$.content[0].rera").doesNotExist())
+                .andExpect(jsonPath("$.content[0].reviewCount").doesNotExist());
     }
     @Test
     @DisplayName("the most recent follow comes first — a follow made just now is not buried")
@@ -130,6 +103,28 @@ class SocietyFollowListTest extends AbstractApiTest {
                 .andExpect(jsonPath("$.content[0].slug").value(slugs.get(2)))
                 .andExpect(jsonPath("$.content[1].slug").value(slugs.get(1)))
                 .andExpect(jsonPath("$.content[2].slug").value(slugs.get(0)));
+    }
+
+    @Test
+    @DisplayName("a follow of a merged-away society reads as its survivor, once")
+    void mergedAwayFollowReadsAsSurvivor() throws Exception {
+        User u = user("9821200012");
+        List<String> slugs = someSocieties(2);
+        follow(u, slugs.get(0));
+        follow(u, slugs.get(1));
+        jdbc.update("""
+                update societies set merged_into = (select id from societies where slug = ?),
+                       merged_at = now(), merged_by = ? where slug = ?""", slugs.get(1), u.getId(), slugs.get(0));
+        try {
+            mvc.perform(get(PATH).header(HttpHeaders.AUTHORIZATION, bearer(u)))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.totalElements").value(1))
+                    .andExpect(jsonPath("$.content.length()").value(1))
+                    .andExpect(jsonPath("$.content[0].slug").value(slugs.get(1)));
+        } finally {
+            jdbc.update("update societies set merged_into = null, merged_at = null, merged_by = null where slug = ?",
+                    slugs.get(0));
+        }
     }
 
     @Test
@@ -164,10 +159,8 @@ class SocietyFollowListTest extends AbstractApiTest {
                 .andExpect(jsonPath("$.totalElements").value(0));
     }
 
-    /**
-     * The reason this is paged rather than a bare array: nothing caps how many societies one person
-     * may follow, and {@code api-standards.md} §5.1 only permits an array where growth is bounded.
-     */
+    /** Paged because nothing caps how many societies one person may follow, and api-standards.md §5.1
+     * permits an array only where growth is bounded. */
     @Test
     @DisplayName("the list is paged — a small page still reports the full total")
     void pagedNotBareArray() throws Exception {
@@ -190,10 +183,8 @@ class SocietyFollowListTest extends AbstractApiTest {
                 .andExpect(jsonPath("$.totalElements").value(3));
     }
 
-    /**
-     * {@code /me/societies/{slug}/follow} has a further segment after the variable, so the literal
-     * cannot be swallowed by it. Proved from both directions.
-     */
+    /** {@code /me/societies/{slug}/follow} has a segment after the variable, so the literal
+     * cannot be swallowed by it; proved from both directions. */
     @Test
     @DisplayName("the literal path does not collide with the slug-shaped toggle route")
     void doesNotCollideWithTheToggle() throws Exception {

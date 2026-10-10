@@ -277,7 +277,6 @@ class ConversationEndpointsTest extends AbstractApiTest {
     @DisplayName("a thread cannot fork")
     class FindOrCreate {
 
-        // `authorId` is what a client must use to render a message on the correct side of the thread.
         @Test
         @DisplayName("starting twice returns the same thread, 201 then 200")
         void idempotent() throws Exception {
@@ -352,9 +351,11 @@ class ConversationEndpointsTest extends AbstractApiTest {
                     .andExpect(jsonPath("$.content[0].muted").value(false))
                     .andExpect(jsonPath("$.content[0].blocked").value(false))
                     .andExpect(jsonPath("$.content[0].awaitingReply").value(false))
+                    .andExpect(jsonPath("$.content[0].counterpartyMobile").doesNotExist())
+                    .andExpect(jsonPath("$.content[0].presence").doesNotExist())
                     .andExpect(jsonPath("$.content[0].messages").doesNotExist());
 
-            // Both people are called "Same Name", so `author` cannot separate them and `authorId`
+            // Both people are called "Same Name", so `author` cannot separate them and `mine`
             // is the only field that can. That is the whole reason this test uses a duplicate name.
             mvc.perform(get(Routes.Conversations.BY_ID, id)
                             .header(HttpHeaders.AUTHORIZATION, bearer(buyer)))
@@ -367,8 +368,8 @@ class ConversationEndpointsTest extends AbstractApiTest {
         }
 
         @Test
-        @DisplayName("a message carries its author's id, not just a display name")
-        void messageCarriesAuthorId() throws Exception {
+        @DisplayName("a message says whether the reader wrote it, not whose id it carries")
+        void messageCarriesMineNotAuthorId() throws Exception {
             User owner = user("9830000151", Roles.Wire.OWNER, "Same Name");
             User buyer = user("9830000152", Roles.Wire.BUYER, "Same Name");
             Property p = listing(owner);
@@ -379,8 +380,10 @@ class ConversationEndpointsTest extends AbstractApiTest {
             mvc.perform(get(Routes.Conversations.BY_ID, id)
                             .header(HttpHeaders.AUTHORIZATION, bearer(buyer)))
                     .andExpect(status().isOk())
-                    .andExpect(jsonPath("$.messages[0].authorId").value(buyer.getId().toString()))
-                    .andExpect(jsonPath("$.messages[1].authorId").value(owner.getId().toString()));
+                    .andExpect(jsonPath("$.messages[0].mine").value(true))
+                    .andExpect(jsonPath("$.messages[1].mine").value(false))
+                    .andExpect(jsonPath("$.messages[1].authorId").doesNotExist())
+                    .andExpect(jsonPath("$.messages[1].authorRole").doesNotExist());
         }
 
         @Test
@@ -402,6 +405,26 @@ class ConversationEndpointsTest extends AbstractApiTest {
             reply(owner, id, "sure, come by", 201);
             assertThat(notificationsFor(buyer)).hasSize(1);
             assertThat(notificationsFor(owner)).hasSize(1);
+        }
+
+        @Test
+        @DisplayName("a burst of unread messages makes one bell row; reading re-arms it")
+        void unreadBurstCollapsesToOneRow() throws Exception {
+            User owner = user("9830000197", Roles.Wire.OWNER, "Owner");
+            User buyer = user("9830000198", Roles.Wire.BUYER, "Buyer");
+            Property p = listing(owner);
+            approve(buyer, p);
+            String id = id(start(buyer, owner, p, 201));
+
+            reply(buyer, id, "are you there?", 201);
+            reply(buyer, id, "hello?", 201);
+            assertThat(notificationsFor(owner)).hasSize(1);
+
+            mvc.perform(post(Routes.Conversations.READ, id)
+                            .header(HttpHeaders.AUTHORIZATION, bearer(owner)))
+                    .andExpect(status().isNoContent());
+            reply(buyer, id, "one more thing", 201);
+            assertThat(notificationsFor(owner)).hasSize(2);
         }
 
         @Test

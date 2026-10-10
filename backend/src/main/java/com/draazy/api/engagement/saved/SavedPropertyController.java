@@ -1,11 +1,12 @@
 package com.draazy.api.engagement.saved;
 
-import com.draazy.api.catalog.property.PropertySummary;
+import com.draazy.api.catalog.property.SavedCard;
 import com.draazy.api.common.web.PageResponse;
 import com.draazy.api.common.web.Pageables;
 import com.draazy.api.common.web.Routes;
 import com.draazy.api.security.AuthPrincipal;
 import com.draazy.api.security.CurrentUser;
+import java.util.List;
 import java.util.UUID;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.web.PageableDefault;
@@ -17,12 +18,7 @@ import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
-/**
- * {@code /me/saved} — the caller's property shortlist.
- *
- * <p>No {@code @PreAuthorize}: none of these operations carries {@code x-roles} in the contract.
- * Caller-scoping (the principal's own rows only) is the guard.
- */
+/** No {@code x-roles} in the contract: caller-scoping (the principal's own rows) is the guard. */
 @RestController
 public class SavedPropertyController {
 
@@ -32,19 +28,20 @@ public class SavedPropertyController {
         this.savedPropertyService = savedPropertyService;
     }
 
-    /**
-     * {@code GET /me/saved} (contract {@code listSaved}) — full property summaries, paged.
-     *
-     * <p>Sort is fixed to saved-order (newest first) inside the query, so no client sort is
-     * accepted; {@code Pageables.unsorted} strips one rather than letting it produce a second
-     * {@code order by}.
-     */
+    /** Sort is fixed to saved-order; {@code Pageables.unsorted} strips a client sort that would add a second
+     * {@code order by}. */
     @GetMapping(Routes.Engagement.SAVED)
-    public PageResponse<PropertySummary> listSaved(@CurrentUser AuthPrincipal principal,
+    public PageResponse<SavedCard> listSaved(@CurrentUser AuthPrincipal principal,
             @PageableDefault(size = 20) Pageable pageable) {
         return PageResponse.of(
                 savedPropertyService.listSaved(principal.userId(), Pageables.unsorted(pageable)),
                 s -> s);
+    }
+
+    /** {@code GET /me/saved/keys} — the shortlist as keys, unpaged; the app shell's hearts and count. */
+    @GetMapping(Routes.Engagement.SAVED_KEYS)
+    public List<SavedKey> listKeys(@CurrentUser AuthPrincipal principal) {
+        return savedPropertyService.listKeys(principal.userId());
     }
 
     /** {@code PUT /me/saved/{propId}} (contract {@code savePropertyItem}) — idempotent, 204. */

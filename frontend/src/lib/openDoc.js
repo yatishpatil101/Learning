@@ -27,6 +27,22 @@ const toBlobUrl = (dataUrl) => {
   return url;
 };
 
+/** Opens the tab inside the click, then fills it once the signed link is minted; a refusal or failure closes it. */
+export async function openDocFrom(fetchUrl) {
+  const viewer = window.open('', '_blank');
+  if (!viewer) return false;
+  viewer.opener = null;
+  try {
+    const url = await fetchUrl();
+    if (!isViewableDoc(url)) throw new Error('not viewable');
+    viewer.location.replace(url);
+    return true;
+  } catch {
+    viewer.close();
+    return false;
+  }
+}
+
 export function openDocUrl(url) {
   if (!isViewableDoc(url)) return false;
   /** A `noopener` feature returns null in Chromium even when the tab opened, so it cannot distinguish a valid preview

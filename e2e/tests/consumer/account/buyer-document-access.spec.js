@@ -107,7 +107,7 @@ test.describe('a granted buyer can open their documents without the owner forwar
     const pending = await myRequest(request, buyer, reqId);
     expect(pending.status).toBe('pending');
     expect(pending.sharedDocumentCount).toBe(0);
-    expect(pending.shareToken).toBeNull();
+    expect(pending).not.toHaveProperty('shareToken');
 
     // And the door is shut, not merely empty: "your access has not started" and "there is nothing
     // behind it" are different facts, and only one of them is true here.
@@ -119,24 +119,27 @@ test.describe('a granted buyer can open their documents without the owner forwar
       data: { status: 'granted' },
     });
     expect(granted.status()).toBe(200);
-    /* The owner inbox carries the forwardable token; PATCH is empty by contract so state changes do
-       not echo bearer credentials. */
+    // PATCH is empty by contract and no inbox row carries the bearer token.
     const ownerRow = await ownerInbox(request, reqId);
     expect(ownerRow.status).toBe('granted');
-    expect(ownerRow.shareToken).toBeTruthy();
+    expect(ownerRow).not.toHaveProperty('shareToken');
 
     const live = await myRequest(request, buyer, reqId);
     expect(live.status).toBe('granted');
     expect(live.sharedDocumentCount).toBe(1);
     /* The load-bearing assertion of this file. The buyer is entitled to the *documents* and is not
        entitled to a credential that unlocks them for anyone holding it. */
-    expect(live.shareToken).toBeNull();
+    expect(live).not.toHaveProperty('shareToken');
 
     const opened = await request.get(`${API}/me/document-requests/${reqId}/documents`, { headers: buyerAuth });
     expect(opened.status()).toBe(200);
     const docs = await opened.json();
     expect(docs).toHaveLength(1);
     expect(docs[0].category).toBe(CATEGORY);
+    expect(docs[0], 'the list is metadata; a file is signed when opened').not.toHaveProperty('url');
+    const signed = await request.get(`${API}/me/document-requests/${reqId}/documents/${docs[0].id}/url`, { headers: buyerAuth });
+    expect(signed.status()).toBe(200);
+    expect((await signed.json()).url).toBeTruthy();
 
     /* Assert and follow the server-emitted grant link; a `page.goto` assembled here would miss a
        broken notification deep link. */
@@ -145,9 +148,6 @@ test.describe('a granted buyer can open their documents without the owner forwar
     const grantNote = (await notes.json()).content.find((n) => n.type === 'document.granted');
     expect(grantNote, 'the grant notifies the requester').toBeTruthy();
     expect(grantNote.link).toBe(`/view-documents/${reqId}`);
-    // The credential stays out of the stored row; that is why the id is safe to put in one.
-    expect(grantNote.link).not.toContain(ownerRow.shareToken);
-    expect(grantNote.body).not.toContain(ownerRow.shareToken);
 
     /* The viewer must be reachable from the buyer's own request id; masked owner numbers cannot be
        part of the URL contract. */
@@ -220,9 +220,12 @@ test.describe('a granted buyer can open their documents without the owner forwar
       const url = new URL(response.url());
       return url.pathname === `/api/properties/${encodeURIComponent(propRef)}`;
     });
+    const asksRead = page.waitForRequest((r) => new URL(r.url()).pathname === '/api/me/document-requests');
     await page.goto(`/property/${propRef}`);
     expect((await propertyRead).status()).toBe(200);
     await page.getByRole('tab', { name: /Verification & Docs/i }).click();
+    // The page asks for this listing's rows only, not the buyer's whole history.
+    expect(new URL((await asksRead).url()).searchParams.get('propertyId')).toBe(propId);
     await expect(page.getByText('Owner declined', { exact: true }).first()).toBeVisible();
     await expect(page.getByText('The owner declined this request.', { exact: true })).toBeVisible();
     await expect(page.getByText('Request sent — owner reviewing', { exact: true })).toHaveCount(0);

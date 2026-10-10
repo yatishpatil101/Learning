@@ -7,6 +7,7 @@ import com.draazy.api.identity.user.UserRepository;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Collection;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
@@ -76,6 +77,17 @@ public class MessageEvents implements LiveUpdates {
         if (other != null && !conversations.blockedEitherWay(readerId, other) && shareReadReceipts(readerId, other)) {
             afterCommit(() -> hub.publish(other, "read", new Event(conversation.getId().toString())));
         }
+    }
+
+    public void delivered(UUID readerId, Collection<UUID> conversationIds) {
+        if (conversationIds.isEmpty()) {
+            return;
+        }
+        List<Conversation> direct = conversations.findAllById(conversationIds).stream()
+                .filter(conversation -> !conversation.isGroup())
+                .toList();
+        afterCommit(() -> direct.forEach(conversation -> hub.publish(conversation.other(readerId), "delivered",
+                new Event(conversation.getId().toString()))));
     }
 
     public void typing(Conversation conversation, UUID authorId) {

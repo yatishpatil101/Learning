@@ -45,7 +45,7 @@ async function isolatedListing() {
 
   const approved = await approveListingWithFetch(created.body.id, await authHeaders(ACTORS.admin));
   expect(approved.status, 'approving the isolated listing').toBe(200);
-  return { owner, id: created.body.id, slug: created.body.slug, title: created.body.title };
+  return { owner, id: created.body.id, slug: created.body.slug };
 }
 /** The owner's inbox, read outside the browser. */
 async function ownerInbox(owner) {

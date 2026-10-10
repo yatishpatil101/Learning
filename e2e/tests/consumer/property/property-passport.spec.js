@@ -1,5 +1,6 @@
-import { test, expect } from '../../../fixtures/live.js';
+import { test, expect, ACTORS } from '../../../fixtures/live.js';
 import { API, authHeaders, uniqueMobile } from '../../../helpers/liveAuth.js';
+import { rejectListingWithFetch } from '../../../helpers/moderation.js';
 
 /** The record is created in wire vocabulary so the page renders only if toManaged() maps it; 80% = 4 of 5
  * checklist items (no docs). A throwaway owner avoids relying on unpublished seeded managed-property counts. */
@@ -98,5 +99,26 @@ test.describe('Property passport — /owner-hub/property/:id', () => {
     await expect(page.getByRole('link', { name: /Back to My properties/i })).toBeVisible();
     // The record's own title must not leak through the not-found state.
     await expect(page.getByText('2 BHK Flat in Baner')).toHaveCount(0);
+  });
+
+  test('publishing asks the server once: no pre-read of the record, and the answer redraws the page', async ({ page, login }) => {
+    const { id, headers } = await ownerWithPassport(page, login);
+    await page.goto(`/owner-hub/property/${id}`);
+    await expect(page.getByRole('heading', { name: '2 BHK Flat in Baner' })).toBeVisible();
+    await page.waitForTimeout(1000);
+
+    const calls = [];
+    page.on('request', (r) => { if (r.url().includes('/api/')) calls.push(`${r.method()} ${new URL(r.url()).pathname}`); });
+    await page.getByRole('button', { name: /Publish as listing/i }).click();
+    await page.waitForTimeout(2000);
+
+    const managed = calls.filter((c) => c.includes(`/api/me/managed-properties/${id}`));
+    expect(managed).toEqual([`POST /api/me/managed-properties/${id}/publish`]);
+
+    const record = await (await fetch(`${API}/me/managed-properties/${id}`, { headers })).json();
+    if (record.publishedListingId) {
+      const rejected = await rejectListingWithFetch(record.publishedListingId, await authHeaders(ACTORS.admin), { reason: 'Zztest cleanup - passport publish' });
+      expect(rejected.status).toBe(200);
+    }
   });
 });

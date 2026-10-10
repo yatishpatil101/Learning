@@ -1,6 +1,6 @@
 package com.draazy.api.moderation.property;
 
-import com.draazy.api.catalog.listing.ListingService;
+import com.draazy.api.catalog.listing.ListingModerationService;
 import com.draazy.api.catalog.listing.ListingUpdate;
 import com.draazy.api.catalog.property.ModerationFacets;
 import com.draazy.api.catalog.property.PropertyMapper;
@@ -72,7 +72,7 @@ public class PropertyModerationController {
             + BackOfficePermissions.REQUIRE_PROPERTIES_MODERATE + ")";
 
     private final PropertyModerationService service;
-    private final ListingService listings;
+    private final ListingModerationService listings;
     private final PropertyService propertyService;
     private final PropertyMapper propertyMapper;
     private final OnBehalfListingService onBehalf;
@@ -81,12 +81,13 @@ public class PropertyModerationController {
     private final ListingDuplicateClusterService duplicateClusters;
     private final ListingSignalService signals;
     private final PropertyReviewQueue reviewQueue;
+    private final PropertyQueueRowMapper rows;
 
-    public PropertyModerationController(PropertyModerationService service, ListingService listings,
+    public PropertyModerationController(PropertyModerationService service, ListingModerationService listings,
             PropertyService propertyService, PropertyMapper propertyMapper,
             OnBehalfListingService onBehalf, PropertyModerationSummaryRepository summaries,
             OwnerOutreachService outreach, ListingDuplicateClusterService duplicateClusters,
-            ListingSignalService signals, PropertyReviewQueue reviewQueue) {
+            ListingSignalService signals, PropertyReviewQueue reviewQueue, PropertyQueueRowMapper rows) {
         this.service = service;
         this.listings = listings;
         this.propertyService = propertyService;
@@ -97,12 +98,13 @@ public class PropertyModerationController {
         this.duplicateClusters = duplicateClusters;
         this.signals = signals;
         this.reviewQueue = reviewQueue;
+        this.rows = rows;
     }
 
     // Queue rationale: docs/flows/admin/property-verification.md#moderation-controller.
     @GetMapping(Routes.Moderation.ADMIN_PROPERTIES)
     @PreAuthorize(PROPERTIES_READ)
-    public PageResponse<PropertyModerationResponse> queue(
+    public PageResponse<PropertyQueueRow> queue(
             @RequestParam(required = false) String deal,
             @RequestParam(required = false) String type,
             @RequestParam(required = false) String locality,
@@ -135,11 +137,21 @@ public class PropertyModerationController {
         Set<UUID> replied = reviewQueue.awaitingStaff(
                 page.getContent().stream().map(Property::getId).toList());
         return PageResponse.of(page,
-                p -> new PropertyModerationResponse(
-                        propertyMapper.toResponse(p, ContactVisibility.REVEALED,
-                                BackOfficeVisibility.VISIBLE, counts, PrivateFieldVisibility.VISIBLE),
-                        pageSignals.getOrDefault(p.getId(), ListingSignals.NONE),
+                p -> rows.toRow(p, counts, pageSignals.getOrDefault(p.getId(), ListingSignals.NONE),
                         replied.contains(p.getId())));
+    }
+
+    // The full record behind a queue row: the review modal, the View modal and a deep link.
+    @GetMapping(Routes.Moderation.ADMIN_PROPERTY)
+    @PreAuthorize(PROPERTIES_READ)
+    public PropertyModerationResponse detail(@PathVariable String id) {
+        Property p = service.find(id);
+        List<Property> one = List.of(p);
+        return new PropertyModerationResponse(
+                propertyMapper.toResponse(p, ContactVisibility.REVEALED, BackOfficeVisibility.VISIBLE,
+                        outreach.countsFor(one), PrivateFieldVisibility.VISIBLE),
+                signals.forProperties(one).getOrDefault(p.getId(), ListingSignals.NONE),
+                reviewQueue.awaitingStaff(List.of(p.getId())).contains(p.getId()));
     }
 
     // Unfiltered because it answers "how much is waiting that I am not looking at".
@@ -174,7 +186,7 @@ public class PropertyModerationController {
         service.clearFlag(principal, id);
     }
 
-    // Returns a body because field mapping lives in ListingService.
+    // Returns a body because field mapping lives in ListingModerationService.
     @PatchMapping(Routes.Moderation.PROPERTY_ADMIN_UPDATE)
     @PreAuthorize(PROPERTIES_EDIT)
     public PropertyResponse adminUpdate(@CurrentUser AuthPrincipal principal,
@@ -236,6 +248,13 @@ public class PropertyModerationController {
     public MessageSender.Prepared chaseOwner(@CurrentUser AuthPrincipal principal,
             @PathVariable String id, @Valid @RequestBody OutreachRequest body) {
         return outreach.chase(principal, id, body.templateId());
+    }
+
+    @PostMapping(Routes.Moderation.PROPERTY_OUTREACH_SENT)
+    @PreAuthorize(POST_ON_BEHALF_WRITE)
+    public OwnerOutreachService.OwnerOutreachEntry markOutreachSent(@CurrentUser AuthPrincipal principal,
+            @PathVariable String id, @PathVariable String messageId) {
+        return outreach.markSent(principal, id, messageId);
     }
 
     // Read atom, not write: colleagues must see when someone already called.

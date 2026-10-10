@@ -111,9 +111,17 @@ class EngagementEndpointsTest extends AbstractApiTest {
                 .andExpect(jsonPath("$.totalElements").value(2))
                 .andReturn().getResponse().getContentAsString();
         List<String> ids = com.jayway.jsonpath.JsonPath.read(body, "$.content[*].id");
-        List<String> statuses = com.jayway.jsonpath.JsonPath.read(body, "$.content[*].status");
+        List<Boolean> available = com.jayway.jsonpath.JsonPath.read(body, "$.content[*].available");
         assertThat(ids).containsExactlyInAnyOrder(approved.getId().toString(), rented.getId().toString());
-        assertThat(statuses).contains(PropertyStatus.RENTED);
+        assertThat(available).containsExactlyInAnyOrder(true, false);
+        assertThat(body).doesNotContain("\"status\"", "ownerId", "\"lat\"");
+
+        String keys = mvc.perform(get("/me/saved/keys").header(HttpHeaders.AUTHORIZATION, auth))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].title").doesNotExist())
+                .andReturn().getResponse().getContentAsString();
+        List<String> keyIds = com.jayway.jsonpath.JsonPath.read(keys, "$[*].id");
+        assertThat(keyIds).containsExactlyInAnyOrderElementsOf(ids);
 
         pending.setStatus(PropertyStatus.APPROVED);
         properties.saveAndFlush(pending);
@@ -637,6 +645,32 @@ class EngagementEndpointsTest extends AbstractApiTest {
     void dismiss_malformedId_returns400NotServerError() throws Exception {
         User u = user("9820100042");
         mvc.perform(delete("/notifications/not-a-uuid").header(HttpHeaders.AUTHORIZATION, bearer(u)))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void dismissMany_removesOnlyTheCallersRowsInOneCall() throws Exception {
+        User a = user("9820100046");
+        User b = user("9820100047");
+        UUID mine1 = UUID.randomUUID();
+        UUID mine2 = UUID.randomUUID();
+        UUID theirs = UUID.randomUUID();
+        jdbc.update("insert into notifications (id, user_id, type, title) values (?, ?, 'info', 'One')", mine1, a.getId());
+        jdbc.update("insert into notifications (id, user_id, type, title) values (?, ?, 'info', 'Two')", mine2, a.getId());
+        jdbc.update("insert into notifications (id, user_id, type, title) values (?, ?, 'info', 'B')", theirs, b.getId());
+
+        mvc.perform(post("/notifications/dismiss").header(HttpHeaders.AUTHORIZATION, bearer(a))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"ids\":[\"" + mine1 + "\",\"" + mine2 + "\",\"" + theirs + "\"]}"))
+                .andExpect(status().isNoContent());
+
+        assertThat(jdbc.queryForObject("select count(*) from notifications where user_id = ?", Integer.class, a.getId()))
+                .isZero();
+        assertThat(jdbc.queryForObject("select count(*) from notifications where id = ?", Integer.class, theirs))
+                .isOne();
+        mvc.perform(post("/notifications/dismiss").header(HttpHeaders.AUTHORIZATION, bearer(a))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"ids\":[]}"))
                 .andExpect(status().isBadRequest());
     }
 

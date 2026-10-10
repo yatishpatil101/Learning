@@ -3,7 +3,7 @@ package com.draazy.api.engagement.saved;
 import com.draazy.api.catalog.property.Property;
 import com.draazy.api.catalog.property.PropertyMapper;
 import com.draazy.api.catalog.property.PropertyRepository;
-import com.draazy.api.catalog.property.PropertySummary;
+import com.draazy.api.catalog.property.SavedCard;
 import com.draazy.api.common.error.NotFoundException;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -30,10 +30,9 @@ public class SavedPropertyService {
         this.propertyMapper = propertyMapper;
     }
 
-    /** The mapper produces the contract {@link PropertySummary} without ever leaking the JPA entity.
-     * Saved-order is restored after {@code findAllById}, which does not guarantee it. */
+    /** Saved-order is restored after {@code findAllById}, which does not guarantee it. */
     @Transactional(readOnly = true)
-    public Page<PropertySummary> listSaved(UUID userId, Pageable pageable) {
+    public Page<SavedCard> listSaved(UUID userId, Pageable pageable) {
         Page<UUID> ids = savedPropertyRepo.findSavedPropertyIds(userId, pageable);
         if (ids.isEmpty()) {
             return new PageImpl<>(List.of(), ids.getPageable(), ids.getTotalElements());
@@ -41,11 +40,19 @@ public class SavedPropertyService {
         List<Property> props = propertyRepo.findAllById(ids.getContent());
         Map<UUID, Property> byId = new LinkedHashMap<>();
         props.forEach(p -> byId.put(p.getId(), p));
-        List<PropertySummary> content = ids.getContent().stream()
+        List<SavedCard> content = ids.getContent().stream()
                 .filter(byId::containsKey)
-                .map(id -> propertyMapper.toSummary(byId.get(id)))
+                .map(id -> propertyMapper.toSaved(byId.get(id)))
                 .toList();
         return new PageImpl<>(content, ids.getPageable(), ids.getTotalElements());
+    }
+
+    /** The whole shortlist as keys: the shell needs every heart, so this is unpaged. */
+    @Transactional(readOnly = true)
+    public List<SavedKey> listKeys(UUID userId) {
+        return savedPropertyRepo.findSavedKeys(userId).stream()
+                .map(row -> new SavedKey(row[0].toString(), (String) row[1]))
+                .toList();
     }
 
     /** Validates existence first so we never write a dangling FK (which would 500 on the constraint). */

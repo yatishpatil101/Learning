@@ -12,23 +12,23 @@ import CardActions from './CardActions.jsx';
 import {
   FURNISH_LABEL, LISTING_STATUS_CLS, STATUS_LABEL, STATUS_ICON, FRESHNESS_ICON,
 } from './helpers.js';
-// The panel supplies deal, review and split data in bulk to avoid per-card requests.
+// The panel supplies review and split data in bulk to avoid per-card requests.
 
 export default function ListingCard({
-  l, dealStatus = 'active', review = null, split = null, leadsFor, featuringOn,
+  l, review = null, split = null,
   navigate, openReview,
   onConfirmFresh, onConfirmListing, onReopen, onMarkUnderOffer, onFinalize, onDelete,
   onSplit, onUnsplit, onPause, onResume, onShare, onOpenTools, onEditGroup, onEditPost, onRenew, t,
 }) {
   const unread = review?.unread || 0;
+  const dealStatus = l.dealStatus || 'active';
   const closed = dealStatus === 'closed';
   const reserved = dealStatus === 'reserved';
   const isSale = l.deal === 'buy' || l.deal === 'sale';
   const displayStatus = closed ? (isSale ? 'sold' : 'rented') : reserved ? 'under_offer' : l.status;
   // Freshness describes availability, not approval; unapproved listings cannot be reactivated.
   const fr = !l.flatmate && !closed && l.status === 'approved' ? listingFreshness(l) : null;
-  const listingKey = l.uuid || l.id;
-  const leads = !l.flatmate ? leadsFor(listingKey) : 0;
+  const leads = !l.flatmate ? l.pendingLeads || 0 : 0;
   const qScore = !l.flatmate ? computeQualityScore(l) : 0;
   const qMeta = !l.flatmate ? qualityColor(qScore) : null;
   const qTone = qScore >= 80 ? 'emerald' : qScore >= 60 ? 'amber' : 'rose';
@@ -76,11 +76,6 @@ export default function ListingCard({
   else if (!l.flatmate && leads > 0) primary = { label: `${leads} waiting`, icon: 'users-round', tone: 'teal', onClick: () => navigate('/dashboard#leads') };
   // Rental room management stays visible; unrelated low-frequency actions use "More".
 
-  const featureItem = (!l.flatmate && featuringOn && l.status === 'approved')
-    ? (l.featured
-        ? { icon: 'star', label: 'Featured · Owner plan', disabled: true }
-        : { icon: 'star', label: 'Feature — upgrade', to: '/plans' })
-    : null;
   const roomAction = (splitEligible && !isSplit)
     ? { icon: 'layout-grid', label: 'Let room by room', onClick: () => onSplit && onSplit(l) }
     : (isSplit && movedIn === 0)
@@ -108,7 +103,6 @@ export default function ListingCard({
     (!l.flatmate && !closed && !reserved && l.status === 'approved') && { icon: 'handshake', label: 'Mark under offer', onClick: () => onMarkUnderOffer(l) },
     (!l.flatmate && !closed && (reserved || l.status === 'approved')) && { icon: 'check-circle', label: `Finalize ${isSale ? 'sale' : 'rental'}`, onClick: () => onFinalize(l) },
     (!l.flatmate && !closed && !reserved && l.status === 'approved') && { icon: 'pause-circle', label: t('listingLifecycle.pause'), onClick: () => onPause(l) },
-    featureItem,
     (l.flatmate || l.flatmatePost || l.flatmateGroup
       ? { icon: 'trash-2', label: 'Delete', tone: 'danger', onClick: () => onDelete(l) }
       : withdrawAction),

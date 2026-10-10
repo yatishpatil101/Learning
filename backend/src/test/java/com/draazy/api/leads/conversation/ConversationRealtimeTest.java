@@ -48,6 +48,8 @@ class ConversationRealtimeTest extends AbstractApiTest {
     @Autowired
     MessageEvents events;
     @Autowired
+    ConversationMessageRepository messageRepository;
+    @Autowired
     PlatformTransactionManager transactionManager;
 
     @Test
@@ -180,6 +182,40 @@ class ConversationRealtimeTest extends AbstractApiTest {
                         .header(HttpHeaders.AUTHORIZATION, bearer(buyer)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.presence").doesNotExist());
+    }
+
+    @Test
+    @DisplayName("the badge count marks nothing delivered; a message to a live stream is delivered at once")
+    void deliveryIsWrittenOnHandOverNotOnTheBadgeRead() throws Exception {
+        User owner = user(Roles.Wire.OWNER, "Owner");
+        User buyer = user(Roles.Wire.BUYER, "Buyer");
+        Property property = listing(owner);
+        approve(buyer, property);
+        String offline = id(start(buyer, owner, property));
+
+        mvc.perform(get(Routes.Conversations.UNREAD_COUNT)
+                        .header(HttpHeaders.AUTHORIZATION, bearer(owner)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.count").value(1));
+        assertDeliveredAt(offline, buyer, null);
+        // The returned ids are who the `delivered` event goes to, so a second pass must find nothing.
+        assertThat(messageRepository.markInboxDelivered(owner.getId())).containsExactly(UUID.fromString(offline));
+        assertThat(messageRepository.markInboxDelivered(owner.getId())).isEmpty();
+
+        User live = user(Roles.Wire.OWNER, "Live owner");
+        Property other = listing(live);
+        approve(buyer, other);
+        MvcResult stream = mvc.perform(get(Routes.Conversations.STREAM)
+                        .header(HttpHeaders.AUTHORIZATION, bearer(live)))
+                .andExpect(request().asyncStarted())
+                .andReturn();
+        try {
+            String online = id(start(buyer, live, other));
+            assertThat(jdbc.queryForObject("select delivered_at from messages where conversation_id = ?::uuid",
+                    Instant.class, online)).isNotNull();
+        } finally {
+            stream.getRequest().getAsyncContext().complete();
+        }
     }
 
     @Test

@@ -228,6 +228,16 @@ public class FlatmateSeekerService {
         return new PageImpl<>(mine, pageable, mine.size());
     }
 
+    @Transactional(readOnly = true)
+    public FlatmateSeekerPostDto myPost(AuthPrincipal caller, UUID postId) {
+        FlatmateSeekerPost post = posts.findById(postId)
+                .filter(p -> !p.isArchived() && p.getUserId().equals(caller.userId()))
+                .orElseThrow(() -> NotFoundException.of("Flatmate post"));
+        User author = users.findById(caller.userId())
+                .orElseThrow(() -> NotFoundException.of("User"));
+        return mapper.toDto(post, new FlatmateMapper.SeekerView(author.getMobile()));
+    }
+
     /** Paged because the host does not write these rows (§5.1 api-standards.md), and batch-hydrated
      * so a page is not an N+1. */
     @Transactional(readOnly = true)
@@ -238,7 +248,9 @@ public class FlatmateSeekerService {
                 ? requests.findByHostIdOrderByRequestedAtDesc(caller.userId(), pageable)
                 : requests.findByHostIdAndStatusOrderByRequestedAtDesc(
                         caller.userId(), filter, pageable);
-        return new PageImpl<>(hydrator.hydrate(rows.getContent()), pageable, rows.getTotalElements());
+        List<FlatmateRequestDto> window = hydrator.hydrate(rows.getContent()).stream()
+                .map(FlatmateRequestDto::forHost).toList();
+        return new PageImpl<>(window, pageable, rows.getTotalElements());
     }
 
     /** Host-scoped by the finder, so deciding somebody else's request is a 404: a 403 would confirm
@@ -253,7 +265,7 @@ public class FlatmateSeekerService {
                 .orElseThrow(() -> NotFoundException.of("Flatmate request"));
         String before = request.getStatus();
         if (verdict.equals(before)) {
-            return hydrator.hydrateOne(request);
+            return hydrator.hydrateOne(request).forHost();
         }
         if (!request.isPending()) {
             throw new ConflictException(FlatmateConflicts.mark(
@@ -268,7 +280,7 @@ public class FlatmateSeekerService {
         audit.record(caller, "flatmate.request." + verdict, "flatmateRequest",
                 request.getId().toString(), "fromStatus", before, "toStatus", verdict);
         notifyDecision(request, verdict);
-        return hydrator.hydrateOne(request);
+        return hydrator.hydrateOne(request).forHost();
     }
 
     /** The mirror of {@link #inbox}, and deliberately without the host's number:
@@ -282,6 +294,11 @@ public class FlatmateSeekerService {
                 : requests.findByRequesterIdAndStatusOrderByCreatedAtDesc(
                         caller.userId(), filter, pageable);
         return new PageImpl<>(hydrator.hydrate(rows.getContent()), pageable, rows.getTotalElements());
+    }
+
+    @Transactional(readOnly = true)
+    public List<FlatmateInterestKeyDto> outboxKeys(AuthPrincipal caller) {
+        return requests.findKeysByRequesterId(caller.userId());
     }
 
     /** Hard delete, pending only, and no rate-limit refund:
@@ -399,7 +416,7 @@ public class FlatmateSeekerService {
                 requester.getId(),
                 "flatmate.interest.sent",
                 "Your message is with " + post.getName(),
-                "So they can reply, we shared your mobile number with them along with your message. "
+                "If they accept, we will share your mobile number with them so they can reply. "
                         + "Nobody else on the board can see it.",
                 FlatmateLinks.of("post", post.getId()));
     }

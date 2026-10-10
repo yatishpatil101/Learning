@@ -135,6 +135,6 @@ test.describe('the owner grants a document request from the Leads inbox', () => 
     const after = await ownerRow(request, reqId);
     expect(after.status).toBe('granted');
     expect(after.sharedDocumentCount).toBe(CATEGORIES.length);
-    expect(after.shareToken, 'a granted row carries the owner-facing forwardable token').toBeTruthy();
+    expect(after, 'the bearer token stays out of the owner inbox').not.toHaveProperty('shareToken');
   });
 });

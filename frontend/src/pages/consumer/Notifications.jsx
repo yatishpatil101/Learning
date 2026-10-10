@@ -15,7 +15,7 @@ import usePullToRefresh from '../../lib/usePullToRefresh.js';
 import { useNotifications } from '../../context/NotificationContext.jsx';
 import { useToast } from '../../context/ToastContext.jsx';
 import {
-  dismiss as dismissOne,
+  dismiss as dismissIds,
   listNotifications,
   markAllRead,
   markRead as markOneRead,
@@ -24,9 +24,6 @@ import {
 const PAGE_SIZE = 50;
 const UNDO_MS = 5000;
 
-// Saved-search match counts are the seam's answer, carried on the record as `matchCount`.
-
-// Only navigate to in-app relative paths; notification links can arrive from server data.
 function SkeletonRows() {
   return (
     <div className="space-y-3">
@@ -36,14 +33,11 @@ function SkeletonRows() {
 }
 
 export default function Notifications() {
-  /* The inbox is whatever the seam returns. */
   const { t } = useTranslation();
   const { toast } = useToast();
   const { unread, refresh: refreshBadge } = useNotifications();
   const [notifs, setNotifs] = useState([]);
   const [filter, setFilter] = useState('all');
-  // Derived (client-side) notifications, computed from the user's own saved searches and saved properties. Held
-  // separately from the list so a re-derivation cannot duplicate server rows.
   const [status, setStatus] = useState('loading');
   const [pageInfo, setPageInfo] = useState({ page: 0, total: 0, totalPages: 0 });
   const [undo, setUndo] = useState(null);
@@ -70,20 +64,15 @@ export default function Notifications() {
       setStatus('error');
     }
   }, [refreshBadge]);
-  /* Re-runs whenever `derived` changes, which is how the two halves converge — the first pass shows the stored inbox,
-     and the alert pass adds to it once the saved searches and shortlist land. */
 
   useEffect(() => {
     loadPage(0);
   }, [loadPage]);
 
-  /* Pull down from the top of the inbox to re-read it. */
   dismissPendingRef.current = (entry) => {
-    void Promise.all(entry.ids.map((id) => dismissOne(id))).finally(refreshBadge);
+    void dismissIds(entry.ids).finally(refreshBadge);
   };
 
-    /* Respect the user's settings: the master "New match alerts" switch and quiet hours both suppress the
-       non-critical live match/price notifications. */
   useEffect(() => () => {
     clearTimeout(undoTimer.current);
     if (undoRef.current) dismissPendingRef.current?.(undoRef.current);
@@ -96,15 +85,12 @@ export default function Notifications() {
     return collapseNotifications(filtered);
   }, [filter, notifs]);
 
-        /* The match count comes off the saved search itself, counted by the server. */
   const groups = useMemo(() => {
     const today = visible.filter((n) => isToday(n.at));
     const earlier = visible.filter((n) => !isToday(n.at));
     return [['today', today], ['earlier', earlier]].filter(([, rows]) => rows.length);
   }, [visible]);
 
-    // Both lists arrive asynchronously now, so this has to re-run once they land — on the first pass they are still
-    // empty and the match/availability nudges would be skipped for everyone.
   const mutate = async (apply, request) => {
     const prev = notifs;
     setNotifs(apply);
@@ -127,7 +113,6 @@ export default function Notifications() {
     markAllRead,
   );
 
-  /* Every mutation is optimistic, then reconciled. */
   const markRead = (item) => {
     const ids = idsFor(item);
     if (ids.every((id) => notifs.find((n) => n.id === id)?.read)) return Promise.resolve(true);
@@ -141,16 +126,14 @@ export default function Notifications() {
     const ids = idsFor(item);
     return mutate(
       (cur) => cur.filter((n) => !ids.includes(n.id)),
-      () => Promise.all(ids.map((id) => dismissOne(id))),
+      () => dismissIds(ids),
     );
   };
 
-  // Localise a notification at render time. Known seeds resolve by id; live match/price items resolve from their
-  // stored `key` + `vars`; anything else falls back to its stored (English) title/desc.
   const commitUndo = useCallback(async (entry) => {
     if (!entry) return;
     try {
-      await Promise.all(entry.ids.map((id) => dismissOne(id)));
+      await dismissIds(entry.ids);
     } catch {
       setNotifs((cur) => [...entry.rows, ...cur].sort((a, b) => (b.at || 0) - (a.at || 0)));
       toast("Couldn't update. Try again.", 'error');

@@ -16,8 +16,10 @@ public interface DocumentRequestRepository extends JpaRepository<DocumentRequest
     Page<DocumentRequest> findByPropertyIdInOrderByCreatedAtDesc(
             Collection<UUID> propertyIds, Pageable pageable);
 
-    // The mirror of the inbox above, and deliberately a different query rather than the same one with a different argument.
     Page<DocumentRequest> findByRequesterIdOrderByCreatedAtDesc(UUID requesterId, Pageable pageable);
+
+    Page<DocumentRequest> findByRequesterIdAndPropertyIdOrderByCreatedAtDesc(
+            UUID requesterId, UUID propertyId, Pageable pageable);
 
     /** The idempotency read behind {@code POST /documents/requests}. */
     Optional<DocumentRequest> findByRequesterIdAndPropertyIdAndStatus(

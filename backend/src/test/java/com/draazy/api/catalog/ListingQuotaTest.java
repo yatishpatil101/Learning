@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.containsString;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -131,6 +132,61 @@ class ListingQuotaTest extends AbstractApiTest {
         mvc.perform(get(Routes.Plans.ENTITLEMENTS).header("Authorization", bearer(o)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.listings.used").value(2));
+    }
+
+    @Test
+    @DisplayName("the wizard's quota read gives the caller's own allowance and held count, nothing else")
+    void theQuotaReadMatchesEntitlementsAndIsScopedToTheCaller() throws Exception {
+        User o = owner("9861000011");
+        User other = owner("9861000012");
+        existing(o, "Live", PropertyStatus.APPROVED);
+        existing(o, "Turned down", PropertyStatus.REJECTED);
+        existing(other, "Theirs one", PropertyStatus.APPROVED);
+        existing(other, "Theirs two", PropertyStatus.PENDING);
+
+        mvc.perform(get(Routes.MeListings.QUOTA).header("Authorization", bearer(o)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.used").value(1))
+                .andExpect(jsonPath("$.allowance").isNumber())
+                .andExpect(jsonPath("$.contacts").doesNotExist())
+                .andExpect(jsonPath("$.listings").doesNotExist());
+        mvc.perform(get(Routes.MeListings.QUOTA).header("Authorization", bearer(other)))
+                .andExpect(jsonPath("$.used").value(2));
+        mvc.perform(get(Routes.MeListings.QUOTA)).andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    @DisplayName("create, edit and take-down answer the identity and verdict, not the whole record")
+    void writesAnswerAWriteResult() throws Exception {
+        User o = owner("9861000013");
+        String created = mvc.perform(post("/me/listings").header("Authorization", bearer(o))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(BODY.formatted("Slim write", listingImages(o))))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.id").isString())
+                .andExpect(jsonPath("$.status").value("pending"))
+                .andExpect(jsonPath("$.recheckPending").value(false))
+                .andExpect(jsonPath("$.archived").doesNotExist())
+                .andExpect(jsonPath("$.title").doesNotExist())
+                .andExpect(jsonPath("$.owner").doesNotExist())
+                .andExpect(jsonPath("$.images").doesNotExist())
+                .andReturn().getResponse().getContentAsString();
+        String id = com.jayway.jsonpath.JsonPath.read(created, "$.id");
+
+        mvc.perform(patch("/me/listings/" + id).header("Authorization", bearer(o))
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"description\":\"New copy\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.id").value(id))
+                .andExpect(jsonPath("$.status").value("pending"))
+                .andExpect(jsonPath("$.description").doesNotExist())
+                .andExpect(jsonPath("$.owner").doesNotExist());
+
+        mvc.perform(delete("/me/listings/" + id).header("Authorization", bearer(o)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.id").value(id))
+                .andExpect(jsonPath("$.archived").value(true))
+                .andExpect(jsonPath("$.description").doesNotExist())
+                .andExpect(jsonPath("$.owner").doesNotExist());
     }
 
     @Test

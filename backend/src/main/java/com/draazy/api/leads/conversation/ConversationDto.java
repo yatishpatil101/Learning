@@ -9,7 +9,7 @@ public record ConversationDto(
         String kind,
         String counterpartyName,
         String counterpartyRole,
-        String counterpartyMobile,
+        @JsonInclude(JsonInclude.Include.NON_NULL) String counterpartyMobile,
         String youAre,
         String propertyId,
         String propertyTitle,

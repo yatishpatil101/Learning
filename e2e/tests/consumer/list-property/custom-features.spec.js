@@ -65,7 +65,7 @@ test('Furniture picker: titled by what the owner declares, tiles are keyboard-op
 
   await test.step('a tile is a real control ? keyboard-operable and state-announced', async () => {
     const tile = page.locator('.furn-tile[aria-pressed]').first();
-    await expect(tile).toHaveAttribute('role', 'button');
+    await expect(tile).toHaveJSProperty('tagName', 'BUTTON');
     await expect(tile).toHaveAttribute('aria-pressed', 'false');
     // `html { scroll-behavior: smooth }` is on, so a scrolling focus() would still be animating
     // when the baseline is sampled and the assertion below would blame Space for the difference.

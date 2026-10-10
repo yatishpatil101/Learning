@@ -352,6 +352,35 @@ class FlatmateEditAndInterestEndpointsTest extends AbstractApiTest {
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.content").isEmpty());
         }
+
+        @Test
+        @DisplayName("keys carry the button state and nothing hydrated")
+        void keysAreBareAndCallerScoped() throws Exception {
+            User host = user("9811000196", "Key Host");
+            User seeker = user("9811000197", "Key Asker");
+            User bystander = user("9811000198", "Key Nobody");
+            String roomId = createRoom(host, "Baner", "Sunrise Heights");
+
+            mvc.perform(post(Routes.Flatmates.ROOM_INTEREST, roomId)
+                            .header(HttpHeaders.AUTHORIZATION, bearer(seeker)))
+                    .andExpect(status().isCreated());
+
+            mvc.perform(get(Routes.Flatmates.MY_INTEREST_KEYS)
+                            .header(HttpHeaders.AUTHORIZATION, bearer(seeker)))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.length()").value(1))
+                    .andExpect(jsonPath("$[0].kind").value("room"))
+                    .andExpect(jsonPath("$[0].targetId").value(roomId))
+                    .andExpect(jsonPath("$[0].status").value("pending"))
+                    .andExpect(jsonPath("$[0].id").isNotEmpty())
+                    .andExpect(jsonPath("$[0].requesterMobile").doesNotExist())
+                    .andExpect(jsonPath("$[0].targetTitle").doesNotExist());
+
+            mvc.perform(get(Routes.Flatmates.MY_INTEREST_KEYS)
+                            .header(HttpHeaders.AUTHORIZATION, bearer(bystander)))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$").isEmpty());
+        }
     }
 
     @Nested

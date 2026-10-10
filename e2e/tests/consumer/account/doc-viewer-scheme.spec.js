@@ -51,7 +51,9 @@ test.describe('Document viewer — live storage and content rules', () => {
         bytes: PNG,
       });
       expect(uploaded.status, 'uploading a viewable image').toBe(201);
-      expect(uploaded.body.url, 'the server response carries a hosted URL, not a browser data URL').not.toMatch(/^data:/);
+      expect(uploaded.body, 'the upload response is metadata; the file is signed on open').not.toHaveProperty('url');
+      const signed = await fetch(`${API}/me/documents/${uploaded.body.id}/url`, { headers: owner.headers });
+      expect((await signed.json()).url, 'the minted URL is hosted, not a browser data URL').not.toMatch(/^data:/);
       createdDocumentIds.add({ mobile: owner.mobile, id: uploaded.body.id });
 
       await signedInAs(page, owner.mobile);

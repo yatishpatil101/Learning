@@ -97,4 +97,44 @@ test.describe('Messages realtime — live API', () => {
       await buyerContext.close();
     }
   });
+
+  test('the sender sees delivered when an offline recipient comes online, with no presence or read receipts', async ({ page, browser, request }) => {
+    const thread = await liveThread(request);
+    const id = thread.conversation.id;
+    await request.patch(`${API}/auth/me`, { headers: thread.buyer.headers, data: { shareActivityStatus: false, shareReadReceipts: false } });
+
+    await signedInAs(page, ACTORS.owner);
+    await page.goto(`/messages?c=${id}`);
+    const body = `Waiting for you ${Date.now()}`;
+    await page.locator('.pc-input').fill(body);
+    await Promise.all([replyResponse(page, id), page.locator('.pc-send').click()]);
+    const ownerBubble = page.locator('.pc-bubble.me', { hasText: body });
+    await expect(ownerBubble).toBeVisible();
+    await expect(ownerBubble.locator('.tick.delivered')).toHaveCount(0);
+
+    const buyerContext = await browser.newContext();
+    try {
+      await signedInAs(await buyerContext.newPage(), thread.buyer.mobile);
+      await expect(ownerBubble.locator('.tick.delivered')).toBeVisible({ timeout: 10000 });
+    } finally {
+      await buyerContext.close();
+    }
+  });
+
+  test('inbox rows carry no number or presence; thread messages say mine, not whose id', async ({ page, request }) => {
+    const { conversation } = await liveThread(request);
+    const isGet = (r, path) => r.request().method() === 'GET' && new URL(r.url()).pathname === path;
+    const list = page.waitForResponse((r) => isGet(r, '/api/messages') && r.status() === 200);
+    const detail = page.waitForResponse((r) => isGet(r, `/api/messages/${conversation.id}`) && r.status() === 200);
+    await signedInAs(page, ACTORS.owner);
+    await page.goto(`/messages?c=${conversation.id}`);
+
+    const rows = (await (await list).json()).content;
+    expect(rows.length).toBeGreaterThan(0);
+    expect(rows.filter((c) => 'counterpartyMobile' in c || 'presence' in c || 'messages' in c)).toEqual([]);
+    const thread = await (await detail).json();
+    expect(thread.messages.length).toBeGreaterThan(0);
+    expect(thread.messages.every((m) => typeof m.mine === 'boolean' && !('authorId' in m) && !('authorRole' in m))).toBe(true);
+    await expect(page.locator('.pc-bubble.them').first()).toBeVisible();
+  });
 });

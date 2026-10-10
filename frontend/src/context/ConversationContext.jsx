@@ -43,10 +43,16 @@ export function ConversationProvider({ children }) {
     return () => { alive = false; };
   }, [isIn]);
 
-  /* Re-reads when another tab writes, focus returns, or the network comes back. */
+  /* Re-reads when another tab writes, focus returns, or the network comes back. Focus and
+     visibilitychange fire together on a tab switch, so one read answers both. */
   useEffect(() => {
     if (!isIn) return undefined;
-    const onChange = () => { if (!document.hidden) refresh(); };
+    let last = 0;
+    const onChange = () => {
+      if (document.hidden || Date.now() - last < 1000) return;
+      last = Date.now();
+      refresh();
+    };
     window.addEventListener('storage', onChange);
     window.addEventListener('focus', onChange);
     window.addEventListener('online', onChange);

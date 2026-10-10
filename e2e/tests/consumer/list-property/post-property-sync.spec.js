@@ -62,7 +62,7 @@ test.describe('Post-property ↔ Post-on-behalf option sync', () => {
     expect(created.status()).toBe(201);
     const id = (await created.json()).id;
     postedIds.add(id);
-    await expect(page.getByRole('heading', { name: 'Listing Sent to Owner' })).toBeVisible({ timeout: 15000 });
+    await expect(page.getByRole('heading', { name: 'Listing created' })).toBeVisible({ timeout: 15000 });
 
     const confirmed = await fetch(`${API}/me/listings/${id}/confirm`, {
       method: 'POST', headers: await authHeaders('9600000123'),
