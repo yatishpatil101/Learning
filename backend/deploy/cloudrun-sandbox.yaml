@@ -41,9 +41,9 @@ spec:
       # its timeout and surface as slow 500s, where 40 lets Cloud Run scale out.
       containerConcurrency: 40
 
-      # Past any legitimate request (13MB multipart on a slow uplink) but short enough that a hung
-      # one releases its database connection well before the platform default of five minutes.
-      timeoutSeconds: 120
+      # The messages SSE stream is one request that lives up to MessageEventHub.STREAM_TIMEOUT_MS
+      # (5 min); a shorter platform timeout would cut it mid-stream and force a reconnect.
+      timeoutSeconds: 3600
 
       containers:
         - image: ${IMAGE}
@@ -208,6 +208,19 @@ spec:
               valueFrom:
                 secretKeyRef:
                   name: draazy-sandbox-google-places-server-key
+                  key: latest
+
+            # Web push. The pair must be created (and the runtime account granted access) before deploy;
+            # both are secrets only so the manifest needs no extra substitution variable.
+            - name: PUSH_VAPID_PRIVATE_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: draazy-sandbox-push-vapid-private-key
+                  key: latest
+            - name: PUSH_VAPID_PUBLIC_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: draazy-sandbox-push-vapid-public-key
                   key: latest
 
           # HTTP, not TCP: a TCP probe passes the moment Tomcat binds, before the context is ready.

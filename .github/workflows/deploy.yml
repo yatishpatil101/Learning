@@ -177,7 +177,7 @@ jobs:
             --role roles/run.invoker \
             --quiet
 
-      # Asks what the startup probe cannot — reachable from outside, through the IAM binding — and gates the frontend job.
+      # Checks external reachability through the IAM binding, which the startup probe cannot; gates the frontend.
       - name: Smoke test
         run: |
           set -euo pipefail
@@ -247,6 +247,7 @@ jobs:
           VITE_CASHFREE_MODE: ${{ vars.VITE_CASHFREE_MODE }}
           VITE_PMF_MODE: ${{ vars.VITE_PMF_MODE }}
           VITE_GA_ID: ${{ secrets.VITE_GA_ID }}
+          VITE_VAPID_PUBLIC_KEY: ${{ vars.VITE_VAPID_PUBLIC_KEY }}
         run: |
           set -euo pipefail
 
@@ -263,7 +264,7 @@ jobs:
         working-directory: frontend
         run: |
           set -euo pipefail
-          for required in dist/index.html dist/_headers functions/api/'[[path]]'.js \
+          for required in dist/index.html dist/404.html dist/_redirects dist/_headers functions/api/'[[path]]'.js \
                           dist/models/face_landmarker.task; do
             if [ ! -f "$required" ]; then
               echo "::error::Expected ${required} to exist before deploying. Refusing to publish an incomplete site." >&2
@@ -334,6 +335,18 @@ jobs:
             ok=true
 
             curl -fsS --max-time 30 -o /dev/null "${SITE_URL}/" || ok=false
+
+            # Deep links must reach the shell; unknown paths must 404, not a soft 200.
+            if [ "$ok" = true ]; then
+              for probe in "/listings 200" "/property/smoke 200" "/locality/baner 200" "/locality/smoke-area 200" "/no-such-page-smoke 404"; do
+                set -- $probe
+                code=$(curl -sS --max-time 30 -o /dev/null -w '%{http_code}' "${SITE_URL}$1") || code=000
+                if [ "$code" != "$2" ]; then
+                  echo "::warning::$1 answered $code, expected $2. Check the generated dist/_redirects and dist/404.html."
+                  ok=false
+                fi
+              done
+            fi
 
             if [ "$ok" = true ]; then
               content_type=$(curl -fsS --max-time 60 -o "$body" -w '%{content_type}' \

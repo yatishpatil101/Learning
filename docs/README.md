@@ -39,6 +39,7 @@ purpose is discharged** — the backend exists and the mock layer is gone. So th
 Operational, not part of the reading order above — reach for these when you are at a terminal.
 
 - [`system/profiles.md`](./system/profiles.md) — the four tiers (`local` → `local,e2e` → `sandbox` → `prod`), what each turns on, and how the deployed ones are kept from drifting apart.
+- [`system/notifications.md`](./system/notifications.md) — every in-app, WhatsApp, email and push message we send (consumer and back office), with its copy, cost and trigger.
 - [`LOCAL_DEV.md`](./LOCAL_DEV.md) — both halves on one machine.
 - [`DEPLOY.md`](./DEPLOY.md) — the deploy **contract**: the same-site cookie rule, every environment variable, and which mistakes fail silently. Read it to understand a value.
 - [`MANUAL_VERIFICATION.md`](./MANUAL_VERIFICATION.md) — what to check by hand in sandbox (full regression) and production (smoke) after a deploy, and the production never-do list.
@@ -51,7 +52,7 @@ docs/
   DEPLOY.md   deploy contract · DEPLOY_WALKTHROUGH.md ordered runbook · LOCAL_DEV.md
               MANUAL_VERIFICATION.md sandbox regression + prod smoke
   system/     platform-architecture, package-structure, data-model, cross-cutting, api-standards,
-              design-system, frontend-data-seam, profiles, code-quality,
+              design-system, frontend-data-seam, profiles, notifications, code-quality,
               legal-entity-and-compliance, tech-debt, open-questions, fixture-registry
   flows/      consumer/ (16) admin/ (9) ops/ (3) — per-feature behavioural specs
   roadmap/    mobile-app-plan, ai-ml-libraries

@@ -49,8 +49,11 @@ lands the browser on the backend's origin and loses the cookie exactly as descri
 did proxy such a rule, which is why `scripts/gen-redirects.mjs` existed and why it was deleted
 rather than carried over — kept, it would have produced a deploy that looked configured and was not.
 
-Pages resolves Functions before static assets and before `_redirects`, so the SPA fallback in
-`frontend/public/_redirects` cannot shadow `/api`. The `/api` prefix is forwarded verbatim because
+Pages resolves Functions before static assets and before `_redirects`, so the SPA rewrites cannot
+shadow `/api`. `_redirects` is generated at build time by `frontend/scripts/vite-plugin-spa-fallback.mjs`:
+one rewrite per `App.jsx` route to the shell (prerendered pages rewrite to themselves first), which ships as `dist/404.html` so unknown paths answer a
+real 404. A `/*` rewrite cannot be used: Pages ignores `/* /index.html`, and any other `/*` target
+would be matched before the asset lookup and serve `/assets/*.js` as HTML. The `/api` prefix is forwarded verbatim because
 the backend runs with `server.servlet.context-path=/api`. The Function's own configuration is a
 single Pages environment variable, `API_ORIGIN` (scheme + host of the Cloud Run service, no path);
 unset, it answers 502 rather than falling through — a fall-through would return the HTML shell with
@@ -279,15 +282,63 @@ Lines the backend sends:
 
 | Decision | `{{1}}` value |
 |---|---|
-| Approved | `Your Draazy identity verification is approved. Your profile now shows the verified badge.` |
-| Rejected / stale pending | `Your Draazy identity verification could not be completed. Open the app to see the reason and retake your photos.` |
+| Rejected by a reviewer / stale pending | `Your Draazy identity verification could not be completed. Open the app to see the reason and retake your photos.` |
 | Revoked | `Your Draazy verified badge was withdrawn. Open the app to see the reason and submit again.` |
 
-If `WHATSAPP_ENABLED=false`, `LoggingDecisionMessenger` logs a mock send. If WhatsApp is enabled but
+Approvals and the automatic check's rejects send no WhatsApp (in-app only). If `WHATSAPP_ENABLED=false`, `LoggingDecisionMessenger` logs a mock send. If WhatsApp is enabled but
 the identity template name or language is blank, `WhatsAppDecisionMessenger` logs and skips only the
 WhatsApp leg. Vendor failures are logged and swallowed; the decision is already committed and visible
 in-app. Meta business verification and approved templates remain the gate before useful WhatsApp
 delivery; see ADR-020 notes in §7.
+
+**WhatsApp waiting-on-you digest template.** Sent by `WaitingDigestSweep` (10:00 IST, daily; it inherits the
+Cloud Run CPU-throttling caveat above) through the same `WhatsAppDecisionMessenger`. Rules are in
+[`notifications.md`](./system/notifications.md#waiting-on-you-digest--utility-template).
+
+| Setting | Value |
+|---|---|
+| Meta category | `UTILITY`; **needs Meta approval before the name is set** |
+| Suggested body text | `You have {{1}} waiting for your reply on Draazy. Open the app to respond.` with `{{1}}` = `1 request` / `N requests` |
+| Template name | `WHATSAPP_DIGEST_TEMPLATE_NAME`; blank means no digest is sent |
+| Language | `WHATSAPP_DIGEST_TEMPLATE_LANG`, default `en_US` |
+| Off switch | `draazy.engagement.waiting-digest.enabled=false` |
+
+**Web push (VAPID).** `WebPushSender` is wired when `PUSH_VAPID_PRIVATE_KEY` is set; without it
+`LoggingPushSender` only logs. Generate a pair once with `npx web-push generate-vapid-keys` (base64url).
+
+| Setting | Value |
+|---|---|
+| `PUSH_VAPID_PRIVATE_KEY` | Secret. Boot fails if it is set without the public key or is not a P-256 key |
+| `PUSH_VAPID_PUBLIC_KEY` | The matching public key |
+| `PUSH_VAPID_SUBJECT` | Contact the push services may use; `mailto:` or https. Default `mailto:noreply@draazy.com` |
+| `VITE_VAPID_PUBLIC_KEY` | Frontend build-time variable carrying the **same public key**, so browsers subscribe to it |
+
+On Cloud Run both keys are Secret Manager references (`draazy-sandbox-push-vapid-private-key` and
+`draazy-sandbox-push-vapid-public-key` in `backend/deploy/cloudrun-sandbox.yaml`); create the secrets and grant the
+runtime service account access before deploy, or the revision will not start. Rotating the pair invalidates every stored subscription: they are removed as the push
+service answers 404/410 or they re-subscribe.
+
+**Email (Zoho ZeptoMail via CPaaS).** Sender: `provider/zeptomail/ZeptoMailEmailSender.java`. Today it
+only emails staff invite and password-reset links (`StaffInviteMailer`) to the account's own address;
+the admin's copy-link dialog is unchanged and stays the fallback.
+
+| Setting | Value |
+|---|---|
+| `ZEPTOMAIL_ENABLED` | `true` to send; off logs `[MOCK EMAIL]` with recipient domain + subject |
+| `ZEPTOMAIL_API_KEY` | The agent's **Send Mail token** (CPaaS → Agents → agent → SMTP/API). Secret; with or without the `Zoho-enczapikey ` prefix |
+| `ZEPTOMAIL_FROM_ADDRESS` | Default `noreply@draazy.com`; must be on a domain whose DKIM **and** CNAME show Verified |
+| `ZEPTOMAIL_FROM_NAME` | Default `Draazy` |
+| `ZEPTOMAIL_BASE_URL` | Default `https://cpaas.zoho.in` (India DC; the account lives on `cpaas.zoho.in`) |
+
+The boot fails if the flag is on and the key or from-address is blank. Send failures log
+`ZeptoMail send to ***@domain failed: <status> code=TM_xxxx SERR_xxx`; `SERR_157` is a bad token.
+
+**Provider call log (`/admin/integrations`, admin only).** Every ZeptoMail, WhatsApp and Cashfree
+call, and every Cashfree webhook, writes one `provider_call` row (`provider/ProviderCalls.java`):
+outcome, masked recipient, order id or subject, an error code and the latency. Message bodies, OTPs,
+links and keys are never stored. The page shows 24h/7d health per provider and a log searchable by
+full email, mobile or order id. Rows are written off the request thread and purged after 90 days;
+nothing to configure. Delivery and bounce receipts still live in each vendor's console.
 
 **Server-chosen selfie pose.** `POST /me/verification/identity/challenge` issues a signed 15-minute
 challenge with pose `left`, `right` or `smile` (`LivenessCheck.java`). If a challenge token is
@@ -304,7 +355,7 @@ Hardware checks live in
 | Submit one real identity verification using the R2 private bucket | `POST /me/verification/identity` returns `202`; review queue loads front/back/selfie images via signed URLs |
 | Approve the case | User gains the verified badge; owner listings receive the verified owner stamp |
 | Purge path | Files disappear under the retention rules above; failed deletes remain in `identity_storage_deletes` until retried |
-| WhatsApp configured | The decision message arrives with the exact line in the table above |
+| Reject the case (reviewer) | The decision message arrives with the exact line in the table above; an approval sends none |
 
 ## 4. `INTERNAL_PROXIES` and the origin gate
 
@@ -416,7 +467,7 @@ Six settings in it encode consequences that are invisible from the console:
 | `autoscaling.knative.dev/minScale` | `1` | The only setting here that costs money whether or not anyone uses the service: one instance held warm is ~₹1,300/month at `1Gi` (₹42/day on the Sep 2026 bill), billed at the *idle* rate because `cpu-throttling` stays on. Bought to remove the JVM boot plus Spring context refresh from the first request after an idle period, and from every redeploy cutover. The trap is reading it as "the backend is now running": CPU is still throttled to ~0 between requests, so the `@Scheduled` sweeps remain frozen. It satisfies one of ADR-011 Option C's two preconditions; ShedLock and `cpu-throttling: 'false'` are the other half, and that half is the 6× bill. |
 | `autoscaling.knative.dev/maxScale` | `4` | Each instance opens up to 5 Postgres connections (`spring.datasource.hikari.maximum-pool-size`), so the ceiling multiplies straight into Supabase's budget: 4 × 5 = 20, which the free-tier pooler absorbs. At the default of 100 the same arithmetic gives 500 and the database refuses connections under a spike — arriving as scattered 500s on unrelated endpoints, never as anything naming the pool. It is also the runaway-cost stop: a crawler cannot cost more than four instances' compute. |
 | `containerConcurrency` | `40` | Tomcat accepts 200 by default and then parks 195 of them on Hikari until its 30-second connection timeout expires, which surfaces as slow 500s rather than honest backpressure. Forty keeps the queue short enough that Cloud Run scales out instead. |
-| `timeoutSeconds` | `120` | Well past any normal request; short enough that a hung one releases its database connection rather than holding it for the platform default of five minutes. The only legitimate slow request is a 13 MB multipart upload (`spring.servlet.multipart.max-request-size`) over a slow mobile uplink. |
+| `timeoutSeconds` | `3600` | The Cloud Run maximum. The messages SSE stream (`MessageEventHub`) is a single long request, so any shorter timeout cuts it mid-stream and reconnects every client on that period (it did at `120`); the hub's own 5-minute stream timeout and 25-second heartbeat bound it instead. The other slow request is a 13 MB multipart upload (`spring.servlet.multipart.max-request-size`) over a slow mobile uplink. A hung ordinary request now holds its thread for longer than the old `120`. |
 | `resources.limits.memory` | `1Gi` | The Dockerfile sets `-XX:MaxRAMPercentage=70.0`, so this is a ~717 Mi heap with ~300 Mi for metaspace, code cache and thread stacks. Measured under these limits: a first boot applying every migration plus the seed peaks at ~560 MB resident, 40 concurrent requests at ~650 MB, and the live heap after GC is ~130 MB. A first-boot startup-probe failure at this size is the migration backlog outrunning the probe, not memory — the fix is the probe below, not a bigger instance. At 512 Mi the non-heap no longer fits and the container is OOM-killed during startup. With `minScale: 1` each extra GiB is billed around the clock. |
 | `startupProbe` | HTTP, `60 × 5s` | A TCP probe passes the moment Tomcat binds, so Cloud Run would route traffic to a context that is not finished refreshing. The path carries `/api` because `server.servlet.context-path` moves the actuator too. 300 seconds of grace is for the deploy that carries a long migration backlog — exactly when a tight probe would roll back a good release. A warm deploy with nothing to migrate is ready in about 45 s. `livenessProbe` watches the `liveness` group, which deliberately excludes the database indicator: restarting the container is no part of the remedy for Supabase being down. |
 
