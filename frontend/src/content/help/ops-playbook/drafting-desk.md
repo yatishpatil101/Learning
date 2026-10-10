@@ -5,28 +5,45 @@ category: ops-playbook
 audience: staff
 access: staff
 order: 10
-updated: 2026-10-04
+updated: 2026-10-10
 summary: How staff work rent-agreement drafting and other paid service-request queues.
 tags: [ops, services, rent-agreement, drafting, internal]
+modules: [desk:rental, desk:legal, desk:interior, desk:packers, desk:valuation]
 ---
 
 > [!IMPORTANT]
 > Internal runbook. Visible to Draazy staff only.
 
+## Daily checklist
+
+**Monitor**
+
+- **Overdue** button count ? rent-agreement cases past their desk target.
+- **SLA** cell on rent agreements: **Due in** turns warning at 2 h left, then **Overdue by**; **Customer's turn** has no desk timer.
+- Targets: pick up within 4 h, first draft 48 h, revision 24 h, registration 7 days.
+- **To pick up** count. Other desks have no SLA cell: row age is amber after 24 h and rose after 72 h.
+
+**Work on**
+
+- Work **Overdue** rent agreements first, then **To pick up** with **Take case**.
+- Finish first drafts and **changes-requested** revisions before the targets run out.
+- Release or send back drafts held for a second check ? it must be a different operator.
+- Upload the registered copy for **approved** cases, then run **Registration check** and **Police intimation**.
+
 ## Desk and access
 
 Each service is its own sidebar entry: **Rent Agreement** at `/admin/rent-agreement`, and **Property & Legal**, **Interior & Renovation**, **Packers & Movers** and **Property Valuation** at `/admin/legal`, `/admin/interior`, `/admin/packers` and `/admin/valuation`. Old `/ops/drafting-desk?type=…` and `/ops/<desk>` bookmarks redirect to the matching page.
 
-A staff member sees only the service desks they were granted. Admins and managers see every desk, plus the **Services overview** board.
+A staff member sees only the service desks they were granted (**Rent Agreement** needs the rental desk function), under `/staff/…`. Admins and managers see every desk.
 
 ## Queue controls
 
 | Control | Use it for |
 | --- | --- |
-| **To pick up / My cases / In progress / With customer / Closed** | Rent Agreement queue tabs, with live counts |
+| **To pick up / My cases / In progress / With customer / Closed** | Queue tabs with live counts (**My requests** on the other desks) |
 | **Overdue** | Rent-agreement SLA breaches only |
 | **Name, mobile or request id** | Server-side search |
-| **All statuses** / **Unassigned only** | Status and unheld-work filters on the other service desks |
+| **Customer tickets** | The desk's tickets tab (needs `tickets:read`) |
 
 The list is paged at 20 rows. A failed load is shown as an error, not as an empty queue.
 

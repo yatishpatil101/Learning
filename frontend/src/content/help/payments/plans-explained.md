@@ -5,7 +5,7 @@ category: payments
 audience: owner
 order: 1
 featured: true
-updated: 2026-10-04
+updated: 2026-10-10
 summary: What each plan includes, how listing slots and contact allowances work, and who genuinely needs one.
 tags: [plans, pricing, featured, owner, contacts, referral]
 ---
@@ -32,7 +32,7 @@ Current prices are on the [Plans page](/plans). Featured placement applies to ev
 
 ## If you are searching, not listing
 
-There is a seeker plan too: **Seeker Plus**, billed monthly. It exists for one reason: the free account includes 15 owner contacts in total, and a serious search in a competitive locality can spend those. The plan lifts the cap — see [Contacting owners](/help/a/contacting-owners) for how the quota is counted.
+There is a seeker plan too: **Seeker Plus**, one payment of ₹199 for 1 month. It does not renew by itself. It exists for one reason: the free account includes 15 owner contacts in total, and a serious search in a competitive locality can spend those. The plan lifts the cap — see [Contacting owners](/help/a/contacting-owners) for how the quota is counted.
 
 ## Earning allowance instead of buying it
 

@@ -4,19 +4,20 @@ slug: packers-and-movers
 category: services
 audience: everyone
 order: 2
-updated: 2026-10-04
+updated: 2026-10-10
 summary: Request a callback from the relocation desk, compare mover quotes, and avoid the pricing games the industry is known for.
 tags: [packers, movers, shifting, quote]
 ---
 
-[Packers & movers](/services/packers-movers) takes your service type, from and to locations, home size and preferred move date, then the relocation desk calls back with a quote from a verified partner.
+[Packers & movers](/services/packers-movers) takes your service type, from and to locations, home size and preferred move date, then the relocation desk calls you back within 24 hours with a quote from a moving partner. Getting a quote is free and Draazy charges no platform fee — you pay the mover for the service you confirm.
 
 ## Getting a quote
 
-1. Choose the service you need — local shifting, intercity relocation, packing, office/commercial move, vehicle transport or storage.
-2. Enter where you are moving from and to.
+1. Choose the service you need — local shifting within Pune, intercity/domestic shifting, office/commercial shifting, vehicle transport (car or bike) or storage and warehousing.
+2. Search the area or city you are moving from and to.
 3. Add the home size and preferred move date.
-4. Submit the request and the relocation desk calls you back with the next steps.
+4. Submit the request. The desk calls you back within 24 hours, arranges a quick video or in-person survey and shares a quote.
+5. Approve the quote and Draazy books the mover and gives you one contact for the move. Track the request on the same page once you are signed in.
 
 ## What a quote should itemise
 
@@ -33,7 +34,7 @@ tags: [packers, movers, shifting, quote]
 
 ## Insurance
 
-Transit insurance is worth taking for anything above roughly ₹1 lakh of contents. Two forms exist:
+Optional all-risk transit insurance is available on every move. It is worth taking for anything above roughly ₹1 lakh of contents. Two forms exist:
 
 - **All-risk** — covers damage in handling and transit. The mover quotes it against your declared value.
 - **Transit-only** — covers accident and fire only, and is much cheaper. It will not cover a dropped television.
@@ -50,7 +51,7 @@ Declare the value honestly; under-declaring voids the claim.
 
 ## Costs
 
-The app does not publish a rate card. Your final quote depends on home size, inventory, distance, packing scope, insurance and the move date. Month-end and the first weekend of the month are usually the most expensive; mid-month weekdays are usually cheaper.
+The page has an **Instant moving-cost estimate** — pick home size, distance, packing type and floor or lift access for an indicative range. It is a ballpark, not a quote: your exact, all-inclusive quote is confirmed after the survey, and depends on home size, inventory, distance, packing scope, insurance and the move date. Month-end and the first weekend of the month are usually the most expensive; mid-month weekdays are usually cheaper.
 
 ## Related
 

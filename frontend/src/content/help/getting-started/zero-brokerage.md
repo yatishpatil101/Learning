@@ -5,7 +5,7 @@ category: getting-started
 audience: everyone
 order: 2
 featured: true
-updated: 2026-10-04
+updated: 2026-10-10
 summary: We never take a cut of your rent or sale price. Here is what is free, what is paid, and how Draazy makes money.
 tags: [brokerage, pricing, fees]
 ---
@@ -15,12 +15,13 @@ Zero brokerage means exactly one thing: **Draazy never takes a percentage of you
 ## What is always free
 
 - Browsing and searching every listing
-- Sending owner contact requests and chatting after the owner approves
+- Sending owner contact requests and chatting after the owner approves (the free allowance is 15 owner contacts; Seeker Plus removes the cap)
 - Shortlisting, comparing and saving searches
 - Scheduling a site visit
 - Posting a basic property listing as an owner
 - Pausing, resuming and editing your own listing
 - Raising a support ticket
+- Home-loan eligibility check and advice (no advisory fee)
 
 ## What is paid, and why
 

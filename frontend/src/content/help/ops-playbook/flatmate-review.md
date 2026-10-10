@@ -5,17 +5,34 @@ category: ops-playbook
 audience: staff
 access: staff
 order: 12
-updated: 2026-10-04
+updated: 2026-10-10
 summary: How staff publish, hide, badge, and re-check flatmate posts and group applications.
 tags: [ops, flatmates, moderation, badges, internal]
+modules: [flatmates]
 ---
 
 > [!IMPORTANT]
 > Internal runbook. Visible to Draazy staff only.
 
+## Daily checklist
+
+**Monitor**
+
+- **Pending** tab count, oldest first by default.
+- Card chips: **Awaiting publish**, **Edited since review**, **Live ? not yet reviewed**, **Badge claim**, **Owner consent missing**, **Contested address**.
+- The "first 100 of each list" note ? decide some cards to see the rest.
+- **Published** tab ? new group applications go live on submission.
+
+**Work on**
+
+- Clear **Pending** oldest first: **Publish**, **Hide for review** or **Remove**.
+- Read the changed fields on **Edited since review** cards, then **Looks fine** or choose another decision.
+- Decide badge claims: **Approve badge**, or **Reject badge** with a reason. Never approve a tenant badge without **Owner consent**.
+- Scan new group applications under **Published**: **Clear** or **Remove**.
+
 ## Desk and access
 
-Use **Flatmate Moderation** at `/ops/flatmate-review`. The route is for `staff` and `admin`.
+Use **Flatmates** in the sidebar (page title **Flatmate Moderation**, `/admin/flatmates`; staff open it under `/staff/flatmates`). You need the **Flatmates** function (`flatmates:read` to view, `flatmates:write` to decide).
 
 The desk is merged: publication moderation, badge verification, edit re-checks, and group-application moderation all land in one card list.
 
@@ -23,8 +40,8 @@ The desk is merged: publication moderation, badge verification, edit re-checks, 
 
 | Tab | Sources |
 | --- | --- |
-| **Pending** | Pending publication rows, edit re-check rows, pending badge claims, and pending group applications |
-| **Published** | `approved` and legacy `live` moderation rows, plus cleared applications |
+| **Pending** | Pending publication rows, edit re-check rows, pending badge claims, and group applications held for review |
+| **Published** | `approved` and legacy `live` moderation rows, plus live and cleared applications |
 | **Hidden & removed** | `flagged`, `removed`, and `rejected` moderation rows |
 
 Filter by **All / Room / Group / Seeker post**, search title, author, or locality, and sort oldest or newest. Pending defaults to oldest first. Each source is capped at 100 rows; when capped, decide visible rows to reveal more.
@@ -34,7 +51,7 @@ Filter by **All / Room / Group / Seeker post**, search title, author, or localit
 | Chip | Meaning |
 | --- | --- |
 | **Awaiting publish** | The post is not public yet |
-| **Live · not yet reviewed** | A flatless post self-published and still needs a scan |
+| **Live · not yet reviewed** | A flatless post (seeker post, or a group still looking for a flat) self-published and still needs a scan |
 | **Edited since review** | A public item changed after review |
 | **Badge claim · tenant / owner / identity** | The host trust claim has a review row |
 | **Owner consent missing** | Tenant-tier badge cannot be approved yet |
@@ -54,6 +71,8 @@ Open the card and use **Decision**:
 | **Remove** | Sets `removed`; notifies the author when it was public |
 | **Looks fine** | Clears an edit re-check while keeping the current moderation state |
 
+**Edit details** (top of the card) lets you correct the post's fields as a moderator before deciding.
+
 Publication does not grant a trust badge. Use it only to decide whether the city can see the post.
 
 ## Badge decisions
@@ -69,7 +88,7 @@ For tenant-tier claims, approval is refused until owner consent is recorded. The
 
 ## Hold-for-review rule
 
-Only unflagged owner-tier room or group posts self-publish. Tenant-tier and identity-tier posts are born `pending` until Ops uses **Publish**. Flagged owner-tier posts also wait.
+Unflagged owner-tier posts and flatless posts (seeker posts, groups still looking for a flat) self-publish. A room with no photos, tenant-tier and identity-tier posts, and flagged posts are born `pending` until Ops uses **Publish**.
 
 Legacy `live` means public. Moderator approval writes `approved`; both are public on the feed and in the **Published** tab.
 
@@ -88,7 +107,7 @@ When a re-check is present, read the changed fields and use **Looks fine** only 
 
 ## Group applications
 
-Group applications have two axes. The owner's `accepted` or `declined` status is not yours to change. This desk writes only `modStatus`:
+Group applications are not pre-moderated: they go live on submission and show under **Published**. Moderate after the fact. The owner's `accepted` or `declined` status is not yours to change. This desk writes only `modStatus`:
 
 | Action | What it changes |
 | --- | --- |

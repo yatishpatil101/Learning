@@ -5,7 +5,7 @@ category: owner-tools
 audience: owner
 order: 1
 featured: true
-updated: 2026-10-04
+updated: 2026-10-10
 summary: Use the dashboard Action Center and Requests inbox to approve, decline and follow up on owner leads.
 tags: [leads, enquiries, requests, owner, dashboard]
 ---
@@ -20,26 +20,26 @@ Turn on in-app, email or WhatsApp alerts for new enquiries under [notification s
 
 ## One inbox, five filters
 
-A request for your number, a request for more photos, a request to see documents, a flatmate enquiry and a plain message are all different things — but they all mean somebody is waiting on you, so they share a queue. Filter it by **All leads**, **Number requests**, **Photo requests**, **Documents** or **Flatmate**.
+A request for your number, a request for more photos, a request to see documents, and a flatmate enquiry are all different things — but they all mean somebody is waiting on you, so they share a queue. Filter it by **All leads**, **Number requests**, **Photo requests**, **Documents** or **Flatmate**.
 
 The list sorts itself: anything awaiting a decision from you comes first, then whoever has waited longest. You do not have to hunt for the urgent one.
 
-Tap any row to open it. The detail sheet has the request, the person, and the actions — approve, decline, reply, add photos, grant documents, or open chat where available. Buttons stay disabled while a decision is being saved so a double tap cannot send two answers.
+Tap any row to open it. The detail sheet has the request, the person, and the actions — accept or decline, mark photos done or add photos, grant or decline documents. Once you accept a number request, **Call** and **WhatsApp** buttons appear. Plain messages are not in this inbox; they live under **Dashboard → Messages**. Buttons stay disabled while a decision is being saved so a double tap cannot send two answers.
 
 ## Triaging
 
-Each request shows the tenant's [profile](/help/a/tenant-profiles) — occupation, household, move-in date, prior landlord note, and whether their number is verified. Use it:
+You do not see a tenant's occupation, income or household answers — only their name, their mobile after you accept, and a verified tick if the team has checked their ID (see [tenant profiles](/help/a/tenant-profiles)). So ask the rest yourself:
 
 - **Move-in date** — if it is three months out and you need someone next week, say so immediately rather than going quiet
 - **Household composition** — matches or does not match what the flat suits
-- **Verified number** — an unverified enquiry is worth less of your time
+- **Verified tick** — an ID-verified tenant is worth more of your time
 
 ## Notes and follow-ups
 
 Inside the detail sheet you can leave yourself a **note** and set a **follow-up date**. These are private — they are yours, and they are never sent to the person or shown on any listing. Use them for the things you would otherwise keep in your head: what you quoted, what they asked for, when to chase.
 
 > [!TIP]
-> When you mark a property rented, the listing is delisted. Doing this promptly is the main thing that keeps your account in good standing — and stale listings get demoted platform-wide. See [Keeping a listing fresh](/help/a/listing-freshness).
+> When you finalize a rental, the listing comes off the market. You need the agreed rent and the tenant's 10-digit mobile to do it. Do it promptly — stale listings get demoted in search. See [Keeping a listing fresh](/help/a/listing-freshness).
 
 ## Site visits
 
@@ -58,7 +58,7 @@ Once you have chosen a tenant:
 
 ## My Properties shortcuts
 
-Your property cards also show what is waiting on that listing: Edit, Pause or Resume, Mark rented/sold, Manage documents, and the moderation status if review needs information.
+Your property cards also show what is waiting on that listing: Edit, View listing, Tools, Pause or Resume, Mark under offer, Finalize rental or sale, Take down, and the moderation status if review needs information.
 
 ## Related
 

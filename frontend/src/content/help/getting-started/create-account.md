@@ -4,7 +4,7 @@ slug: create-account
 category: getting-started
 audience: everyone
 order: 3
-updated: 2026-10-04
+updated: 2026-10-10
 summary: Sign up with your mobile number, verify it by OTP, and keep your account secure.
 tags: [signup, otp, account]
 ---
@@ -16,16 +16,16 @@ You can browse Draazy without an account. You need one to contact owners, save p
 1. Open **Sign up** from the public site.
 2. Enter your **full name**, optional email and **10-digit Indian mobile number**. This number is your login identity.
 3. Accept the terms and request an OTP.
-4. Enter the OTP sent by SMS to finish creating the account.
+4. Enter the 6-digit OTP we send to your number on WhatsApp to finish creating the account.
 
 ### If the code does not work
 
-A code is valid for **5 minutes** and you get **3 guesses**. The form counts down as you use them - after a wrong code it tells you how many are left, and the last one disables the form until you ask for a new code. Switching to your SMS app and back is fine; the countdown runs against the clock, not against the time the tab was in front.
+A code is valid for **5 minutes** and you get **3 guesses**. The form counts down as you use them - after a wrong code it tells you how many are left, and the last one disables the form until you ask for a new code. Switching to WhatsApp and back is fine; the countdown runs against the clock, not against the time the tab was in front.
 
 ### Not receiving the OTP?
 
 - Wait for the resend countdown to finish before requesting another code - the button is disabled for exactly as long as we will refuse a second code, and repeated requests can rate-limit your number.
-- Check that the number has SMS delivery enabled and is not on DND for transactional messages.
+- Check that the number is active on WhatsApp and can receive messages from businesses. We send OTPs on WhatsApp, not by SMS.
 - If it still fails after two attempts, contact support with your number and the approximate time you tried.
 
 > [!TIP]

@@ -4,7 +4,7 @@ slug: invoices-and-refunds
 category: payments
 audience: everyone
 order: 2
-updated: 2026-10-04
+updated: 2026-10-10
 summary: Where to find your invoices, what is refundable, and how long a refund takes.
 tags: [invoice, refund, gst, billing, receipt]
 ---
@@ -32,14 +32,15 @@ The binding terms are in the [Refund Policy](/refund-policy). In summary:
 | Subscription cancelled within 7 days, unused | Full |
 | Annual subscription within 30 days, with fewer than 3 premium features used | Pro-rata |
 | Subscription after 7 days, or used | Not refundable |
-| Service not delivered | Full |
+| Service request cancelled before a partner is assigned | Full |
 | Rent agreement, before the stamp duty is paid on GRAS | Refundable up to what you paid |
 | Rent agreement, after the stamp duty is paid | Government charges are spent; only eligible service-fee or overpayment refunds can come back |
-| Service partially delivered | Case by case |
+| Other services cancelled after a partner starts | 75% if under 25% done, 50% if 25–50% done, none beyond that |
 | Duplicate or failed-but-charged payment | Full |
 
 ### Timelines
 
+- We review every request within **2 business days**
 - Approved refunds are processed within **5–7 business days**
 - Your bank, card issuer or UPI app may take longer to show the credit
 

@@ -4,7 +4,7 @@ slug: price-your-property
 category: listing
 audience: owner
 order: 3
-updated: 2026-07-26
+updated: 2026-10-10
 summary: How to price against real Pune comparables, and what an overpriced listing actually costs you.
 tags: [pricing, rent, valuation, owner]
 ---
@@ -48,7 +48,7 @@ Deposit is often more negotiable than rent, and tenants feel it more sharply. Of
 
 ## Tools
 
-- [Property valuation](/services/property-valuation) — a paid, comparable-backed estimate for sale pricing
+- [Property valuation](/services/property-valuation) — a free instant estimate, with a paid valuer-signed report if you need one, for sale pricing
 - [EMI calculator](/emi-calculator) — useful when quoting to buyers
 
 ## Related

@@ -1,20 +1,10 @@
 import { useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router';
 
-/* Renders compiled article HTML.
- *
- * The HTML is produced at build time from Markdown authored in this repository
- * (see scripts/vite-plugin-help-content.mjs). It is trusted content, and raw HTML
- * inside the Markdown source is dropped by the compiler, so no untrusted markup
- * can reach this component.
- *
- * Two behaviours are attached to the rendered tree rather than baked into the
- * HTML, because they need the router and the DOM:
- *   1. Internal links are routed through react-router instead of triggering a
- *      full page load.
- *   2. External links get the usual rel/target hardening. */
+/* The HTML is compiled at build time from repo-authored Markdown and raw HTML in the source is dropped, so no
+   untrusted markup can reach here; links are handled on the rendered tree because they need the router and DOM. */
 
-export default function ArticleProse({ html }) {
+export default function ArticleProse({ html, resolveHref }) {
   const ref = useRef(null);
   const navigate = useNavigate();
 
@@ -27,6 +17,8 @@ export default function ArticleProse({ html }) {
       if (/^https?:\/\//i.test(href)) {
         a.setAttribute('target', '_blank');
         a.setAttribute('rel', 'noopener noreferrer nofollow');
+      } else if (resolveHref && href.startsWith('/')) {
+        a.setAttribute('href', resolveHref(href));
       }
     });
 
@@ -43,7 +35,7 @@ export default function ArticleProse({ html }) {
 
     root.addEventListener('click', onClick);
     return () => root.removeEventListener('click', onClick);
-  }, [html, navigate]);
+  }, [html, navigate, resolveHref]);
 
   return (
     <div

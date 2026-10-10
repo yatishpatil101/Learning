@@ -1,7 +1,8 @@
 
-import { readFileSync, readdirSync, statSync, existsSync, writeFileSync } from 'node:fs';
-import { join, relative, resolve, sep } from 'node:path';
+import { readFileSync, readdirSync, statSync, existsSync, writeFileSync, mkdirSync } from 'node:fs';
+import { dirname, join, relative, resolve, sep } from 'node:path';
 import { Marked } from 'marked';
+import { esc, headTags, jsonLd, renderPage } from './seo-html.mjs';
 
 const VIRTUAL_ID = 'virtual:help-content';
 const RESOLVED_ID = '\0' + VIRTUAL_ID;
@@ -167,6 +168,7 @@ function compileArticles(contentDir) {
       readMinutes: Math.max(1, Math.round(text.split(' ').length / 200)),
       featured: data.featured === true,
       tags: Array.isArray(data.tags) ? data.tags : [],
+      modules: Array.isArray(data.modules) ? data.modules : [],
       headings,
       html,
       text: text.slice(0, 4000),
@@ -222,6 +224,88 @@ function loadTaxonomy(file) {
   };
 }
 
+const crumbs = (siteUrl, trail) => ({
+  '@type': 'BreadcrumbList',
+  itemListElement: trail.map(([name, path], i) => ({ '@type': 'ListItem', position: i + 1, name, item: `${siteUrl}${path}` })),
+});
+
+/* Titles and descriptions mirror src/components/help/HelpLayout.jsx and the help pages, so a
+   prerendered head matches what the app sets after in-app navigation. */
+export function helpPages({ sections, categories, articles, changelog }, copy, siteUrl) {
+  const pageTitle = (title) => (title ? `${title} · Draazy ${copy.centre}` : `Draazy ${copy.centre}`);
+  const org = { '@id': `${siteUrl}/#organization` };
+  const link = (path, text) => `<a href="${path}">${esc(text)}</a>`;
+  const page = (path, { title, description, type = 'website', schema, body }) => ({
+    path,
+    head: headTags({
+      title: pageTitle(title),
+      description,
+      url: `${siteUrl}${path}`,
+      image: `${siteUrl}/og-image.jpg`,
+      type,
+      extra: schema ? [jsonLd({ '@context': 'https://schema.org', ...schema })] : [],
+    }),
+    body: `<main class="mx-auto w-full max-w-3xl px-4 py-8 sm:px-6 sm:py-10">\n${body}\n</main>`,
+  });
+  const intro = (h1, text) => `<h1 class="text-xl font-extrabold text-white sm:text-2xl">${esc(h1)}</h1>\n<p class="mt-1.5 text-sm leading-relaxed text-gray-400">${esc(text)}</p>`;
+  const helpCrumb = [copy.centre, '/help'];
+
+  return [
+    page('/help', {
+      description: copy.heroSubtitle,
+      body: `${intro(copy.heroTitle, copy.heroSubtitle)}\n${sections.map((s) => {
+        const cats = categories.filter((c) => c.section === s.id);
+        return `<section class="mt-8"><h2 class="text-lg font-bold text-white">${esc(s.title)}</h2><ul>${cats.map((c) => `<li>${link(`/help/c/${c.id}`, c.title)}: ${esc(c.description || '')}</li>`).join('')}</ul></section>`;
+      }).join('\n')}\n<p class="mt-8">${link('/help/faq', copy.faqTitle)} · ${link('/help/changelog', copy.changelogTitle)}</p>`,
+    }),
+    page('/help/faq', {
+      title: copy.faq,
+      description: copy.faqSubtitle,
+      body: `${intro(copy.faqTitle, copy.faqSubtitle)}\n<p class="mt-6">${link('/help', copy.centre)}</p>`,
+    }),
+    page('/help/changelog', {
+      title: copy.changelogTitle,
+      description: copy.changelogSubtitle,
+      body: `${intro(copy.changelogTitle, copy.changelogSubtitle)}\n${changelog.map((e) => `<section class="mt-10"><h2 class="text-lg font-bold text-white">${esc(e.version)}${e.date ? ` — ${esc(e.date)}` : ''}</h2><div class="doc-prose mt-3">${e.html}</div></section>`).join('\n')}`,
+    }),
+    ...categories.map((c) => {
+      const list = articles.filter((a) => a.category === c.id);
+      return page(`/help/c/${c.id}`, {
+        title: c.title,
+        description: c.description || `${c.title} — ${copy.centre}`,
+        schema: crumbs(siteUrl, [helpCrumb, [c.title, `/help/c/${c.id}`]]),
+        body: `<nav aria-label="Breadcrumb" class="mb-4 text-xs text-gray-500">${link('/help', copy.centre)}</nav>\n${intro(c.title, c.description || '')}\n<ul class="mt-6">${list.map((a) => `<li>${link(`/help/a/${a.slug}`, a.title)}: ${esc(a.summary)}</li>`).join('')}</ul>`,
+      });
+    }),
+    ...articles.map((a) => {
+      const c = categories.find((x) => x.id === a.category);
+      const path = `/help/a/${a.slug}`;
+      return page(path, {
+        title: a.title,
+        description: a.summary,
+        type: 'article',
+        schema: {
+          '@graph': [
+            {
+              '@type': 'Article',
+              headline: a.title,
+              description: a.summary,
+              url: `${siteUrl}${path}`,
+              mainEntityOfPage: `${siteUrl}${path}`,
+              inLanguage: 'en-IN',
+              author: org,
+              publisher: org,
+              ...(a.updated && { dateModified: a.updated }),
+            },
+            crumbs(siteUrl, [helpCrumb, [c.title, `/help/c/${c.id}`], [a.title, path]]),
+          ],
+        },
+        body: `<nav aria-label="Breadcrumb" class="mb-4 text-xs text-gray-500">${link('/help', copy.centre)} › ${link(`/help/c/${c.id}`, c.title)}</nav>\n<article>\n${intro(a.title, a.summary)}\n<div class="doc-prose mt-7">${a.html}</div>\n</article>`,
+      });
+    }),
+  ];
+}
+
 /** @param {{ root?: string, siteUrl?: string }} [options] */
 export default function helpContentPlugin(options = {}) {
   const root = options.root || process.cwd();
@@ -269,15 +353,24 @@ export default function helpContentPlugin(options = {}) {
       server?.ws.send({ type: 'full-reload' });
       return [];
     },
-    /* Injected after the static sitemap is copied, so a hand-maintained list cannot drift. */
+    /* Runs after Vite writes dist/index.html and copies the static sitemap. */
     writeBundle() {
-      const sitemap = join(outDir, 'sitemap.xml');
-      if (!existsSync(sitemap)) return;
-
       const { sections, categories } = loadTaxonomy(categoriesFile);
       const open = splitByAccess({ sections, categories, articles: compileArticles(contentDir) }).open;
       const publicCategoryIds = new Set(open.categories.map((c) => c.id));
+      const articles = open.articles.filter((a) => publicCategoryIds.has(a.category));
 
+      const shell = readFileSync(join(outDir, 'index.html'), 'utf-8');
+      const { help: copy } = JSON.parse(readFileSync(join(root, 'src/i18n/locales/en/help.json'), 'utf-8'));
+      const pages = helpPages({ ...open, articles, changelog: compileChangelog(changelogFile) }, copy, siteUrl);
+      for (const { path, head, body } of pages) {
+        const file = join(outDir, `${path.slice(1)}.html`);
+        mkdirSync(dirname(file), { recursive: true });
+        writeFileSync(file, renderPage(shell, head, body), 'utf-8');
+      }
+
+      const sitemap = join(outDir, 'sitemap.xml');
+      if (!existsSync(sitemap)) return;
       const entry = (path, { changefreq, priority, lastmod }) => [
         '  <url>',
         `    <loc>${siteUrl}${path}</loc>`,
@@ -292,9 +385,7 @@ export default function helpContentPlugin(options = {}) {
         entry('/help/faq', { changefreq: 'weekly', priority: '0.6' }),
         entry('/help/changelog', { changefreq: 'weekly', priority: '0.4' }),
         ...open.categories.map((c) => entry(`/help/c/${c.id}`, { changefreq: 'weekly', priority: '0.6' })),
-        ...open.articles
-          .filter((a) => publicCategoryIds.has(a.category))
-          .map((a) => entry(`/help/a/${a.slug}`, { changefreq: 'monthly', priority: '0.5', lastmod: a.updated })),
+        ...articles.map((a) => entry(`/help/a/${a.slug}`, { changefreq: 'monthly', priority: '0.5', lastmod: a.updated })),
       ];
 
       const xml = readFileSync(sitemap, 'utf-8');

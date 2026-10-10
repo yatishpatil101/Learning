@@ -5,7 +5,7 @@ category: trust-safety
 audience: everyone
 order: 1
 featured: true
-updated: 2026-10-04
+updated: 2026-10-10
 summary: Identity, listing, ownership and flatmate verification badges - what each proves and what it does not.
 tags: [verification, trust, kyc, badge, rera, ownership]
 ---
@@ -28,14 +28,14 @@ Start verification from **Verify identity** in your account. It is reviewed by a
 ### Identity
 
 - Mobile number verified by OTP
-- A government ID - Aadhaar, PAN, driving licence or passport - captured with the camera alongside a live selfie, then read by a trained reviewer on our team. No badge is ever granted automatically.
-- Duplicate-account detection across numbers and devices
+- A government ID - Aadhaar, PAN, driving licence or passport - captured with the camera alongside a live selfie, then read by a trained reviewer on our team. No badge is ever granted by software; the only other route is a staff member granting it by hand, and every such grant is recorded in an audit trail.
+- An ID document that is already verified on another account is refused
 
 ### The listing itself
 
-- Address resolves to a real building, society or locality in our Pune/PCMC dataset
-- Photos were uploaded through Draazy and are checked for obvious reuse or mismatch
-- Rent or price is within a sane band for the locality and configuration
+- The location was picked from Google Maps (society first, then locality) and a reviewer checks that it looks right
+- Photos were uploaded through Draazy; a reviewer checks they are real, match the listing and are not a duplicate of another listing
+- Price, deposit and area must fall within plausible limits
 - Required fields - carpet area, floor, furnishing, availability date - are present and consistent
 
 ### Ownership evidence
@@ -59,7 +59,7 @@ For a sale, always run an independent title check before paying anything. We off
 | --- | --- |
 | ID verified owner | The poster's ID and live selfie were reviewed and accepted |
 | Verified property | Ownership evidence was accepted and is still current |
-| RERA registered | The project carries a valid MahaRERA registration number |
+| RERA registered | The listing shows a MahaRERA registration number. The property page links it to the MahaRERA site so you can look it up yourself |
 | No badge | Nobody has submitted anything yet. Common and not suspicious - treat with normal caution. |
 
 A listing can carry several of these at once, and the search filters let you require any of them.

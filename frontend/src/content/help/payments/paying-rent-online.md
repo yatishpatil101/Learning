@@ -4,7 +4,7 @@ slug: paying-rent-online
 category: payments
 audience: tenant
 order: 3
-updated: 2026-10-04
+updated: 2026-10-10
 summary: Paying rent through Draazy is coming. Until it does, record what you already pay and the Rent Wallet works out your yearly total, deposit and HRA.
 tags: [rent, payment, hra, receipt, upi]
 ---
@@ -14,10 +14,10 @@ not move money, and there is nothing to set up. Keep paying your landlord howeve
 
 ## What you can do now
 
-Record the home you rent under **Dashboard → Finances** — your Rent Wallet — the address, landlord name, monthly rent, deposit, lease start and optional lease end. That is all it takes. The Wallet then works out, and keeps up to date on its own:
+Record the home you rent under **Dashboard → Finances** — your Rent Wallet — the address, monthly rent and lease start, plus the deposit and lease end if you want them tracked. The Wallet then works out, and keeps up to date on its own:
 
 - **What you have paid this financial year**, and since the lease began
-- **Your HRA exemption**, computed the way the Income Tax Act does it — the lowest of the three limbs
+- **Your HRA exemption**, computed the way the Income Tax Act does it — the lowest of the three limbs. Add your annual basic salary on the card to see it
 - **What your deposit would have earned** had it been sitting in a liquid fund instead
 
 You enter it once. Nothing needs to be logged month by month, and no owner approves it.
@@ -40,7 +40,7 @@ with your employer — but get the refusal in writing.
 
 ## Receipts for your employer
 
-Ask your landlord for a signed receipt, or use the format your employer supplies. The Wallet's
+Ask your landlord for a signed receipt, or use the format your employer supplies. **Dashboard → Documents → HRA Rent Receipts** generates monthly receipt PDFs from the landlord, tenant and rent details you type in, ready for your landlord to sign. The Wallet's
 yearly total tells you what the receipts should add up to, which is the usual thing people get wrong.
 
 ## Related

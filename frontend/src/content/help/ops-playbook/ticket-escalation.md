@@ -5,22 +5,40 @@ category: ops-playbook
 audience: staff
 access: staff
 order: 2
-updated: 2026-10-04
+updated: 2026-10-10
 summary: How staff triage, answer, assign, and escalate support conversations and service-request tickets.
 tags: [ops, support, tickets, escalation, internal]
+modules: [support, desk:loans]
 ---
 
 > [!IMPORTANT]
 > Internal runbook. Visible to Draazy staff only.
 
+## Daily checklist
+
+**Monitor**
+
+- **Support queue ? Awaiting reply** count ? customers waiting on us. A **Waiting on us** chip marks each row.
+- **Unopened by customer** chip ? our reply has not been seen yet.
+- **Home Loans** board and every desk's **Customer tickets** tab ? the age chip turns amber at 2 days open and rose at 5 days.
+- P0 reports: money paid to someone claiming to be Draazy, a physical threat, or contact from police or a regulator.
+
+**Work on**
+
+- Work **Awaiting reply** first. The list is newest first, so scroll to the oldest rows.
+- Phone the ops lead for any P0 report; do not rely on a ticket alone.
+- On **Home Loans**, **Claim** unassigned tickets, press **Start** when you begin and **Resolve** when done.
+- Set a ticket to **Waiting** only when the next step is the customer's.
+- Escalate with the ticket id, what you checked and what you told the customer.
+
 ## Desk map
 
 | Desk | Route | Backing table | Use it for |
 | --- | --- | --- | --- |
-| Support conversations | `/ops/support` | `support_tickets` | Customer support threads |
-| Service-request tickets | each desk's **Tickets** view (`/admin/home-loans` is the loans board) | `tickets` | Ops work items with team, priority, assignee, and private notes |
+| Support conversations | `/admin/support` | `support_tickets` | Customer support threads |
+| Service-request tickets | each desk's **Customer tickets** tab (`/admin/home-loans` is the loans board) | `tickets` | Ops work items with team, priority, assignee, and private notes |
 
-Tickets show to anyone with ticket access: admins and managers see every desk, staff only the desks they hold.
+Tickets show to anyone with ticket access (`tickets:read`, held through the **Support** or **Home Loans** function): admins and managers see every desk, staff only the desks they hold. Staff open these pages under `/staff/…`.
 
 ## Priority ladder
 
@@ -34,11 +52,11 @@ Tickets show to anyone with ticket access: admins and managers see every desk, s
 Set priority from impact, not tone. An angry P3 stays P3; a calm lost-money report is P0.
 
 > [!NOTE]
-> `/ops/support` has no priority or private-note field. Service-request tickets store `low`, `medium`, `high`, or `urgent`; current staff screens display and filter that value but do not provide a priority editor.
+> `/admin/support` has no priority or private-note field. Service-request tickets store `low`, `medium`, `high`, or `urgent`; current staff screens display and filter that value but do not provide a priority editor.
 
 ## Support conversation queue
 
-Use **Support queue** at `/ops/support`. Work **Awaiting reply** first; **Answered** means not waiting on staff; **All** is the paged archive.
+Use **Support queue** at `/admin/support`. Work **Awaiting reply** first; **Answered** means not waiting on staff; **All** is the paged archive.
 
 Opening a row loads the full thread and marks the staff side read when the row was awaiting reply.
 
@@ -56,19 +74,19 @@ Read states are separate from status:
 
 | Field | Meaning |
 | --- | --- |
-| **Waiting on: Us** | A customer message is unread by staff |
-| **Waiting on: Them — unopened** | Staff replied and the customer has not opened it |
-| **—** | Neither side has an unread marker |
+| **Waiting on us** | A customer message is unread by staff |
+| **Unopened by customer** | Staff replied and the customer has not opened it |
+| No chip | Neither side has an unread marker |
 
-A customer reply sets **Waiting on: Us** again even if the case looked answered.
+A customer reply sets **Waiting on us** again even if the case looked answered.
 
 ## Service-request ticket queue
 
-Open the desk page and switch to **Tickets** (`?view=tickets`; Home Loans needs no switch). It has named assignment, CSV export and a `?open=<ticketId>` deep link.
+Open the desk page and switch to **Customer tickets** (`?view=tickets`; needs `tickets:read`; Home Loans needs no switch). It has named assignment, CSV export and a `?open=<ticketId>` deep link.
 
 | Field | Current behavior |
 | --- | --- |
-| Team | Staff are server-scoped to their own team; admins can see all teams |
+| Team | Staff are server-scoped to their own team; admins and managers can see all teams |
 | Priority | Stored on `tickets.priority`; create accepts it, but current consumer service forms do not send it, so most tickets default to `medium` |
 | Assignee | Staff self-claim; admins and managers can assign to an active staff member on the ticket team |
 | Notes | Private internal notes appended with **Add** / **Save**; customers never see them |
@@ -101,7 +119,7 @@ Service-request tickets are triage and work-tracking rows. The service desk page
 2. Read the full customer thread or ticket detail before replying or moving status.
 3. Check the account, listing, invoice, service request, or verification case.
 4. Send customer-facing text only in customer-visible threads or messages.
-5. Use private notes only on service-request tickets, not on `/ops/support`.
+5. Use private notes only on service-request tickets, not on `/admin/support`.
 6. If a queue fails to load, retry or escalate the outage; never treat an error as an empty queue.
 7. Close with the outcome, not with "resolved".
 
@@ -130,7 +148,7 @@ For rent-agreement refunds, send the case to the Rent Agreement desk: the refund
 - Never quote internal SLA figures to a consumer
 - Never take a case to WhatsApp; keep it in the ticket
 - Never tell a customer the queue is empty when the screen says it could not load
-- Never approve a refund from `/ops/support`
+- Never approve a refund from `/admin/support`
 - Never put staff-only notes in a support conversation reply
 
 ## Related

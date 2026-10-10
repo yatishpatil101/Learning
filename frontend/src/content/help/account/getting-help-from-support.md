@@ -4,7 +4,7 @@ slug: getting-help-from-support
 category: account
 audience: everyone
 order: 4
-updated: 2026-10-04
+updated: 2026-10-10
 summary: How to raise a support ticket, what each status means, and which problems only a person can fix.
 tags: [support, ticket, contact, help, escalation]
 ---
@@ -36,7 +36,7 @@ Include listing names, order references or dates in the message when they matter
 
 Some outcomes are deliberately not self-served, because letting either side set them would make them worthless:
 
-- Marking a visit as a **no-show** - see [Scheduling a visit](/help/a/schedule-a-visit)
+- Reviewing a visit an owner marked as a **no-show** - see [Scheduling a visit](/help/a/schedule-a-visit)
 - Reversing a verification decision
 - Anything touching a refund
 
@@ -45,6 +45,8 @@ For these, raise a ticket rather than looking for a button.
 ## Before you raise one
 
 Check the rest of this help centre first. If the answer is already covered, following that article is faster than waiting for a ticket reply.
+
+You can also email [support@draazy.com](mailto:support@draazy.com) or call or WhatsApp +91 8728-8728-95, 9 AM to 8 PM, Monday to Saturday - but a ticket keeps the whole conversation in one place.
 
 If the problem is a listing rather than your account - a wrong price, a broker posing as an owner, a property that does not exist - use **Report this listing** on the listing itself instead. See [Reporting a listing](/help/a/report-a-listing).
 

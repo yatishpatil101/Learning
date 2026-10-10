@@ -4,21 +4,17 @@ import Icon from '../../../components/Icon.jsx';
 import HelpLayout from '../../../components/help/HelpLayout.jsx';
 import { ArticleRow, Breadcrumbs, EmptyState } from '../../../components/help/HelpCards.jsx';
 import { useHelpTree } from '../../../lib/useHelp.js';
-import { useHelpSeo } from '../../../lib/useHelpSeo.js';
 
 export default function HelpCategory() {
   const { categoryId } = useParams();
   const { t } = useTranslation();
   const { sections, categories, articles: allArticles, pending } = useHelpTree();
   const category = categories.find((c) => c.id === categoryId) || null;
-  // Staff runbooks stay out of the index: a crawler has no staff session, so the
-  // category is a real URL with nothing behind it for the public.
-  useHelpSeo(`/help/c/${categoryId}`, { index: category?.access !== 'staff' });
 
   if (!category) {
-    if (pending) return <HelpLayout title={t('help.centre')} />;
+    if (pending) return <HelpLayout />;
     return (
-      <HelpLayout title={t('help.topicNotFound')}>
+      <HelpLayout title={t('help.topicNotFound')} noindex>
         <EmptyState icon="folder-x" title={t('help.topicNotFound')}>
           {t('help.topicNotFoundBody')}{' '}
           <Link to="/help" className="text-teal-400 hover:underline">{t('help.backToHelp')}</Link>.
@@ -31,8 +27,15 @@ export default function HelpCategory() {
   const articles = allArticles.filter((a) => a.category === category.id);
   const siblings = categories.filter((c) => c.section === category.section && c.id !== category.id);
 
+  // Staff runbooks stay out of the index: a crawler has no staff session, so the
+  // category is a real URL with nothing behind it for the public.
   return (
-    <HelpLayout title={category.title}>
+    <HelpLayout
+      title={category.title}
+      description={category.description}
+      path={`/help/c/${category.id}`}
+      noindex={category.access === 'staff'}
+    >
       <Breadcrumbs
         trail={[[t('help.centre'), '/help'], [section?.title || t('help.topics'), null], [category.title, null]]}
       />

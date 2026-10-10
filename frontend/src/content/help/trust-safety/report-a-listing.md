@@ -4,7 +4,7 @@ slug: report-a-listing
 category: trust-safety
 audience: everyone
 order: 3
-updated: 2026-10-04
+updated: 2026-10-10
 summary: How to report a fake, misleading or already-rented listing, what happens next, and what stays private.
 tags: [report, moderation, abuse]
 ---
@@ -13,7 +13,7 @@ Reporting is the fastest way to get a bad listing off the platform. Reports are 
 
 ## How to report
 
-1. Open the listing.
+1. Sign in and open the listing.
 2. In the **Draazy Assured** block, choose **Suspicious? Report & we re-verify**.
 3. Pick a reason and add details.
 4. Submit the report.
@@ -38,8 +38,8 @@ You can also report a person from a message thread or owner profile, or raise a 
 ## What happens next
 
 - The report goes into review.
-- We may ask for more detail, correct the listing, delist it, or restrict the account.
-- Duplicate reports are folded into the existing review instead of creating a new case.
+- We may dismiss the report, hide the listing or post, or suspend the account behind it.
+- You cannot file the same report again while it is still being reviewed.
 
 We do not share the reported party's account details, and your identity is never disclosed to them.
 
@@ -47,3 +47,4 @@ We do not share the reported party's account details, and your identity is never
 
 - [Spotting a rental scam](/help/a/spot-a-scam)
 - [How we verify owners and listings](/help/a/how-we-verify)
+- [How verification works on Draazy](/how-verification-works)

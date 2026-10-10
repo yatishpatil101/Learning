@@ -4,7 +4,7 @@ slug: referrals-and-rewards
 category: payments
 audience: everyone
 order: 4
-updated: 2026-10-04
+updated: 2026-10-10
 summary: How the referral code works, what each qualified referral earns you, and why the number moves later than you expect.
 tags: [referral, rewards, invite, contacts, free agreement]
 ---
@@ -35,9 +35,9 @@ You are on both tracks at once — they are three offers sitting on the same ref
 The page shows two numbers, and they are deliberately different:
 
 - **Invited** — people who have redeemed your code.
-- **Qualified** — the referred owner whose first listing passed ownership verification.
+- **Qualified** — the referred owner whose first listing earned the Verified property badge, or a referral our fraud desk approved by hand.
 
-Rewards are paid on **qualified**, not on invited. That is why the reward lands later than the sign-up, and why a batch of accounts created in one evening earns nothing.
+Rewards are paid on **qualified**, not on invited. That is why the reward lands later than the sign-up, and why a batch of accounts created in one evening earns nothing. Past ten qualifications in 30 days, further referrals wait for a manual check.
 
 Rewards are recalculated from your referral list every time you look, not banked. So a referral later found to be fraudulent simply stops counting; nothing is clawed back from a balance, because there is no balance.
 
@@ -45,7 +45,7 @@ Rewards are recalculated from your referral list every time you look, not banked
 
 - **Owner contacts** — folded into your allowance on the [Plans page](/plans). See [Contacting owners](/help/a/contacting-owners) for how contacts are counted.
 - **Listing slots** — you can simply post another property.
-- **Free rent agreements** — applied when you order one under [Home services](/help/c/services).
+- **Free rent agreements** — counted on the [Refer a friend](/refer) page. The rent agreement checkout does not deduct them automatically, so [contact Support](/support) before you pay for one.
 
 ## If a code does not work
 

@@ -4,7 +4,7 @@ slug: photos-that-convert
 category: listing
 audience: owner
 order: 2
-updated: 2026-10-01
+updated: 2026-10-10
 summary: Shoot the right photos for the listing wizard's gallery limit, using only your phone.
 tags: [photos, listing, owner, gallery]
 ---
@@ -13,7 +13,7 @@ Tenants decide in about four seconds whether to open your listing. Photos are th
 
 ## The shot list
 
-Take at least eight if the current gallery limit allows it. The platform default is ten photos, and the wizard shows the current limit before you upload.
+Take at least eight if the current gallery limit allows it. The platform default is ten photos, and the wizard shows the current limit before you upload. You label each photo by room; to publish, at least two of living room, kitchen, bedroom and bathroom need a photo. Your first photo is the cover, and listings with three or more photos are approved faster. Changing photos on a live listing sends it for a quick re-check.
 
 1. **Living room**, from the doorway corner, shooting into the room
 2. **Kitchen**, showing counter length and storage
@@ -40,7 +40,7 @@ Take at least eight if the current gallery limit allows it. The platform default
 - Fix the obvious — a burnt bulb or a peeling switchboard photographs badly and reads as neglect
 
 > [!WARNING]
-> Do not use stock images, renders, or photos of a different unit. Our checks flag reused images, and the listing is removed. Beyond that, tenants who travel across Pune to find a different flat do not rent it.
+> Do not use stock images, renders, or photos of a different unit. Our checks flag reused images for moderator review. Beyond that, tenants who travel across Pune to find a different flat do not rent it.
 
 ## What hurts a listing
 

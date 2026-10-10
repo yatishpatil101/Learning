@@ -5,32 +5,47 @@ category: ops-playbook
 audience: staff
 access: staff
 order: 13
-updated: 2026-10-04
+updated: 2026-10-10
 summary: How staff review referral rewards, high-risk signals, approvals, rejections, and clawbacks.
 tags: [ops, referrals, fraud, rewards, internal]
+modules: [referrals]
 ---
 
 > [!IMPORTANT]
 > Internal runbook. Visible to Draazy staff only.
 
+## Daily checklist
+
+**Monitor**
+
+- **Pending** tab count, then **High risk** tab count.
+- Signal chips: **Same device**, **Same IP**, and **High velocity** (referrer redeemed 5 or more in 24 h).
+- Red **Identity verified** or **Identity unique** ? approval is blocked.
+- A referrer at the 30-day qualification cap (ten by default) stays **Pending** for a person to review.
+
+**Work on**
+
+- Work **Pending** first: check the chips, then **Approve** or **Reject**.
+- Then open **High risk** and look for repeat devices, networks or fast redemptions.
+- Use **Clawback** only on a **Rewarded** row where the released reward must be reversed.
+
 ## Desk and access
 
-Use **Referral Verification** at `/ops/referrals`. The route is for `staff` and `admin`.
+Use **Referrals** in the sidebar (`/admin/referrals`; staff open it under `/staff/referrals`). You need the **Referrals** function (`referrals:read` to view, `referrals:write` to decide).
 
-The desk reviews referral reward rows. It does not show raw evidence or unmasked mobiles; work from server-computed signals and the decision buttons.
+The desk reviews referral reward rows. It shows both mobiles in full but no raw device or IP evidence; work from the server-computed signals and the decision buttons.
 
 ## Queue tabs and counts
 
-The desk loads the newest 100 rows. If more exist, the banner says the counts describe only those rows.
+Rows are paged 20 at a time, with server-side counts on each tab and a search box (referrer, referred or id).
 
 | Tab | What it shows |
 | --- | --- |
 | **Pending** | `pending` and `qualified` referrals |
 | **High risk** | Any referral with `risk = high` |
 | **Rewarded** | `rewarded` referrals |
-| **All** | Every loaded status |
-
-The stat tiles count **Pending**, **High risk**, **Rewarded**, and **Refused** where refused means `rejected` or `clawed-back`.
+| **Refused** | `rejected` or `clawed-back` referrals |
+| **All** | Every status |
 
 ## Status states
 
@@ -70,7 +85,7 @@ A `qualified` referral already grants owner-contact entitlement from the qualify
 3. Use **Approve** only when the row is `pending` or `qualified` and both identity checks are green.
 4. Use **Reject** for `pending` or `qualified` rows that should never release.
 5. Use **Clawback** only on `rewarded` rows when a released reward must be reversed.
-6. Export CSV only for investigation; keep it internal.
+6. Export CSV (current page) only for investigation; keep it internal.
 
 The server re-checks identity at approval time. If the referred party no longer holds the identity badge, approval is refused even when the old row chip looked eligible.
 

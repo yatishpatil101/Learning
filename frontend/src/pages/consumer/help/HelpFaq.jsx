@@ -6,13 +6,11 @@ import HelpLayout from '../../../components/help/HelpLayout.jsx';
 import { Breadcrumbs, EmptyState } from '../../../components/help/HelpCards.jsx';
 import { listFaqs } from '../../../services/contentService.js';
 import { useHelpSearch } from '../../../lib/useHelp.js';
-import { useHelpSeo } from '../../../lib/useHelpSeo.js';
 /* FAQs are admin-editable records, so their translations live on the record under a nested `translations` object and
    are resolved by lib/contentLang.js. */
 
 export default function HelpFaq() {
   const { t } = useTranslation();
-  useHelpSeo('/help/faq');
   const [faqs, setFaqs] = useState([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState('');
@@ -48,7 +46,7 @@ export default function HelpFaq() {
   const related = relatedResults[0]?.article || null;
 
   return (
-    <HelpLayout title={t('help.faq')}>
+    <HelpLayout title={t('help.faq')} description={t('help.faqSubtitle')} path="/help/faq">
       <div className="max-w-3xl">
         <Breadcrumbs trail={[[t('help.centre'), '/help'], [t('help.faq'), null]]} />
 

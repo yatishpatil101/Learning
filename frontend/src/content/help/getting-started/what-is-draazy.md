@@ -5,7 +5,7 @@ category: getting-started
 audience: everyone
 order: 1
 featured: true
-updated: 2026-10-01
+updated: 2026-10-10
 summary: Draazy connects tenants and buyers directly with property owners in Pune — no brokers, no brokerage.
 tags: [basics, overview, brokerage]
 ---
@@ -32,13 +32,13 @@ Start at [Searching & visits](/help/c/search-visits).
 
 ### If you own a property
 
-List it in a few minutes, pause or resume it from your dashboard, add optional verification evidence, and receive contact requests from tenants whose profiles you can read before you respond.
+List it in a few minutes, pause or resume it from your dashboard, add optional verification evidence, and receive contact requests that show the requester's name, a masked mobile number and a **Serious Buyer** badge if they have verified their identity.
 
 Start at [Listing your property](/help/c/listing).
 
 ### If you need help around the move
 
-Rent agreements, packers and movers, legal title checks, home loans and valuations are available as paid add-ons. These are optional — the core marketplace stays free.
+Rent agreements, packers and movers, legal title checks, home loans and valuations are available as optional add-ons. Most are paid or quote-based; home-loan advice has no advisory fee. The core marketplace stays free.
 
 > [!NOTE]
 > Draazy currently operates in Pune and PCMC. We expand to a new city only once supply in the current one is genuinely deep.

@@ -51,6 +51,24 @@ test('legacy language-prefixed help URLs redirect to the English help', async ({
   });
 });
 test.describe('Help SEO tags', () => {
+  test('in-app navigation swaps the title, description and canonical between help pages', async ({ page }) => {
+    const canonical = page.locator('link[rel="canonical"]');
+    const description = page.locator('meta[name="description"]');
+    await openHelp(page, '/help');
+    await expect(page).toHaveTitle('Draazy Help centre');
+    await expect(canonical).toHaveAttribute('href', 'https://draazy.com/help');
+    const helpDescription = await description.getAttribute('content');
+
+    await page.getByRole('link', { name: /^Getting started / }).click();
+    await expect(page).toHaveTitle('Getting started · Draazy Help centre');
+    await expect(canonical).toHaveAttribute('href', 'https://draazy.com/help/c/getting-started');
+    await expect(description).toHaveAttribute('content', /^What Draazy is, how zero brokerage works/);
+
+    await page.goBack();
+    await expect(page).toHaveTitle('Draazy Help centre');
+    await expect(canonical).toHaveCount(1);
+    await expect(description).toHaveAttribute('content', helpDescription);
+  });
   test('an article self-canonicalises and declares no language alternates', async ({ page }) => {
     await openHelp(page, `/help/a/${SLUG}`);
 

@@ -5,19 +5,37 @@ category: ops-playbook
 audience: staff
 access: staff
 order: 11
-updated: 2026-10-04
+updated: 2026-10-10
 summary: How staff work non-rent-agreement service requests on their service desk pages.
 tags: [ops, services, queues, internal]
+modules: [desk:legal, desk:interior, desk:packers, desk:valuation]
 ---
 
 > [!IMPORTANT]
 > Internal runbook. Visible to Draazy staff only.
 
+## Daily checklist
+
+**Monitor**
+
+- **To pick up** count on your desk.
+- Row age ? amber after 24 h, rose after 72 h while the request is open.
+- **My requests** ? what you hold right now.
+- **Customer tickets** count, if the tab shows for you.
+- Ignore **Overdue** here: it only covers rent agreements and finds nothing on these desks.
+
+**Work on**
+
+- Work **To pick up**, taking rose and amber rows first.
+- Press **Take this request** before you reveal identity numbers or upload files.
+- Check **Documents**; if the checklist failed to load, retry before asking the customer for anything.
+- Move **My requests** forward with **Share draft** and the **Message thread**.
+
 ## Desk and access
 
-Open your service from the sidebar: **Property & Legal** (`/admin/legal`), **Interior & Renovation** (`/admin/interior`), **Packers & Movers** (`/admin/packers`) or **Property Valuation** (`/admin/valuation`). You see only the desks you were granted.
+Open your service from the sidebar: **Property & Legal** (`/admin/legal`), **Interior & Renovation** (`/admin/interior`), **Packers & Movers** (`/admin/packers`) or **Property Valuation** (`/admin/valuation`). Each desk is its own function (`services:read` / `services:write`); staff see only the desks they were granted and open them under `/staff/…`. Admins and managers see every desk.
 
-The route is for `staff` and `admin`. Legacy `/ops/legal`, `/ops/interior`, `/ops/packers`, and `/ops/valuation` bookmarks redirect here with the matching desk filter.
+Legacy `/ops/legal`, `/ops/interior`, `/ops/packers`, and `/ops/valuation` bookmarks redirect here with the matching desk filter.
 
 ## Current desk types
 
@@ -34,12 +52,12 @@ The route is for `staff` and `admin`. Legacy `/ops/legal`, `/ops/interior`, `/op
 
 | Control | Use it for |
 | --- | --- |
-| **All statuses** | Filter by server status |
+| **To pick up / My requests / In progress / With customer / Closed** | Stage tabs with live counts; **My requests** is what you hold |
+| **Customer tickets** | The desk's tickets tab (needs `tickets:read`) |
 | **Name, mobile or request id** | Search requester or request |
-| **Unassigned only** | Find work with no holder |
 | **Refresh** | Re-read the current page |
 
-The **Overdue only** checkbox is tied to rent-agreement SLA data. Non-rental rows use age colouring only: amber after 24 hours and rose after 72 hours while still open.
+The **Overdue** toggle is tied to rent-agreement SLA data and finds nothing on these desks. Rows use age colouring only: amber after 24 hours and rose after 72 hours while still open.
 
 ## Status states
 

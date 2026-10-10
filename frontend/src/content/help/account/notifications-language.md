@@ -4,9 +4,9 @@ slug: notifications-language
 category: account
 audience: everyone
 order: 2
-updated: 2026-10-04
-summary: Control which alerts you receive, on which channel, and how the interface moves.
-tags: [notifications, alerts, reduce motion]
+updated: 2026-10-10
+summary: Control which alerts you receive, on which channel, and how the interface looks and moves.
+tags: [notifications, alerts, light mode, reduce motion]
 ---
 
 ## Notification channels
@@ -35,9 +35,11 @@ Draazy is English-only today. There is no Hindi or Marathi switch in the app.
 > [!NOTE]
 > OTP and security checks may still appear even if you turn other channels down.
 
-## Reduce motion
+## Appearance
 
-If animations are uncomfortable, enable **Dashboard > Profile > Appearance > Reduce motion**. The app also respects your operating system's reduced-motion preference where the browser exposes it. The in-app setting is saved on the device you are using.
+Draazy opens in light mode. For a dark background, turn off **Dashboard > Profile > Appearance > Light mode**.
+
+If animations are uncomfortable, enable **Reduce motion** in the same card. The app also respects your operating system's reduced-motion preference where the browser exposes it. Both settings are saved on the device you are using, so they do not follow you to another browser or phone.
 
 ## Related
 

@@ -5,17 +5,34 @@ category: ops-playbook
 audience: staff
 access: staff
 order: 7
-updated: 2026-10-04
+updated: 2026-10-10
 summary: Internal procedure for creating an owner listing from a call or WhatsApp handoff.
 tags: [ops, listings, post-on-behalf, internal]
+modules: [postOnBehalf]
 ---
 
 > [!IMPORTANT]
 > Internal runbook. Visible to Draazy staff only.
 
+## Daily checklist
+
+**Monitor**
+
+- **You have an unsaved draft** banner ? **Resume** or **Discard** it before starting another.
+- Properties ? **To verify** with the **Awaiting owner** chip ? staff-posted listings waiting on the owner.
+- **Link opened** chip ? the owner opened the claim link but has not confirmed.
+- **Reminded ?** count on a row ? how many nudges the owner has had.
+
+**Work on**
+
+- Enter each new call or WhatsApp handoff through **Details**, **Location**, **Pricing** and **Photos & Review**.
+- Read the pending-listing warning before you submit, so you do not repeat a property.
+- After **Send to Owner**, press **Send claim link on WhatsApp**, then **I've sent it**.
+- Nudge owners who have not confirmed with the bell icon (**Remind the owner on WhatsApp**).
+
 ## Desk and access
 
-Use **Admin → Post on Behalf** (`/admin/post-on-behalf`) to create a listing for an owner who shared details by call or WhatsApp. It is an admin-portal desk: you need an `admin` account holding `postOnBehalf:write`.
+Use **Admin → Post on Behalf** (`/admin/post-on-behalf`) to create a listing for an owner who shared details by call or WhatsApp. You need the **Post on behalf** function (`postOnBehalf:write`); staff open it under `/staff/post-on-behalf`.
 
 The listing is created under the owner, not under staff. If the mobile does not belong to an existing user, the backend provisions an owner account and audits both the user provision and property creation.
 
@@ -24,7 +41,7 @@ The listing is created under the owner, not under staff. If the mobile does not 
 | Step | Staff action |
 | --- | --- |
 | **Details** | Capture owner name, 10-digit mobile, property type and core property facts |
-| **Location** | Capture locality, address and society or pin details when relevant |
+| **Location** | Pick the locality, search the society on Google Maps (a pick sets its pin and pincode) and add the full address |
 | **Pricing** | Capture rent or sale price and deposit where applicable |
 | **Photos & Review** | Add photo URLs if supplied, review, then submit |
 
@@ -54,8 +71,8 @@ Do not ignore a pending-listing warning. Open **Admin → Properties** and confi
 
 1. Review the generated listing title and all required fields.
 2. Click **Send to Owner**.
-3. On success, use **View All Properties** to open Properties.
-4. Send the owner the claim link from **Properties → Staff Posted**.
+3. On the success screen, click **Send claim link on WhatsApp**, press send in your WhatsApp, then click **I've sent it**. This is free: it goes from your own WhatsApp.
+4. To resend later, open the listing's review, pick **Onboarding welcome** under WhatsApp templates, and use **Mark sent** in the Communication log.
 5. Wait for owner confirmation before the listing goes live.
 
 The owner confirmation endpoint records claim-link opened time and owner confirmation time. Publication is blocked while a staff-posted listing still waits for owner confirmation.

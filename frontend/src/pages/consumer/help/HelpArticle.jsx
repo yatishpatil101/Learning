@@ -9,7 +9,6 @@ import ArticleFeedback from '../../../components/help/ArticleFeedback.jsx';
 import { Breadcrumbs, EmptyState } from '../../../components/help/HelpCards.jsx';
 import { markViewed } from '../../../lib/help.js';
 import { useHelpTree, useArticleNeighbours } from '../../../lib/useHelp.js';
-import { useHelpSeo } from '../../../lib/useHelpSeo.js';
 
 export default function HelpArticle() {
   const { slug } = useParams();
@@ -20,12 +19,6 @@ export default function HelpArticle() {
   const category = article ? categories.find((c) => c.id === article.category) : null;
   const section = category ? sections.find((s) => s.id === category.section) : null;
   const { prev, next } = useArticleNeighbours(article);
-
-  // An untranslated article serves identical English at all three URLs, so alternates would be a
-  // duplicate-content signal. Only publish them once the article exists in this language.
-  useHelpSeo(`/help/a/${slug}`, {
-    index: article ? article.access !== 'staff' : false,
-  });
 
   useEffect(() => { if (article) markViewed(article.slug); }, [article]);
   // Deep links to a heading arrive before the prose has painted, so the browser's
@@ -39,9 +32,9 @@ export default function HelpArticle() {
   }, [article]);
 
   if (!article) {
-    if (pending) return <HelpLayout title={t('help.centre')} />;
+    if (pending) return <HelpLayout />;
     return (
-      <HelpLayout title={t('help.articleNotFound')}>
+      <HelpLayout title={t('help.articleNotFound')} noindex>
         <EmptyState icon="file-text" title={t('help.articleNotFound')}>
           <Trans
             i18nKey="help.articleNotFoundBody"
@@ -56,7 +49,12 @@ export default function HelpArticle() {
   }
 
   return (
-    <HelpLayout title={article.title}>
+    <HelpLayout
+      title={article.title}
+      description={article.summary}
+      path={`/help/a/${article.slug}`}
+      noindex={article.access === 'staff'}
+    >
       <div className="xl:grid xl:grid-cols-[minmax(0,1fr)_13rem] xl:gap-10">
         <article className="min-w-0 max-w-3xl">
           <Breadcrumbs

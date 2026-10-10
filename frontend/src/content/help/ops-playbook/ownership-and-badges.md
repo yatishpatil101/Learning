@@ -5,19 +5,36 @@ category: ops-playbook
 audience: staff
 access: staff
 order: 4
-updated: 2026-10-04
+updated: 2026-10-10
 summary: Internal procedure for ownership evidence, ownership badges and manual verified-badge approvals.
 tags: [ops, ownership, badges, internal]
+modules: [properties, users]
 ---
 
 > [!IMPORTANT]
 > Internal runbook. Visible to Draazy staff only.
 
+## Daily checklist
+
+**Monitor**
+
+- **Badge requests** tab in Properties ? amber from 24 h, rose from 72 h.
+- **Owner is seeking the Verified property badge** banner ? the request waits for your answer.
+- **Current** or **Expired** chip on each evidence row ? only current proof counts.
+- Admins: **Badge approvals** tab count in Users.
+
+**Work on**
+
+- Answer every badge request: **Grant ownership verification**, or **Decline badge request** with a reason.
+- Open every evidence row and compare the dates and address with the listing before you grant.
+- Withdraw a granted badge when its evidence becomes unsafe.
+- Admins: decide **Badge approvals** as the second admin; never your own request.
+
 ## Desks and access
 
-Review ownership evidence inside **Admin → Properties** (`/admin/properties`) in the listing review modal. Use the **Ownership verification** section to read evidence, request documents, grant, decline or revoke.
+Review ownership evidence inside **Admin → Properties** (`/admin/properties`) in the listing review modal; staff open it under `/staff/properties`. You need the **Property verification** function (`properties:verify`). Use the **Ownership verification** section to read and record evidence, then grant, or withdraw a grant. Decline a badge request from the banner.
 
-Review manual verified-badge requests inside **Admin → Users** (`/admin/users`). Both are admin-portal desks. The **Badge approvals** panel appears only to accounts holding `users:write`.
+Hand-granted verified badges live in **Admin → Users** (`/admin/users`) and are admin-only (admin account with `users:write`): a **Grant Verified badge** row action sends a request, and the **Badge approvals** tab is where a second admin decides it. Hand-grants are audited.
 
 ## Ownership request states
 
@@ -27,7 +44,7 @@ Review manual verified-badge requests inside **Admin → Users** (`/admin/users`
 | Requested | Inspect evidence and decide | Listing can still be reviewed separately |
 | Granted | **Grant ownership verification** | Ownership badge appears on eligible reads |
 | Declined | **Decline badge request** → **Decline request** | No ownership badge; owner sees the reason |
-| Revoked | Revoke a prior grant | Badge is removed; evidence rows remain |
+| Withdrawn | **Withdraw ownership verification** (reason required) | Badge is removed; evidence rows remain |
 
 Ownership review is separate from listing publication. Recording evidence does not grant a badge; staff must click **Grant ownership verification**.
 
@@ -59,7 +76,7 @@ Aadhaar and PAN are retired identity evidence for this desk. Do not accept them 
 
 ## Ownership decisions
 
-Use **Grant ownership verification** when required evidence is valid and matches the listing. Use **Decline request** when evidence is missing, unreadable, mismatched or category-invalid. Use revoke when a granted badge becomes unsafe.
+Use **Grant ownership verification** when required evidence is valid and matches the listing. Use **Decline request** when evidence is missing, unreadable, mismatched or category-invalid. Use **Withdraw ownership verification** when a granted badge becomes unsafe.
 
 Do not use listing approval as a shortcut for ownership proof. A listing can be live without ownership verification.
 
@@ -72,7 +89,7 @@ Manual user badges use maker-checker control:
 | Request | Reason must be 10 to 300 characters |
 | Pending limit | One pending request per user |
 | Requester | Cannot request a badge for self |
-| Checker | Cannot be requester or subject user |
+| Checker | A second admin; cannot be the requester or the subject user |
 | Approve | **Approve** note is optional |
 | Reject | **Reject** reason is required and must be 10 to 300 characters |
 
@@ -84,7 +101,7 @@ Use this panel only for hand-granted verified badges. If the badge was earned th
 - Do not grant ownership when only supporting evidence is present.
 - Do not decide your own manual badge request.
 - Do not withdraw an identity-earned badge from the user badge panel.
-- Do not delete evidence rows to hide a bad decision; revoke or decline instead.
+- Do not delete evidence rows to hide a bad decision; withdraw or decline instead.
 
 ## Related
 

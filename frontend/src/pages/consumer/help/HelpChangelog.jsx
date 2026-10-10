@@ -5,15 +5,13 @@ import HelpLayout from '../../../components/help/HelpLayout.jsx';
 import ArticleProse from '../../../components/help/ArticleProse.jsx';
 import { Breadcrumbs, EmptyState } from '../../../components/help/HelpCards.jsx';
 import { changelog } from '../../../lib/help.js';
-import { useHelpSeo } from '../../../lib/useHelpSeo.js';
 /* Product changelog. */
 
 export default function HelpChangelog() {
   const { t } = useTranslation();
-  useHelpSeo('/help/changelog');
 
   return (
-    <HelpLayout title={t('help.changelogTitle')}>
+    <HelpLayout title={t('help.changelogTitle')} description={t('help.changelogSubtitle')} path="/help/changelog">
       <div className="max-w-3xl">
         <Breadcrumbs trail={[[t('help.centre'), '/help'], [t('help.changelog'), null]]} />
 

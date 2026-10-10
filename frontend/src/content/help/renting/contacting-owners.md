@@ -4,24 +4,24 @@ slug: contacting-owners
 category: renting
 audience: tenant
 order: 1
-updated: 2026-10-04
+updated: 2026-10-10
 summary: How owner approval, masked contact details, contact allowance and in-app chat work.
 tags: [enquiry, contact, owner, messaging, quota]
 ---
 
 ## How contact works
 
-Open a listing and tap **Contact owner**. You need to be signed in with a verified mobile number — that is the only requirement, and it is the same floor everywhere on Draazy.
+Open a listing and tap **Contact Owner** (or **Request number** next to the masked number). You need to be signed in with a verified mobile number — that is the only requirement, and it is the same floor everywhere on Draazy.
 
-Tapping does not hand you a phone number. It sends the owner a **contact request**, and their number stays partly masked (`+91 98xxx xxxx02`) until they say yes. A request sits in one of three states:
+Tapping does not hand you a phone number. Sending an enquiry, starting a chat or tapping **Request number** all send the owner a **contact request**, and their number stays partly masked (`+91 98xxx xxxx02`) until they say yes. A request sits in one of three states:
 
 | State | What you see |
 | --- | --- |
 | Pending | Request sent. The owner has not answered yet. |
-| Approved | The contact path opens. You can message in-app, and any phone action shown for that owner appears only after approval. |
+| Approved | The contact path opens. You can message in-app, and any phone action shown for that owner appears only after approval. Some owners keep their number hidden even after approving — you then see "Approved — listing contact prefers in-app chat" and talk in the app. |
 | Declined | The owner passed. This is final for that listing. |
 
-Tapping again on the same listing does not send a second request — it shows you where the first one stands.
+Tapping again on the same listing does not send a second request — it shows you where the first one stands. A pending request lapses after 30 days; ask again then, and it does not use another contact.
 
 The owner's number is never shown before approval. For many listings the safe next step is in-app chat rather than taking the conversation off-platform.
 
@@ -47,7 +47,7 @@ Owner contacts are capped per account, not per day:
 
 The count is a **lifetime total**, not a monthly or daily refill. One listing costs one contact however many times you open it, and whether the owner approves or declines does not change the number — you are charged for asking, once, per property.
 
-When the allowance runs out the app says so and offers a plan or a referral link. See what is left any time from [Plans](/plans).
+The listing shows "N free owner contacts left" beside **Request number**, and your balance is on the [Refer](/refer) page. When the allowance runs out the app says so and offers a referral link (while referral rewards are on) or [Seeker Plus](/plans).
 
 ## Writing an enquiry that gets answered
 
@@ -62,7 +62,7 @@ A workable template:
 > Hi, I'm interested in your 2 BHK in Baner. I work at a product company in Hinjawadi, moving with my wife, and we're looking to shift by 15 August. The rent and deposit work for us. Could we visit this weekend — Saturday morning or Sunday afternoon?
 
 > [!TIP]
-> Fill in your [tenant profile](/tenant-profile) before you enquire. Owners see it attached to your request, and it answers most of their questions before they have to ask.
+> Owners see only your name, a masked mobile number and a Serious Buyer badge if you are ID-verified. Your [tenant profile](/tenant-profile) is not shared, so use a short first message to say who will live in the home.
 
 ## If the request stays pending
 

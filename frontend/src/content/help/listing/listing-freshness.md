@@ -4,7 +4,7 @@ slug: listing-freshness
 category: listing
 audience: owner
 order: 4
-updated: 2026-10-01
+updated: 2026-10-10
 summary: Freshness, pausing, re-checks and what to do when your listing is no longer available.
 tags: [freshness, ranking, expiry, owner, pause]
 ---
@@ -18,29 +18,29 @@ Every listing carries a freshness state derived from when you last confirmed ava
 | State | Since last confirmed | Effect |
 | --- | --- | --- |
 | Active | Up to 7 days | Full ranking weight |
-| Ageing | 8–14 days | Slightly lower ranking. Buyers are told nothing. |
+| Ageing | 8–14 days | Slightly lower ranking. Buyers see when you last confirmed availability. |
 | Stale | 15–30 days | Demoted, and buyers see that availability is unconfirmed |
-| Dormant | Over 30 days | Hidden from buyer search until you reconfirm |
+| Dormant | Over 30 days | Ranks lowest in search until you reconfirm |
 
-The state is recalculated on every read, so it is never stale in itself — and one tap on **Confirm available** from **Dashboard → My listings** puts a dormant listing straight back to Active.
+The state is recalculated on every read, so it is never stale in itself — and one tap on **Confirm available** (**Reactivate** on a dormant listing) from **Dashboard → My Properties** puts it straight back to Active. Your card shows Confirm soon when it is ageing.
 
 ## Why we do this
 
 Tenants abandon a platform after two or three wasted calls on properties that are already gone. Enforcing freshness costs owners one tap a fortnight and is the reason enquiries here convert at the rate they do.
 
 > [!NOTE]
-> Dormant is not deleted. Nothing is lost — reconfirm and the listing returns to search immediately with its history intact.
+> Dormant is not deleted. Nothing is lost — reconfirm and the listing is back at full ranking immediately, with its history intact.
 
 ## Keeping a listing ranking well
 
 On the default **Relevance** sort, listings are scored. In descending order of weight:
 
-1. **Featured placement** — the only paid term, and it outranks everything below it
+1. **Featured placement** — comes with an active Owner Plus or Pro plan, lapses with it, and outranks everything below it
 2. **ID verified owner** — ID and selfie reviewed by our trust team
-3. **Ownership verified** — ownership documents seen, and still current
-4. **RERA registered** — a valid registration number on the project
-5. **Freshness** — Active, then Ageing, then Stale. Dormant scores zero.
-6. **Completeness** — carpet area, maintenance, availability date, photos
+3. **Verified property** — ownership documents seen, and still current
+4. **Freshness** — Active, then Ageing, then Stale. Dormant scores zero.
+5. **RERA registered** — a valid registration number on the project
+6. **Completeness** — photos, description, key details and amenities
 
 Every term except the first is free and within your control, and no amount of completeness substitutes for a verification. See [Plans explained](/help/a/plans-explained) before assuming visibility is something you have to buy.
 
@@ -54,7 +54,7 @@ Use **Resume** when you are ready again. It returns a paused live listing to sea
 
 ## When you rent it out
 
-Mark the property **Rented** rather than letting it go dormant. Open enquiries are notified, and the listing is delisted cleanly.
+Finalize the rental (or sale) from the property card rather than letting the listing go dormant. You need the agreed price and the other party's 10-digit mobile, and the listing comes off the market cleanly.
 
 ## Related
 

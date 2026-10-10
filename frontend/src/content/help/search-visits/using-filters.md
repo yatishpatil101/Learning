@@ -5,7 +5,7 @@ category: search-visits
 audience: tenant
 order: 1
 featured: true
-updated: 2026-10-04
+updated: 2026-10-10
 summary: Smart search, live result counts and the filters that actually narrow a Pune search.
 tags: [search, filters, listings, smart search]
 ---
@@ -22,7 +22,7 @@ Smart search refines the filters already on screen. If it switches from rent to 
 
 ### 1. Locality or place, not city
 
-Pune is too large to search as one unit. Either pick 2–3 localities, or use **Near a place** — enter your workplace, school or landmark and choose a distance or travel-time radius. See [Map view and commute time](/help/a/map-view-commute).
+Pune is too large to search as one unit. Either search for and pick 2–3 **Localities**, or use **Near a place** — search for your workplace, school, landmark or society and choose a distance or travel-time radius. See [Map view and commute time](/help/a/map-view-commute).
 
 ### 2. Budget as a range, not a ceiling
 

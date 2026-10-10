@@ -5,14 +5,14 @@ category: search-visits
 audience: tenant
 order: 4
 featured: true
-updated: 2026-10-04
+updated: 2026-10-10
 summary: How to book an in-person or video visit, what to check when you are there, and what to do if the owner does not turn up.
 tags: [visit, viewing, checklist, video]
 ---
 
 ## Booking
 
-From any property page, tap **Schedule visit**. Pick **in person** or **video walkthrough**, choose a date and one of the day's slots — 9:00 AM through 7:00 PM — and confirm. You need to be signed in. Dates are forward-only; you cannot book yesterday.
+From any property page, tap **Schedule a Visit**. Pick **In-person** or **Video tour**, choose a date and one of the day's slots — 9:00 AM through 7:00 PM — add an optional note, and tap **Confirm Visit**. You need to be signed in. Dates are forward-only; you cannot book yesterday.
 
 The owner is notified and has to confirm the slot. Until they do, your visit reads **Awaiting confirmation**. Track everything under **Dashboard → Visits**.
 
@@ -60,7 +60,7 @@ If either side reschedules, the visit goes back to awaiting confirmation so both
 
 ## If the owner does not show up
 
-The owner can mark a confirmed visit as a no-show. If that is wrong, raise it with [Support](/support) with the listing and the slot.
+Only the owner can mark a confirmed visit as a no-show; you can only cancel. If the owner does not turn up, or marks you a no-show when you were there, raise it with [Support](/support) with the listing and the slot.
 
 ## Related
 

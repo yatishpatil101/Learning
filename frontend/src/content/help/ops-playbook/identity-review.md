@@ -5,17 +5,35 @@ category: ops-playbook
 audience: staff
 access: staff
 order: 3
-updated: 2026-10-04
+updated: 2026-10-10
 summary: Internal KYC desk procedure for reviewing captured ID documents, selfies, QA samples and revocations.
 tags: [ops, kyc, identity, internal]
+modules: [kycReview]
 ---
 
 > [!IMPORTANT]
 > Internal runbook. Visible to Draazy staff only.
 
+## Daily checklist
+
+**Monitor**
+
+- **Needs review** tab, oldest first ? amber from 24 h ("due soon"), rose from 48 h ("overdue").
+- **Overdue** button count ? pending cases past 48 h.
+- **Claim ? Mine** chip ? you can hold at most 3 cases at once.
+- **QA sample** tab count ? approvals waiting for a second reviewer.
+- A pending case left for 14 days is rejected automatically, so keep the oldest moving.
+
+**Work on**
+
+- Clear **Overdue** cases first, then work **Needs review** oldest first.
+- Finish a case you open: opening it holds it for you for 30 minutes.
+- Do **QA sample** cases that someone else approved: **Confirm** or **Revoke**.
+- Decide each case from the evidence in it; never your own case.
+
 ## Desk and access
 
-Use **KYC review** at `/ops/kyc-review` (ops staff) or `/admin/kyc-review` (admin portal). Either way you need `identity:read` to view cases and `identity:write` to claim, approve, reject, release, QA or revoke.
+Use **KYC review** at `/admin/kyc-review` (staff open it under `/staff/kyc-review`). It belongs to the **KYC review** function; the page needs `identity:write` (there is no view-only version), which covers viewing, claiming, approving, rejecting, QA and revoking.
 
 The customer submits a camera-captured identity document image and selfie through the identity flow. Review only what the case shows; do not ask for documents outside the product flow.
 
@@ -39,7 +57,7 @@ Use filters for name or mobile, document type, claim owner, overdue state, outco
 | Active claims | A reviewer may hold 3 active identity cases |
 | Stale pending sweep | Cases older than 14 days are rejected as `not_reviewed`; images are purged and the attempt window is reset |
 
-Use **Force release** only when another reviewer has clearly abandoned a claim. The button asks for confirmation before clearing the hold.
+**Force release** is admin-only. Use it only when another reviewer has clearly abandoned a claim; managers and staff ask an admin. The button asks for confirmation before clearing the hold. You cannot decide your own identity case.
 
 ## Approval checklist
 
@@ -84,7 +102,7 @@ An identity-earned verified badge cannot be withdrawn from the user badge screen
 
 - Do not approve your own QA sample.
 - Do not QA a case you approved.
-- Do not force-release an active colleague unless needed to keep the queue moving.
+- Do not ask an admin to force-release an active colleague unless needed to keep the queue moving.
 - Do not accept a typed document value that contradicts the captured image.
 - Do not store copies of the captured document or selfie outside the case.
 

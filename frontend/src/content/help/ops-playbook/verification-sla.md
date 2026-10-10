@@ -5,28 +5,47 @@ category: ops-playbook
 audience: staff
 access: staff
 order: 1
-updated: 2026-10-04
+updated: 2026-10-10
 summary: Internal queue rules for listing verification, live re-checks, duplicates and owner follow-up.
 tags: [ops, sla, verification, internal]
+modules: [properties]
 ---
 
 > [!IMPORTANT]
 > Internal runbook. Visible to Draazy staff only.
 
+## Daily checklist
+
+**Monitor**
+
+- **To verify** tab, oldest first ? amber at 24 h ("due soon"), rose at 48 h ("overdue").
+- **Re-checks** and **Badge requests** tabs ? amber at 24 h, rose at 72 h.
+- **Flagged** tab count ? every flagged listing is out of search until you clear or archive it.
+- **Duplicates** tab count ? clusters still waiting for a decision.
+- **Follow-up** tab count ? live listings the owner has not confirmed for over two weeks. It has no amber or rose.
+
+**Work on**
+
+- Clear **To verify** from the oldest rose row down. Use the **Awaiting owner** chip to separate staff-posted listings that only need an owner nudge.
+- Decide every row in **Re-checks**: **Looks fine**, or take the listing down.
+- Grant or decline every request in **Badge requests**.
+- Decide each cluster in **Duplicates** before approving any member.
+- On **Follow-up**, send the WhatsApp reminder (bell icon) and record it.
+
 ## Desk and access
 
-Use **Admin → Properties** (`/admin/properties`) for listing verification. It is an admin-portal desk: you need a back-office account holding `properties:read` to see it, `properties:verify` to decide verification cases, and `properties:moderate` to edit, flag, archive, restore, or merge duplicate listings.
+Use **Admin → Properties** (`/admin/properties`) for listing verification. Staff open it under `/staff/properties`. Access comes from functions: **Property verification** (`properties:verify`) decides verification cases; **Listing moderation** (`properties:moderate`) flags, archives, restores and merges duplicates. Either one lets you edit a listing during review.
 
-Use the owner follow-up buttons only if your role includes `postOnBehalf:write`; those routes can prepare claim-link and WhatsApp outreach to an owner.
+Use the owner follow-up buttons only with the **Post on behalf** function (`postOnBehalf:write`); those routes can prepare claim-link and WhatsApp outreach to an owner.
 
 ## Queue tabs and targets
 
 | Tab | What enters | Target shown in the desk |
 | --- | --- | --- |
-| **To verify** | Pending listings ready for staff review | Warn at 24 hours; breach at 48 hours |
+| **To verify** | Pending listings ready for staff review; staff-posted listings waiting on the owner sit here under the **Awaiting owner** progress chip | Warn at 24 hours; breach at 48 hours |
 | **Re-checks** | Live listings with a `recheckRequestedAt` timestamp | Warn at 24 hours; breach at 72 hours |
 | **Badge requests** | Listings asking for ownership verification | Warn at 24 hours; breach at 72 hours |
-| **Follow-up** | Staff-posted or live listings waiting on owner confirmation | No breach colour; the row is a follow-up task |
+| **Follow-up** | Live listings the owner has not confirmed as still available for over two weeks | No breach colour; the row is a follow-up task |
 | **Flagged** | Listings with a staff flag | Work by risk, not by SLA colour |
 | **Duplicates** | Server-built duplicate clusters | Decide each cluster before approving any member |
 | **All listings** | Full moderation view, including archived rows when filtered | Use only to find or restore a known listing |

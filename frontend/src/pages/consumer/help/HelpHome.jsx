@@ -5,7 +5,6 @@ import HelpLayout from '../../../components/help/HelpLayout.jsx';
 import HelpSearch from '../../../components/help/HelpSearch.jsx';
 import { ArticleCard, CategoryCard } from '../../../components/help/HelpCards.jsx';
 import { useHelpTree, useFeaturedArticles, useRecentArticles } from '../../../lib/useHelp.js';
-import { useHelpSeo } from '../../../lib/useHelpSeo.js';
 /* Help centre landing page. Uses the `wide` shell — the topic rail is redundant here because the whole page is the
    topic index. */
 
@@ -18,14 +17,12 @@ export default function HelpHome() {
   const { sections, categories, articles } = useHelpTree();
   const featured = useFeaturedArticles(4);
   const recent = useRecentArticles().slice(0, 3);
-  useHelpSeo('/help');
 
   const titleFor = (id) => categories.find((c) => c.id === id)?.title || '';
   const countIn = (id) => articles.filter((a) => a.category === id).length;
 
   return (
-      /* Hero */
-    <HelpLayout wide title={t('help.centre')}>
+    <HelpLayout wide description={t('help.heroSubtitle')} path="/help">
       <section className="py-6 text-center sm:py-12">
         <span className="inline-flex items-center gap-1.5 rounded-full border border-teal-400/25 bg-teal-400/10 px-3 py-1 text-[11px] font-semibold uppercase tracking-widest text-teal-300">
           <Icon name="book-open" className="w-3.5 h-3.5" /> {t('help.centre')}
