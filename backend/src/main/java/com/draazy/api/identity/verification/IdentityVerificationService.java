@@ -99,6 +99,14 @@ public class IdentityVerificationService {
                 .orElse(false);
     }
 
+    @Transactional(readOnly = true)
+    public Set<UUID> verifiedAmong(java.util.Collection<UUID> userIds) {
+        if (userIds.isEmpty()) {
+            return Set.of();
+        }
+        return Set.copyOf(verifications.userIdsWithStatus(userIds, VerificationStatuses.VERIFIED));
+    }
+
     @Transactional
     public IdentityVerificationResponse submit(UUID userId, String docType, boolean consent,
             String consentLanguage, String claimsJson, String liveness, String challenge,
@@ -435,7 +443,7 @@ public class IdentityVerificationService {
     void notifyRejected(UUID userId, String text) {
         notifier.notify(userId, "identity.rejected", "Verification needs another try",
                 text, "/verify-identity");
-        users.findById(userId).ifPresent(user ->
+        users.findById(userId).filter(user -> notifier.allowsWhatsapp(userId)).ifPresent(user ->
                 decisionMessenger.sendIdentityDecision(user.getMobile(),
                         "Your Draazy identity verification could not be completed. Open the app to see the reason and retake your photos."));
     }

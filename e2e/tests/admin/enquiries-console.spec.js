@@ -1,5 +1,5 @@
-/* Demand console shell against the live API (contact columns and the audited detail read live in `admin/enquiries.spec.js`).
- * Filters use the server vocabulary (`Awaiting owner` = `pending`) and numeric counts (8 seeded: 4 approved, 1 declined, 3 pending) so a filter cannot pass on an empty table. */
+/* Filters use the server vocabulary (Awaiting owner = pending) and numeric counts (8 seeded: 4 approved,
+   1 declined, 3 pending) so a filter cannot pass on an empty table. */
 import { test, expect } from '../../fixtures/live.js';
 
 const rows = (page) => page.getByTestId('queue-row');
@@ -7,7 +7,8 @@ const rows = (page) => page.getByTestId('queue-row');
 /** The pager reads "1–10 of N"; N is the post-filter row count. */
 async function shown(page) {
   const text = await page.getByTestId('queue-range').first().innerText();
-  return Number(text.match(/of (\d+)$/)[1]);
+  const match = text.match(/of (\d+)$/);
+  return match ? Number(match[1]) : Number.NaN;
 }
 
 async function openBoard(page, tab) {
@@ -43,12 +44,13 @@ test('the status filter narrows the board to the server vocabulary, and Awaiting
   await login.asAdmin();
   await openBoard(page);
 
-  /* The seed's eight contact requests as a number: "more than zero" passes on a one-row list, where a filter cannot be told from no filter. */
+  /* Asserted as a number: "more than zero" passes on a one-row list, where a filter cannot be told from none. */
   const before = await shown(page);
   expect(before, 'the seed carries eight contact requests; the board should be holding all of them')
     .toBe(8);
 
-  /* The adversarial row a filter must drop: asserted present first so its later absence is evidence, and approved is the largest group, so a widened filter would keep it. */
+  /* Asserted present first so its later absence is evidence;
+     approved is the largest group, so a widened filter would keep it. */
   const approved = rows(page).filter({ hasText: /approved/i });
   await expect(approved.first()).toBeVisible();
   const approvedRows = await approved.count();
@@ -56,6 +58,9 @@ test('the status filter narrows the board to the server vocabulary, and Awaiting
 
   await pickStatus(page, 'Awaiting owner');
 
+  // The filter is a server read, so the pager passes through Searching... before it settles on the filtered total.
+  await expect(page.getByTestId('queue-range').first()).toHaveText(/of \d+$/);
+  await expect.poll(() => shown(page)).toBeLessThan(before);
   const after = await shown(page);
   expect(after, 'Pending must not be empty, or the absence assertions below prove nothing').toBeGreaterThan(0);
   expect(after, 'Pending must be a strict subset, or the filter is not filtering').toBeLessThan(before);

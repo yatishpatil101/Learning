@@ -1,9 +1,10 @@
-/* Demand board against the live API: every tab shows contacts in full to the back office, and opening a row's detail
- * is recorded against whoever opened it. */
+/* Demand board against the live API: lists carry masked contacts, and opening a row's detail returns the full number
+ * and is recorded against whoever opened it. */
 import { test, expect, ACTORS } from '../../fixtures/live.js';
 import { API, authHeaders } from '../../helpers/liveAuth.js';
 
 const RAW = /^[6-9]\d{9}$/;
+const MASKED = /^[6-9]\dX{5}\d{3}$/;
 
 async function openBoard(page, tab) {
   await page.goto(tab ? `/admin/enquiries?tab=${tab}` : '/admin/enquiries');
@@ -12,34 +13,33 @@ async function openBoard(page, tab) {
   await expect(page.getByTestId('queue-row').first()).toBeVisible();
 }
 
-test('every tab shows its contact in full, and the board lists the seeded enquiries', async ({ page, login, consoleErrors }) => {
+test('every tab lists masked contacts, and the detail modal opens the full number', async ({ page, login, consoleErrors }) => {
   await login.asAdmin();
   await openBoard(page);
 
   // Asserting the number rather than "more than zero" fails a board that silently returned an empty page.
   await expect(page.getByTestId('tab-count-enquiries')).toHaveText('8');
 
-  /* Three tabs, three different records behind them — requester, visitor, counterparty. */
+  const DIALOG = { enquiries: /^Enquiry /, visits: /^Site visit /, deals: /^Deal / };
   for (const tab of ['enquiries', 'visits', 'deals']) {
     await openBoard(page, tab);
     const rows = Number(await page.getByTestId(`tab-count-${tab}`).innerText());
     if (rows === 0) continue;
 
-    // The deals table has no contact column; that number is rendered in the row's detail modal.
-    if (tab === 'deals') {
-      await page.getByTestId('queue-row').first().locator('[title="View"]').click();
-      const detail = page.getByRole('dialog', { name: /^Deal · / });
-      await expect(detail).toBeVisible();
-      await expect(detail.getByText(RAW)).toBeVisible();
-    } else {
-      await expect(page.getByText(RAW).first(), `the ${tab} tab reports ${rows} rows but shows no mobile`).toBeVisible();
+    await expect(page.getByText(RAW), `the ${tab} list must not carry a full mobile`).toHaveCount(0);
+    if (tab !== 'deals') {
+      await expect(page.getByTestId('queue-row').first().getByText(MASKED), `the ${tab} list shows a masked mobile`).toBeVisible();
     }
-    await expect(page.getByText(/X{5}/)).toHaveCount(0);
+
+    await page.getByTestId('queue-row').first().locator('[title="View"]').click();
+    const detail = page.getByRole('dialog', { name: DIALOG[tab] });
+    await expect(detail).toBeVisible();
+    await expect(detail.getByText(RAW)).toBeVisible();
+    await page.keyboard.press('Escape');
   }
 
   expect(consoleErrors).toHaveLength(0);
 });
-
 test('opening an enquiry shows its contact and records who opened it', async ({ page, login }) => {
   await login.asAdmin();
   await openBoard(page);
@@ -47,7 +47,7 @@ test('opening an enquiry shows its contact and records who opened it', async ({ 
   const opened = page.waitForResponse((r) => /\/admin\/enquiries\/[^/?]+$/.test(new URL(r.url()).pathname) && r.request().method() === 'GET');
   await page.getByTestId('queue-row').first().locator('[title="View"]').click();
   expect((await opened).status()).toBe(200);
-  const detail = page.getByRole('dialog', { name: /^Enquiry · / });
+  const detail = page.getByRole('dialog', { name: /^Enquiry / });
   await expect(detail.getByText(RAW)).toBeVisible();
   await expect(detail.getByRole('button', { name: 'Reveal contact' })).toHaveCount(0);
 

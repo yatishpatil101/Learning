@@ -4,16 +4,24 @@ import java.util.Collection;
 import java.util.List;
 import java.util.UUID;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 
 /** Thread reads. Messages are immutable once written. */
 public interface SupportTicketMessageRepository extends JpaRepository<SupportTicketMessage, UUID> {
 
     List<SupportTicketMessage> findByTicketIdOrderByCreatedAtAsc(UUID ticketId);
 
-    /**
-     * The list read: one query for every ticket in the response rather than one per ticket. The
-     * contract's {@code SupportTicket} carries its messages inline on the list as well as the
-     * detail, so without this the inbox is an N+1 by construction.
-     */
+    /** One query for every ticket in the response: the list carries messages inline,
+     * so per-ticket reads would make the inbox an N+1. */
     List<SupportTicketMessage> findByTicketIdInOrderByCreatedAtAsc(Collection<UUID> ticketIds);
+
+    /** The list preview: each ticket's newest message(s), so no thread is read. A timestamp tie returns both. */
+    @Query("""
+            select m from SupportTicketMessage m
+             where m.ticketId in :ticketIds
+               and m.createdAt = (select max(x.createdAt) from SupportTicketMessage x
+                                   where x.ticketId = m.ticketId)
+            """)
+    List<SupportTicketMessage> findLatestByTicketIdIn(@Param("ticketIds") Collection<UUID> ticketIds);
 }

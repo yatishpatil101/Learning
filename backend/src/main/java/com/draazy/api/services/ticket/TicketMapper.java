@@ -12,13 +12,8 @@ import java.util.UUID;
 import java.util.stream.Collectors;
 import org.springframework.stereotype.Component;
 
-/**
- * Entity→wire projection for the ticket board.
- *
- * <p>Batch-loaded for the same reason as {@code ServiceRequestMapper}: the contract's {@code Ticket}
- * carries its notes inline and the board is paged, so per-row loads would be an N+1 on the busiest
- * ops screen. {@link #toDtos} issues two queries whatever the page size.
- */
+/** Batch-loaded as in {@code ServiceRequestMapper}: notes are inline and the board is paged,
+ * so per-row loads would be an N+1 on the busiest ops screen. */
 @Component
 public class TicketMapper {
 
@@ -34,14 +29,8 @@ public class TicketMapper {
         return toDtos(List.of(ticket)).getFirst();
     }
 
-    /**
-     * The raiser's view of their own ticket (debt D47) — everything {@link #toDto} carries except
-     * the internal notes, which {@link CustomerTicketDto} has no component for.
-     *
-     * <p>Single-row, so it resolves the assignee name with one lookup instead of the batch
-     * {@link #toDtos} needs. There is no customer list path and there should not be a batched
-     * customer projection until there is.
-     */
+    /** Single-row, so one assignee lookup replaces the batch; omits internal notes,
+     * which {@link CustomerTicketDto} has no component for. */
     public CustomerTicketDto toCustomer(Ticket ticket) {
         String assignee = ticket.getAssigneeId() == null
                 ? null
@@ -70,17 +59,7 @@ public class TicketMapper {
         List<UUID> ids = tickets.stream().map(Ticket::getId).toList();
         Map<UUID, List<TicketNote>> byTicket = notes.findByTicketIdInOrderByAtAsc(ids).stream()
                 .collect(Collectors.groupingBy(TicketNote::getTicketId));
-
-        Set<UUID> assignees = tickets.stream()
-                .map(Ticket::getAssigneeId)
-                .filter(Objects::nonNull)
-                .collect(Collectors.toCollection(HashSet::new));
-        Map<UUID, String> names = new HashMap<>();
-        if (!assignees.isEmpty()) {
-            for (User u : users.findAllById(assignees)) {
-                names.put(u.getId(), u.getName());
-            }
-        }
+        Map<UUID, String> names = assigneeNames(tickets);
 
         return tickets.stream()
                 .map(t -> new TicketDto(
@@ -102,5 +81,41 @@ public class TicketMapper {
                                 .toList(),
                         t.getCreatedAt()))
                 .toList();
+    }
+
+    /** Board rows: no notes read, and the assignee names resolved in one lookup. */
+    public List<TicketRow> toRows(List<Ticket> tickets) {
+        if (tickets.isEmpty()) {
+            return List.of();
+        }
+        Map<UUID, String> names = assigneeNames(tickets);
+        return tickets.stream()
+                .map(t -> new TicketRow(
+                        t.getId().toString(),
+                        t.getSubject(),
+                        t.getTeam(),
+                        t.getPriority(),
+                        t.getStatus(),
+                        names.get(t.getAssigneeId()),
+                        t.getService(),
+                        t.getCustomer(),
+                        t.getMobile(),
+                        t.getDetail(),
+                        t.getCreatedAt()))
+                .toList();
+    }
+
+    private Map<UUID, String> assigneeNames(List<Ticket> tickets) {
+        Set<UUID> assignees = tickets.stream()
+                .map(Ticket::getAssigneeId)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toCollection(HashSet::new));
+        Map<UUID, String> names = new HashMap<>();
+        if (!assignees.isEmpty()) {
+            for (User u : users.findAllById(assignees)) {
+                names.put(u.getId(), u.getName());
+            }
+        }
+        return names;
     }
 }

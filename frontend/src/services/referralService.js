@@ -1,9 +1,9 @@
-/** The fraud desk (staff-only) and the referrer's own view. Approval rules, decision states, reward value and risk are server-owned; the client only mirrors them. */
+/** Approval rules, decision states, reward value and risk are server-owned; the client only mirrors them. */
 import { createProvider } from './config.js';
 
 const provider = createProvider('referral');
 
-/** A page of the queue; `status` and `risk` are server filters for one slice (there is no `flagged` status, the High risk tab reads `risk`), not what draws the tabs. */
+/** `counts` asks for whole-table tab totals; the High risk tab reads `risk`, as there is no `flagged` status. */
 export async function listReferralQueue(params) {
   return (await provider()).listReferralQueue(params);
 }

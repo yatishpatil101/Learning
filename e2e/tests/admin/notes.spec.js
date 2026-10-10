@@ -194,7 +194,7 @@ test.describe('LIVE — notes on a person', () => {
     await login.asAdmin();
     await page.goto('/admin/users');
     await expect(page.getByRole('heading', { name: 'Users', exact: true })).toBeVisible();
-    await page.getByPlaceholder('Search name, mobile, email…').fill('Sakshi Rao');
+    await page.getByPlaceholder('Search name or mobile…').fill('Sakshi Rao');
 
     const row = page.getByTestId('queue-row').filter({ hasText: 'Sakshi Rao' }).first();
     await expect(row).toBeVisible();
@@ -218,7 +218,7 @@ test.describe('LIVE — notes on a person', () => {
     await expect(page.getByTestId('user-notes')).toHaveCount(0);
 
     await page.reload();
-    await page.getByPlaceholder('Search name, mobile, email…').fill('Sakshi Rao');
+    await page.getByPlaceholder('Search name or mobile…').fill('Sakshi Rao');
     await page.getByTestId('queue-row').filter({ hasText: 'Sakshi Rao' }).first()
       .locator('[title="View activity"]').click();
     await expect(page.getByTestId('user-notes').getByTestId('user-note').filter({ hasText: second }))
@@ -234,12 +234,12 @@ test.describe('LIVE — notes on a person', () => {
     await login.asAdmin();
     await page.goto('/admin/users');
     await expect(page.getByRole('heading', { name: 'Users', exact: true })).toBeVisible();
-    await page.getByPlaceholder('Search name, mobile, email…').fill(mobile);
+    await page.getByPlaceholder('Search name or mobile…').fill(mobile);
 
     await expect(page.getByTestId('queue-row'),
       'searching for a mobile that belongs to exactly one account did not narrow the directory to it',
     ).toHaveCount(1);
-    const row = page.getByTestId('queue-row').filter({ hasText: mobile }).first();
+    const row = page.getByTestId('queue-row').first();
     await expect(row).toBeVisible();
     await row.getByRole('button', { name: 'View activity' }).click();
 

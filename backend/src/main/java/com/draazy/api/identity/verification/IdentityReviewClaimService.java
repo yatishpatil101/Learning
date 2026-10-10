@@ -27,25 +27,22 @@ public class IdentityReviewClaimService {
     private final IdentityVerificationRepository verifications;
     private final UserRepository users;
     private final IdentityReviewService reviews;
-    private final IdentityReviewReadService read;
     private final Clock clock;
     private final EntityManager entityManager;
     private final AuditService audit;
 
     public IdentityReviewClaimService(IdentityVerificationRepository verifications, UserRepository users,
-            IdentityReviewService reviews, IdentityReviewReadService read, Clock clock, EntityManager entityManager,
-            AuditService audit) {
+            IdentityReviewService reviews, Clock clock, EntityManager entityManager, AuditService audit) {
         this.verifications = verifications;
         this.users = users;
         this.reviews = reviews;
-        this.read = read;
         this.clock = clock;
         this.entityManager = entityManager;
         this.audit = audit;
     }
 
     @Transactional
-    public IdentityReviewResponse claim(AuthPrincipal reviewer, UUID id) {
+    public IdentityClaimState claim(AuthPrincipal reviewer, UUID id) {
         lockReviewerClaims(reviewer);
         IdentityVerification v = reviews.requireForUpdate(id);
         IdentityReviewService.requireOtherPerson(reviewer, v, "You cannot claim your own identity verification");
@@ -55,21 +52,22 @@ public class IdentityReviewClaimService {
             throwClaimed(v);
         }
         if (isFreshClaim(v, now) && reviewer.userId().equals(v.getClaimedBy())) {
-            return read.currentReview(reviewer, v);
+            return heldByMe(reviewer);
         }
         requireClaimCapacity(reviewer, now);
         v.setClaimedBy(reviewer.userId());
         v.setClaimedAt(now);
         recordAuditAfterCommit(reviewer, "identity.review.claimed", v,
                 "userId", v.getUserId().toString());
-        return read.currentReview(reviewer, v);
+        return heldByMe(reviewer);
     }
 
     @Transactional
-    public IdentityReviewResponse releaseClaim(AuthPrincipal reviewer, UUID id, boolean force) {
+    public void releaseClaim(AuthPrincipal reviewer, UUID id, boolean force) {
         IdentityVerification v = reviews.requireForUpdate(id);
         if (force) {
-            return forceRelease(reviewer, v);
+            forceRelease(reviewer, v);
+            return;
         }
         IdentityReviewService.requireOtherPerson(reviewer, v, "You cannot release your own identity verification claim");
         IdentityReviewService.requirePending(v);
@@ -83,10 +81,9 @@ public class IdentityReviewClaimService {
         v.setClaimedBy(null);
         v.setClaimedAt(null);
         reviews.recordAudit(reviewer, "identity.review.released", v, "userId", v.getUserId().toString());
-        return read.currentReview(reviewer, v);
     }
 
-    private IdentityReviewResponse forceRelease(AuthPrincipal reviewer, IdentityVerification v) {
+    private void forceRelease(AuthPrincipal reviewer, IdentityVerification v) {
         if (!Roles.Wire.ADMIN.equals(reviewer.role())) {
             throw new ForbiddenException("Only admins can force-release identity review claims");
         }
@@ -99,7 +96,10 @@ public class IdentityReviewClaimService {
         v.setClaimedAt(null);
         reviews.recordAudit(reviewer, "identity.claim.force_released", v,
                 "userId", v.getUserId().toString(), "heldBy", heldBy);
-        return read.currentReview(reviewer, v);
+    }
+
+    private IdentityClaimState heldByMe(AuthPrincipal reviewer) {
+        return new IdentityClaimState(users.findById(reviewer.userId()).map(User::getName).orElse(null), true);
     }
 
     private void recordAuditAfterCommit(AuthPrincipal reviewer, String action, IdentityVerification v,

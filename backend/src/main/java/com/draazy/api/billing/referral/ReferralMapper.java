@@ -56,7 +56,6 @@ public class ReferralMapper {
                 r.getReferred(),
                 r.getReferredMobile(),
                 channelOf(r, hasListed),
-                r.getShareChannel(),
                 r.getReward(),
                 r.getRewardAmount(),
                 r.getStatus(),
@@ -67,10 +66,7 @@ public class ReferralMapper {
                 r.isSameIp(),
                 r.isVelocityHigh(),
                 r.isActivated(),
-                r.getAt(),
-                r.getQualifiedAt(),
-                r.getHandledBy(),
-                r.getHandledAt())).toList();
+                r.getAt())).toList();
     }
 
     /** Reads the side from the current tally, falling back to the stored value if the mobile can't be resolved. */

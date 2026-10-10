@@ -106,11 +106,81 @@ class TeamPerformanceEndpointTest extends AbstractApiTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.windowDays").value(7))
                 .andExpect(jsonPath("$.staff", Matchers.hasSize(1)))
-                .andExpect(jsonPath("$.staff[0].id").value(staff.getId().toString()))
+                .andExpect(jsonPath("$.staff[0].id").doesNotExist())
+                .andExpect(jsonPath("$.staff[0].name").value(staff.getName()))
                 .andExpect(jsonPath("$.staff[0].functions", Matchers.contains(BackOfficeFunctions.KYC)))
                 .andExpect(jsonPath("$.staff[0].handled").value(1))
                 .andExpect(jsonPath("$.staff[0].byFunction.kyc").value(1))
-                .andExpect(jsonPath("$.queues[*].function", Matchers.contains(BackOfficeFunctions.KYC)));
+                .andExpect(jsonPath("$.queues[*].function", Matchers.contains(BackOfficeFunctions.KYC)))
+                .andExpect(jsonPath("$.queues[0].medianDecisionMinutes").doesNotExist());
+    }
+
+    @Test
+    void myWorkQueuesAreScopedToTheCallersFunctions() throws Exception {
+        User staff = person("9866100010", Roles.Wire.STAFF);
+        User applicant = person("9866100011", Roles.Wire.BUYER);
+        grant(staff, BackOfficeFunctions.SUPPORT);
+        Instant submittedAt = Instant.now().minusSeconds(3_600);
+        jdbc.update("""
+                INSERT INTO identity_verifications
+                  (id, user_id, status, doc_type, consent_at, submitted_at, attempt_count,
+                   attempt_window_start, created_at, updated_at)
+                VALUES (gen_random_uuid(), ?, 'pending', 'aadhaar', ?, ?, 1, ?, ?, ?)
+                """, applicant.getId(), Timestamp.from(submittedAt), Timestamp.from(submittedAt),
+                Timestamp.from(submittedAt), Timestamp.from(submittedAt), Timestamp.from(submittedAt));
+
+        mvc.perform(get(Routes.Admin.MY_WORK)
+                        .header(HttpHeaders.AUTHORIZATION, bearer(staff)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.queues[*].function", Matchers.contains(BackOfficeFunctions.SUPPORT)));
+
+        User verifier = person("9866100012", Roles.Wire.STAFF);
+        grant(verifier, BackOfficeFunctions.KYC);
+
+        mvc.perform(get(Routes.Admin.MY_WORK)
+                        .header(HttpHeaders.AUTHORIZATION, bearer(verifier)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.queues[?(@.function == 'kyc')].open",
+                        Matchers.hasItem(Matchers.greaterThanOrEqualTo(1))))
+                .andExpect(jsonPath("$.queues[?(@.function == 'kyc')].oldestWaitingSince").isNotEmpty());
+    }
+
+    @Test
+    void myWorkCountsTheBacklogOfEveryQueueFunctionTheCallerHolds() throws Exception {
+        User staff = person("9866100013", Roles.Wire.STAFF);
+        grant(staff, BackOfficeFunctions.REVIEWS, BackOfficeFunctions.ENQUIRIES,
+                BackOfficeFunctions.SOCIETIES, BackOfficeFunctions.REFERRALS,
+                BackOfficeFunctions.FLATMATES);
+        jdbc.update("INSERT INTO reviews (target_type, target_id, rating, status) VALUES ('property', 'p-1', 4, 'pending')");
+        jdbc.update("INSERT INTO societies (slug, name, source) VALUES ('team-perf-society', 'Team Perf Society', 'community')");
+        jdbc.update("INSERT INTO referrals (referred, status) VALUES ('Referee', 'pending')");
+
+        mvc.perform(get(Routes.Admin.MY_WORK)
+                        .header(HttpHeaders.AUTHORIZATION, bearer(staff)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.queues[*].function", Matchers.containsInAnyOrder(
+                        BackOfficeFunctions.REVIEWS, BackOfficeFunctions.ENQUIRIES,
+                        BackOfficeFunctions.SOCIETIES, BackOfficeFunctions.REFERRALS,
+                        BackOfficeFunctions.FLATMATES)))
+                .andExpect(jsonPath("$.queues[?(@.function == 'reviews')].open",
+                        hasItem(Matchers.greaterThanOrEqualTo(1))))
+                .andExpect(jsonPath("$.queues[?(@.function == 'societies')].open",
+                        hasItem(Matchers.greaterThanOrEqualTo(1))))
+                .andExpect(jsonPath("$.queues[?(@.function == 'referrals')].open",
+                        hasItem(Matchers.greaterThanOrEqualTo(1))))
+                .andExpect(jsonPath("$.queues[?(@.function == 'referrals')].oldestWaitingSince")
+                        .isNotEmpty());
+    }
+
+    @Test
+    void myWorkOmitsQueuesOfFunctionsTheCallerDoesNotHold() throws Exception {
+        User staff = person("9866100014", Roles.Wire.STAFF);
+        grant(staff, BackOfficeFunctions.REVIEWS);
+
+        mvc.perform(get(Routes.Admin.MY_WORK)
+                        .header(HttpHeaders.AUTHORIZATION, bearer(staff)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.queues[*].function", Matchers.contains(BackOfficeFunctions.REVIEWS)));
     }
 
     @Test

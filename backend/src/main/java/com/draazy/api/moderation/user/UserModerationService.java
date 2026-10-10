@@ -6,7 +6,6 @@ import com.draazy.api.common.error.ForbiddenException;
 import com.draazy.api.common.error.ValidationException;
 import com.draazy.api.identity.auth.RefreshTokenService;
 import com.draazy.api.identity.user.User;
-import com.draazy.api.identity.user.UserResponse;
 import com.draazy.api.identity.user.UserStatuses;
 import com.draazy.api.security.AuthPrincipal;
 import com.draazy.api.security.Roles;
@@ -89,7 +88,7 @@ public class UserModerationService {
 
     // No self or last-admin guard: a flag takes nothing away.
     @Transactional
-    public UserResponse setFlag(AuthPrincipal actor, String id, boolean flagged, String reason) {
+    public AdminUserRow setFlag(AuthPrincipal actor, String id, boolean flagged, String reason) {
         User user = view.load(id);
         if (flagged) {
             if (reason == null || reason.isBlank()) {
@@ -103,7 +102,7 @@ public class UserModerationService {
         }
         audit.record(actor, flagged ? "user.flag" : "user.flag.clear", "user", id,
                 "reason", reason, "role", user.getRole());
-        return view.full(user);
+        return view.row(user);
     }
 
     // Load user first so an unknown id returns 404, not an empty timeline.

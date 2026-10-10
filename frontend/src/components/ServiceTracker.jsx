@@ -7,12 +7,15 @@ import { useToast } from '../context/ToastContext.jsx';
 import { STEPS, stepStates, statusMeta, isActive, progressPct } from '../lib/serviceRequestStatus.js';
 import {
   listServiceRequests, decideServiceRequestDraft, approveServiceRequestDraftParty, addServiceRequestMessage, markServiceRequestRead, markServiceRequestDraftOpened,
+  getServiceRequestDocumentUrl,
 } from '../services/serviceRequestService.js';
-import { openDocUrl } from '../lib/openDoc.js';
+import { openDocFrom } from '../lib/openDoc.js';
 import useScrollLock from '../hooks/useScrollLock.js';
 import RejectedPapers from './RejectedPapers.jsx';
 import RevisedTerms from './RevisedTerms.jsx';
 import IdentityRefill, { needsIdentityRefill } from './IdentityRefill.jsx';
+
+const openRequestFile = (requestId, docId) => openDocFrom(() => getServiceRequestDocumentUrl(requestId, docId));
 
 const REUPLOADABLE = new Set(['docs_review', 'draft_shared', 'changes_requested', 'approved']);
 const hasForeignTenant = (request) => {
@@ -140,14 +143,14 @@ export default function ServiceTracker({ typeFilter, title = 'Your requests' }) 
   }, [mobile, isIn, typeFilter, tick]);
 
   const openDraft = async (r) => {
-    openDocUrl(r.draft?.dataUrl);
-    if (r.draft?.opened) return;
+    const opened = await openRequestFile(r.id, r.draft?.id);
+    if (!opened || r.draft?.opened) return;
     try {
       await markServiceRequestDraftOpened(r.id);
       refresh();
     } catch (e) { console.warn('[service-tracker] draft-opened failed', e); }
   };
-  const openFinal = (r) => openDocUrl(r.finalDoc?.dataUrl);
+  const openFinal = (r) => openRequestFile(r.id, r.finalDoc?.id);
   const approve = async (r) => {
     try {
       await decideServiceRequestDraft(r.id, 'accepted');

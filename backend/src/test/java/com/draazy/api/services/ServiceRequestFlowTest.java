@@ -67,6 +67,14 @@ class ServiceRequestFlowTest extends ServiceFixtures {
             decide(desk, id, "approve", 403);
             decide(boss, id, "approve", 403);
             expectStatus(desk, id, "draft-shared");
+            assertThat(notifications.findAll())
+                .filteredOn(n -> "service.draft-shared".equals(n.getType()))
+                .singleElement()
+                .satisfies(n -> {
+                    assertThat(n.getUserId()).isEqualTo(buyer.getId());
+                    assertThat(n.getTitle()).isEqualTo("Your draft is ready to review");
+                    assertThat(n.getLink()).isEqualTo("/services/rent-agreement");
+                });
 
             openDraft(buyer, id, 204);
             decide(buyer, id, "approve", 200);
@@ -530,8 +538,6 @@ class ServiceRequestFlowTest extends ServiceFixtures {
                     .andExpect(jsonPath("$.details.rent").value(25000));
         }
 
-        // Planted through the API here rather than through the migration, because the mapper only ever sees a map: where
-        // `_state` is asserted on the same response deliberately.
         @Test
         @DisplayName("a type is required")
         void typeRequired() throws Exception {

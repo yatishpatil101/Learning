@@ -29,12 +29,12 @@ import java.util.Map;
 import java.util.Set;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import tools.jackson.databind.ObjectMapper;
 
-// Back office sees full mobiles; only the single-user read is audited.
 @Service
 public class UserAdminService {
 
@@ -46,6 +46,7 @@ public class UserAdminService {
     private final StaffSignInService staffSignIn;
     private final RefreshTokenService refreshTokens;
     private final AdminActionNotifier adminNotifications;
+    private final StaffInviteMailer inviteMailer;
     private final BackOfficeGrantRepository grants;
     private final AccountPermissions accountPermissions;
     private final ObjectMapper objectMapper;
@@ -59,7 +60,7 @@ public class UserAdminService {
             AuditService audit, AdministratorGuard administrators,
             StaffInviteService invites,
             StaffSignInService staffSignIn, RefreshTokenService refreshTokens,
-            BackOfficeUserView view, AdminActionNotifier adminNotifications,
+            BackOfficeUserView view, AdminActionNotifier adminNotifications, StaffInviteMailer inviteMailer,
             BackOfficeGrantRepository grants, AccountPermissions accountPermissions,
             ObjectMapper objectMapper, IdentityVerificationService identity,
             @Value("${draazy.app.base-url}") String baseUrl) {
@@ -72,6 +73,7 @@ public class UserAdminService {
         this.refreshTokens = refreshTokens;
         this.view = view;
         this.adminNotifications = adminNotifications;
+        this.inviteMailer = inviteMailer;
         this.grants = grants;
         this.accountPermissions = accountPermissions;
         this.objectMapper = objectMapper;
@@ -79,14 +81,15 @@ public class UserAdminService {
         this.baseUrl = baseUrl.replaceAll("/+$", "");
     }
 
-    // No audit row: a list page is browsing, and logging it would bury the single-user reads.
+    // Lists carry masked mobiles.
     @Transactional(readOnly = true)
-    public Page<UserResponse> list(String role, boolean customers, String q, String status, Boolean flagged,
+    public Page<AdminUserRow> list(String role, boolean customers, String q, String status, Boolean flagged,
             boolean archived, Pageable pageable) {
         String prefix = (q == null || q.isBlank()) ? null : likePrefix(q.trim().toLowerCase());
         String state = (status == null || status.isBlank()) ? null : status.trim();
-        return users.searchForAdmin(role, customers, prefix, state, flagged, archived, pageable)
-                .map(view::full);
+        Page<User> page = users.searchForAdmin(role, customers, prefix, MobileMask.normalise(q), state, flagged,
+                archived, pageable);
+        return new PageImpl<>(view.rows(page.getContent()), pageable, page.getTotalElements());
     }
 
     // One grouped COUNT over the same role/customers/q the list uses, so every status tab says what it
@@ -98,7 +101,7 @@ public class UserAdminService {
         long active = 0;
         long suspended = 0;
         long archived = 0;
-        for (Object[] row : users.countByStanding(role, customers, prefix)) {
+        for (Object[] row : users.countByStanding(role, customers, prefix, MobileMask.normalise(q))) {
             long n = (Long) row[2];
             if ((Boolean) row[0]) {
                 archived += n;
@@ -111,7 +114,8 @@ public class UserAdminService {
                 suspended += n;
             }
         }
-        return Map.of("all", all, "active", active, "suspended", suspended, "archived", archived);
+        return Map.of("all", all, "active", active, "suspended", suspended, "archived", archived,
+                "badgePending", view.pendingBadgeGrants());
     }
 
     // Turn a search term into an anchored LIKE pattern, neutralising the caller's own wildcards —
@@ -120,20 +124,16 @@ public class UserAdminService {
         return term.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%";
     }
 
-    // Audit before building the response so a mobile reveal cannot succeed unlogged.
-    @Transactional
-    public UserResponse get(AuthPrincipal actor, String id) {
-        User user = load(id);
-        audit.record(actor, "user.contact.reveal", "user", id, "mobile", MobileMask.mask(user.getMobile()));
-        return view.full(user);
-    }
-
     // Catch email collisions here so operators see a named field, not a generic conflict.
     @Transactional
-    public UserResponse update(AuthPrincipal actor, String id, String name, String email, String avatar) {
+    public AdminUserRow update(AuthPrincipal actor, String id, String name, String email, String avatar) {
         User user = load(id);
         refuseManagerOnNonStaff(actor, user);
-        return applyProfile(actor, "user.update", user, name, email, avatar, false);
+        // The stored email receives reset links, so editing it is as strong as reissuing one.
+        refuseManagerBeyondOwnFunctions(actor, user);
+        applyProfile(actor, "user.update", user, name, email, avatar, false);
+        adminNotifications.managerAction(actor, "Edited staff account", user);
+        return view.row(user);
     }
 
     // KYC reviewers correct a customer's account to match the document they submitted.
@@ -149,10 +149,11 @@ public class UserAdminService {
         }
         // A hand-revoked badge clears user.verified but leaves the case verified.
         boolean caseVerified = VerificationStatuses.VERIFIED.equals(caseStatus);
-        return applyProfile(actor, "user.kycProfileUpdate", user, name, email, null, caseVerified);
+        applyProfile(actor, "user.kycProfileUpdate", user, name, email, null, caseVerified);
+        return view.full(user);
     }
 
-    private UserResponse applyProfile(AuthPrincipal actor, String action, User user, String name,
+    private void applyProfile(AuthPrincipal actor, String action, User user, String name,
             String email, String avatar, boolean nameLocked) {
         String id = user.getId().toString();
         String previousName = user.getName();
@@ -180,7 +181,6 @@ public class UserAdminService {
         audit.record(actor, action, "user", id, "name", name,
                 "previousName", nameChanged ? previousName : null, "email", email,
                 "previousEmail", email == null || email.isBlank() ? null : previousEmail, "avatar", avatar);
-        return view.full(user);
     }
 
     // Refuse self or last admin before archiving any back-office account.
@@ -193,6 +193,7 @@ public class UserAdminService {
         }
         administrators.refuseIfLastAdministrator(user);
         user.archive(reason);
+        refreshTokens.revokeAllForUser(user.getId());
         audit.record(actor, "user.archive", "user", id, "reason", reason, "role", user.getRole());
         adminNotifications.managerAction(actor, "Archived staff account", user);
     }
@@ -257,6 +258,7 @@ public class UserAdminService {
         audit.record(actor, "user.staff.create", "user", saved.getId().toString(),
                 "email", email, "role", role, "functions", objectMapper.writeValueAsString(functionNames));
         adminNotifications.managerAction(actor, "Created staff account", saved);
+        inviteMailer.invited(saved, inviteUrl);
         return new StaffCreateResponse(mapper.toResponse(saved), inviteUrl);
     }
 
@@ -304,6 +306,7 @@ public class UserAdminService {
         refreshTokens.revokeAllForUser(target.getId());
         audit.record(actor, "user.staff.invite.reissue", "user", id, "role", target.getRole());
         adminNotifications.managerAction(actor, "Reissued invite", target);
+        inviteMailer.reset(target, inviteUrl);
         return new StaffInviteResponse(inviteUrl);
     }
 
@@ -320,15 +323,19 @@ public class UserAdminService {
             throw new ConflictException("Only back-office accounts sign in with a password.");
         }
         refuseManagerOnNonStaff(actor, target);
-        // A fresh invite or authenticator lets the holder sign in as the target, so a manager may
-        // only do it for staff whose functions it holds itself.
+        refuseManagerBeyondOwnFunctions(actor, target);
+        return target;
+    }
+
+    // A fresh invite, authenticator or reset address lets the holder sign in as the target, so a
+    // manager may only touch staff whose functions it holds itself.
+    private void refuseManagerBeyondOwnFunctions(AuthPrincipal actor, User target) {
         if (Roles.Wire.MANAGER.equals(actor.role())
                 && !accountPermissions.functionsFor(actor.role(), actor.userId())
                         .containsAll(accountPermissions.functionsFor(target.getRole(), target.getId()))) {
             throw new ForbiddenException(
                     "This staff member holds functions you don't. Ask the administrator.");
         }
-        return target;
     }
 
     private static void refuseManagerOnNonStaff(AuthPrincipal actor, User target) {

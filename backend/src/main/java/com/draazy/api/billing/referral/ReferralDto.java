@@ -10,7 +10,6 @@ public record ReferralDto(
         String referred,
         String referredMobile,
         String channel,
-        String shareChannel,
         String reward,
         long rewardAmount,
         String status,
@@ -21,8 +20,5 @@ public record ReferralDto(
         boolean sameIp,
         boolean velocityHigh,
         boolean activated,
-        Instant at,
-        Instant qualifiedAt,
-        String handledBy,
-        Instant handledAt) {
+        Instant at) {
 }

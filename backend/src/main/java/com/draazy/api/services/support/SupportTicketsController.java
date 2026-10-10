@@ -26,7 +26,7 @@ public class SupportTicketsController {
     }
 
     @GetMapping(Routes.SupportTickets.BASE)
-    public List<SupportTicketDto> list(@CurrentUser AuthPrincipal principal) {
+    public List<SupportTicketSummary> list(@CurrentUser AuthPrincipal principal) {
         return service.list(principal);
     }
 

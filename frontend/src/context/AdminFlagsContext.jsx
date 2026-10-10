@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useState, useMemo } from 'react';
-import { getSettings, updateSettings } from '../services/settingsService.js';
+import { getAdminFlags, updateSettings } from '../services/settingsService.js';
 
 const AdminFlagsContext = createContext(null);
 
@@ -12,18 +12,15 @@ const DEFAULT_ADMIN_FLAGS = {
   staffActivity: { enabled: true },
 };
 
-/* `read=false` without `settings:read`: `GET /admin/settings` is admin-only, so the read would be a
-   guaranteed 403 per page. Those callers see every tab flag as on; atoms still gate the modules. */
-export function AdminFlagsProvider({ children, read = true }) {
+export function AdminFlagsProvider({ children }) {
   const [adminFlags, setAdminFlags] = useState(DEFAULT_ADMIN_FLAGS);
-  const [loading, setLoading] = useState(read);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    if (!read) return undefined;
     let alive = true;
-    const load = () => getSettings().then((s) => {
+    const load = () => getAdminFlags().then((flags) => {
       if (!alive) return;
-      if (s?.adminFlags) setAdminFlags((prev) => deepMerge(prev, s.adminFlags));
+      setAdminFlags((prev) => deepMerge(prev, flags));
       setLoading(false);
     }).catch(() => {
       // The route guard below blocks on `loading`, so a failed read must still clear it or the
@@ -35,7 +32,7 @@ export function AdminFlagsProvider({ children, read = true }) {
     const onChange = () => load();
     window.addEventListener('draazy-settings-change', onChange);
     return () => { alive = false; window.removeEventListener('draazy-settings-change', onChange); };
-  }, [read]);
+  }, []);
 
   const setFlag = useCallback(async (section, key, value) => {
     setAdminFlags((prev) => ({ ...prev, [section]: { ...prev[section], [key]: value } }));

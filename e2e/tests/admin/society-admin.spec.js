@@ -1,5 +1,5 @@
-/** Society overlay editor (Directory tab Edit dialog) against the live API; values are read back over the API with its own token because the dialog once saved
- * to `localStorage` only, which a mock-mode spec cannot detect. It drives the first Directory row and reads the slug off the dialog's PATCH. */
+/** Read back over the API with its own token, because a dialog that saved to localStorage only
+ * is undetectable in a mock-mode spec. */
 import { test, expect } from '../../fixtures/live.js';
 import { API, authHeaders, uniqueMobile } from '../../helpers/liveAuth.js';
 
@@ -102,7 +102,7 @@ test('a refused save keeps the dialog open and does not claim it worked', async 
   await expect(dialog(page)).toBeVisible();
 });
 
-test('the internal note stays off the payload a visitor gets, while the four public facts land on it', async () => {
+test('the internal note stays off the payload a visitor gets, while the edited facts land on the admin view', async () => {
   const slug = await mintSociety(`Notetest Residency ${String(Date.now()).slice(-7)}`, uniqueMobile());
   const note = uniqueNote('Chairperson disputes the conveyance date;');
   const admin = await authHeaders('9000000000');
@@ -125,8 +125,11 @@ test('the internal note stays off the payload a visitor gets, while the four pub
   expect(body.adminNote, 'no note field on the public shape').toBeUndefined();
   expect(JSON.stringify(body), 'the prose appears nowhere in the payload').not.toContain(note);
 
-  /* The control. Without this the test above passes just as well against a PATCH that silently
-     discarded everything, which is the failure mode it is supposed to be ruling out. */
-  expect(body.registration).toBe(true);
-  expect(body.conveyance).toBe(true);
+  expect(body.registration, 'admin-only fact stays off the public shape').toBeUndefined();
+
+  /* The control: without it the test passes just as well against a PATCH that silently discarded everything. */
+  const view = await (await fetch(`${API}/admin/societies/${slug}`, { headers: admin })).json();
+  expect(view.registration).toBe(true);
+  expect(view.conveyance).toBe(true);
+  expect(view.adminNote).toBe(note);
 });

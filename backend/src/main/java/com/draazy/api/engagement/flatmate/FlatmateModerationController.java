@@ -51,7 +51,7 @@ public class FlatmateModerationController {
      * this is a platform-wide table with no scoping. */
     @GetMapping(Routes.Moderation.FLATMATE_REVIEWS)
     @PreAuthorize(FLATMATES_READ)
-    public PageResponse<FlatmateReviewDto> queue(@RequestParam(required = false) String status,
+    public PageResponse<FlatmateReviewRow> queue(@RequestParam(required = false) String status,
             @RequestParam(required = false) Boolean flagged,
             @PageableDefault(size = 20, sort = "createdAt",
                     direction = Sort.Direction.ASC) Pageable pageable) {
@@ -67,12 +67,19 @@ public class FlatmateModerationController {
 
     @GetMapping(Routes.Moderation.FLATMATE_MODERATION_QUEUE)
     @PreAuthorize(FLATMATES_READ)
-    public PageResponse<FlatmateModerationQueueDto> moderationQueue(
+    public PageResponse<FlatmateModerationRow> moderationQueue(
             @RequestParam(defaultValue = "post") List<String> kind,
             @RequestParam(required = false) List<String> modStatus,
             @PageableDefault(size = 20, sort = "createdAt",
                     direction = Sort.Direction.ASC) Pageable pageable) {
         return PageResponse.of(service.moderationQueue(kind, modStatus, pageable), dto -> dto);
+    }
+
+    /** What the desk's tab labels show: the true size of each tab, not of the window downloaded. */
+    @GetMapping(Routes.Moderation.FLATMATE_MODERATION_SUMMARY)
+    @PreAuthorize(FLATMATES_READ)
+    public FlatmateModerationSummary moderationSummary() {
+        return service.moderationSummary();
     }
 
     @GetMapping(Routes.Moderation.FLATMATE_MODERATION_DETAIL)

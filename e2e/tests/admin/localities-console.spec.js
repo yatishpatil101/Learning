@@ -1,6 +1,6 @@
 // LIVE: `/admin/localities` — the directory the curator reads, not the endpoint behind it.
-import { expect, test } from '../../fixtures/live.js';
-import { API } from '../../helpers/liveAuth.js';
+import { expect, test, ACTORS } from '../../fixtures/live.js';
+import { API, authHeaders } from '../../helpers/liveAuth.js';
 
 const table = (page) => page.getByRole('table');
 const bodyRows = (page) => table(page).locator('tbody tr');
@@ -8,7 +8,7 @@ const chip = (page, name) => page.getByRole('group', { name: 'Status' }).getByRo
 
 async function openDirectory(page) {
   const [res] = await Promise.all([
-    page.waitForResponse((r) => /\/api\/localities(\?|$)/.test(r.url()) && r.request().method() === 'GET'),
+    page.waitForResponse((r) => /\/api\/admin\/localities(\?|$)/.test(r.url()) && r.request().method() === 'GET'),
     page.goto('/admin/localities'),
   ]);
   expect(res.status()).toBe(200);
@@ -18,7 +18,7 @@ async function openDirectory(page) {
 
 test.describe('LIVE: the localities directory', () => {
   test('the chips count the server rows and filter them by Active / Retired, and the pending queue is gone', async ({ page, login, consoleErrors }) => {
-    const catalogue = await (await fetch(`${API}/localities`)).json();
+    const catalogue = await (await fetch(`${API}/admin/localities`, { headers: await authHeaders(ACTORS.admin) })).json();
     expect(catalogue.length).toBeGreaterThan(0);
     const retired = catalogue.filter((l) => l.archived).length;
     await login.asAdmin();

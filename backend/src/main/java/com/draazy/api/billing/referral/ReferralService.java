@@ -12,7 +12,10 @@ import jakarta.servlet.http.HttpServletRequest;
 import java.security.SecureRandom;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.Arrays;
 import java.util.List;
+import java.util.Locale;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -22,10 +25,8 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-/**
- * Referral scheme: caller's code and rewards, and the ops desk that decides validity.
- * Rationale: docs/flows/consumer/plans-billing-refer.md and docs/flows/ops/referrals-fraud.md.
- */
+/** Referral scheme: caller's code and rewards, and the ops desk that decides validity.
+ * Rationale: docs/flows/consumer/plans-billing-refer.md, docs/flows/ops/referrals-fraud.md. */
 @Service
 public class ReferralService {
 
@@ -77,25 +78,12 @@ public class ReferralService {
         String code = codeFor(caller.userId(), request);
         List<Referral> mine = referrals.findByReferrerId(caller.userId());
 
-        int converted = 0;
-        long earned = 0;
-        long pending = 0;
-        for (Referral r : mine) {
-            if (ReferralStatuses.isGranting(r.getStatus())) {
-                converted++;
-                earned += r.getRewardAmount();
-            } else if (ReferralStatuses.PENDING.equals(r.getStatus())) {
-                pending += r.getRewardAmount();
-            }
-        }
-        return new ReferralSummaryDto(code, mine.size(), converted,
-                Math.toIntExact(earned), Math.toIntExact(pending));
+        int converted = (int) mine.stream().filter(r -> ReferralStatuses.isGranting(r.getStatus())).count();
+        return new ReferralSummaryDto(code, mine.size(), converted);
     }
 
-    /**
-     * {@code POST /referrals/redeem} — 200, or a single indistinguishable 409.
-     * Rationale: docs/flows/ops/referrals-fraud.md.
-     */
+    /** {@code POST /referrals/redeem}: 200, or a single indistinguishable 409.
+     * Rationale: docs/flows/ops/referrals-fraud.md. */
     @Transactional
     public void redeem(AuthPrincipal caller, String rawCode, String shareChannel,
             HttpServletRequest request) {
@@ -146,23 +134,28 @@ public class ReferralService {
         }
     }
 
-    /**
-     * {@code GET /referrals} (spec fix S53, {@code x-roles: [staff, admin]}) — the paged queue.
-     *
-     * <p>Paged because it grows with the platform, not with one user (api-standards §5.1).
-     */
+    /** The paged queue ({@code x-roles: [staff, admin]}): it grows with the platform, not with one user. */
+    /** {@code status} is a comma-separated set; {@code q} matches names, mobiles and the id. */
     @Transactional(readOnly = true)
-    public Page<ReferralDto> queue(String status, String risk, Pageable pageable) {
-        Page<Referral> page = referrals.queue(blankToNull(status), blankToNull(risk), pageable);
+    public Page<ReferralDto> queue(String status, String risk, String q, Pageable pageable) {
+        List<String> statuses = blankToNull(status) == null ? List.of()
+                : Arrays.stream(status.split(",")).map(String::trim).filter(s -> !s.isEmpty()).toList();
+        String pattern = blankToNull(q) == null ? null : "%" + q.trim().toLowerCase(Locale.ROOT) + "%";
+        Page<Referral> page = referrals.queue(statuses.isEmpty(), statuses.isEmpty() ? List.of("") : statuses,
+                blankToNull(risk), pattern, pageable);
         // why not page.map(mapper::toDto): that would resolve the referrer's name one row at a
         // time. toDtos resolves the whole page in a single query.
         return new PageImpl<>(mapper.toDtos(page.getContent()), pageable, page.getTotalElements());
     }
 
-    /**
-     * {@code POST /referrals/{id}/approve} — releases the reward; requires a current identity badge.
-     * Rationale: docs/flows/ops/referrals-fraud.md.
-     */
+    @Transactional(readOnly = true)
+    public Map<String, Long> queueCounts() {
+        Object[] row = referrals.tabCounts().getFirst();
+        return Map.of("all", (Long) row[0], "pending", (Long) row[1], "highRisk", (Long) row[2],
+                "rewarded", (Long) row[3], "refused", (Long) row[4]);
+    }
+
+    /** Releases the reward; requires a current identity badge. Rationale: docs/flows/ops/referrals-fraud.md. */
     @Transactional
     public ReferralDto approve(AuthPrincipal actor, String id) {
         return decide(actor, id, ReferralStatuses.REWARDED, null, r -> {
@@ -190,10 +183,8 @@ public class ReferralService {
                 "referral.reject");
     }
 
-    /**
-     * {@code POST /referrals/{id}/clawback} — reverses a released reward. Only {@code rewarded} is
-     * clawable, so history is never rewritten to say something was paid when it was not.
-     */
+    /** Reverses a released reward. Only {@code rewarded} is clawable, so history never says
+     * something was paid when it was not. */
     @Transactional
     public ReferralDto clawback(AuthPrincipal actor, String id, String reason) {
         return decide(actor, id, ReferralStatuses.CLAWED_BACK, reason,
@@ -207,10 +198,8 @@ public class ReferralService {
         return "Referral is " + referral.getStatus() + " and cannot be " + nextStatus;
     }
 
-    /**
-     * Single write-locked state transition; {@code refusal} returns the exact sentence to send back.
-     * Rationale: docs/flows/ops/referrals-fraud.md.
-     */
+    /** Single write-locked state transition; {@code refusal} returns the exact sentence to send back.
+     * Rationale: docs/flows/ops/referrals-fraud.md. */
     private ReferralDto decide(AuthPrincipal actor, String id, String nextStatus, String reason,
             java.util.function.Function<Referral, String> refusal, String action) {
         Referral referral = Ids.parseUuid(id)
@@ -228,10 +217,8 @@ public class ReferralService {
         return mapper.toDto(referral);
     }
 
-    /**
-     * The caller's code, minting one on first read.
-     * Looks before leaping since a constraint violation would poison the persistence context.
-     */
+    /** The caller's code, minted on first read. Looks before leaping since a constraint violation
+     * would poison the persistence context. */
     private String codeFor(UUID userId, HttpServletRequest request) {
         Optional<ReferralCode> existing = codes.findById(userId);
         if (existing.isPresent()) {
@@ -264,18 +251,14 @@ public class ReferralService {
         return trimmed.isEmpty() ? null : trimmed;
     }
 
-    /**
-     * Snapshot at redemption; queue displays the current value via {@link ReferralMapper#channelOf}.
-     * Rationale: docs/flows/ops/referrals-fraud.md.
-     */
+    /** Snapshot at redemption; queue displays the current value via {@link ReferralMapper#channelOf}.
+     * Rationale: docs/flows/ops/referrals-fraud.md. */
     private static String channelOf(User referred) {
         return referred.getListingsCount() > 0 ? "owner" : "seeker";
     }
 
-    /**
-     * Risk band for the desk. Correlation raises the band rather than refusing, since a shared flat
-     * or router is the common shape of a real referral. Rationale: docs/flows/ops/referrals-fraud.md.
-     */
+    /** Risk band for the desk. Correlation raises the band rather than refusing, since a shared flat
+     * or router is the common shape of a real referral. Rationale: docs/flows/ops/referrals-fraud.md. */
     private static String risk(boolean velocityHigh, boolean identityVerified, boolean correlated) {
         if (velocityHigh) {
             return RISK_HIGH;

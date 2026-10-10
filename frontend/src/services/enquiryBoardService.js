@@ -1,4 +1,5 @@
-/** The read-only demand console: contact requests, visits and deals. `getEnquiry` / `getVisit` / `getDeal` are audited server-side; the lists are not. */
+/** Read-only demand console: `getEnquiry` / `getVisit` / `getDeal` are audited server-side;
+ * the lists are not, and carry masked mobiles. */
 import { createProvider } from './config.js';
 
 const provider = createProvider('enquiryBoard');
@@ -13,6 +14,10 @@ export async function listVisits(params) {
 
 export async function listDeals(params) {
   return (await provider()).listDeals(params);
+}
+
+export async function getEnquirySummary(params) {
+  return (await provider()).getEnquirySummary(params);
 }
 
 export async function getEnquiry(id) {

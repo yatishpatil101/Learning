@@ -6,6 +6,7 @@ import com.draazy.api.common.audit.AuditService;
 import com.draazy.api.common.error.NotFoundException;
 import com.draazy.api.common.trust.MobileMask;
 import com.draazy.api.common.web.Ids;
+import com.draazy.api.common.web.Pageables;
 import com.draazy.api.deals.deal.Deal;
 import com.draazy.api.deals.deal.DealRepository;
 import com.draazy.api.deals.visit.Visit;
@@ -15,12 +16,13 @@ import com.draazy.api.identity.user.UserRepository;
 import com.draazy.api.leads.contact.ContactRequest;
 import com.draazy.api.leads.contact.ContactRequestRepository;
 import com.draazy.api.security.AuthPrincipal;
-import java.util.Collection;
+import java.time.Instant;
+import java.time.temporal.ChronoUnit;
+import java.util.Comparator;
+import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.UUID;
-import java.util.function.Function;
-import java.util.stream.Collectors;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
@@ -29,107 +31,123 @@ import org.springframework.transaction.annotation.Transactional;
 @Service
 public class EnquiryBoardService {
 
+    private static final int LOCALITY_ROWS = 10;
+
     private final ContactRequestRepository contactRequests;
     private final VisitRepository visits;
     private final DealRepository deals;
     private final PropertyRepository properties;
     private final UserRepository users;
     private final AuditService audit;
+    private final EnquiryBoardQueries queries;
 
     public EnquiryBoardService(ContactRequestRepository contactRequests, VisitRepository visits,
             DealRepository deals, PropertyRepository properties, UserRepository users,
-            AuditService audit) {
+            AuditService audit, EnquiryBoardQueries queries) {
         this.contactRequests = contactRequests;
         this.visits = visits;
         this.deals = deals;
         this.properties = properties;
         this.users = users;
         this.audit = audit;
+        this.queries = queries;
     }
 
     @Transactional(readOnly = true)
-    public Page<AdminEnquiryDto> enquiries(String status, Pageable pageable) {
-        Page<ContactRequest> page = status == null || status.isBlank()
-                ? contactRequests.findAllByOrderByCreatedAtDesc(pageable)
-                : contactRequests.findByStatusOrderByCreatedAtDesc(status, pageable);
-
-        Map<UUID, Property> listings = listingsFor(page.map(ContactRequest::getPropertyId));
-        Map<UUID, User> people = peopleFor(page.map(ContactRequest::getRequesterId));
-
-        return page.map(row -> {
-            Property listing = listings.get(row.getPropertyId());
-            User requester = people.get(row.getRequesterId());
-            return new AdminEnquiryDto(
-                    row.getId().toString(),
-                    row.getPropertyId().toString(),
-                    listing == null ? null : listing.getTitle(),
-                    listing == null ? null : listing.getLocalitySlug(),
-                    requester == null ? null : requester.getName(),
-                    requester == null ? null : requester.getMobile(),
-                    row.getStatus(),
-                    row.getCreatedAt());
-        });
+    public Page<AdminEnquiryDto> enquiries(String status, String q, Integer days, Pageable pageable) {
+        return queries.enquiries(filter(status, null, q, days), Pageables.unsorted(pageable)).map(r -> new AdminEnquiryDto(
+                r[0].toString(), r[1].toString(), (String) r[2], (String) r[3], (String) r[4],
+                MobileMask.mask((String) r[5]), (String) r[6], (Instant) r[7]));
     }
 
     @Transactional(readOnly = true)
-    public Page<AdminVisitDto> visits(String status, Pageable pageable) {
-        Page<Visit> page = status == null || status.isBlank()
-                ? visits.findAllByOrderByCreatedAtDesc(pageable)
-                : visits.findByStatusOrderByCreatedAtDesc(status, pageable);
-
-        Map<UUID, Property> listings = listingsFor(page.map(Visit::getPropertyId));
-        Map<UUID, User> people = peopleFor(page.map(Visit::getVisitorId));
-
-        return page.map(row -> {
-            Property listing = listings.get(row.getPropertyId());
-            User visitor = people.get(row.getVisitorId());
-            return new AdminVisitDto(
-                    row.getId().toString(),
-                    row.getPropertyId().toString(),
-                    listing == null ? null : listing.getTitle(),
-                    listing == null ? null : listing.getLocalitySlug(),
-                    visitor == null ? null : visitor.getName(),
-                    visitor == null ? null : visitor.getMobile(),
-                    row.getSlot(),
-                    row.getMode(),
-                    row.getStatus(),
-                    row.getCreatedAt());
-        });
+    public Page<AdminVisitDto> visits(String status, String q, Integer days, Pageable pageable) {
+        return queries.visits(filter(status, null, q, days), Pageables.unsorted(pageable)).map(r -> new AdminVisitDto(
+                r[0].toString(), r[1].toString(), (String) r[2], (String) r[3], (String) r[4],
+                MobileMask.mask((String) r[5]), (Instant) r[6], (String) r[7], (String) r[8], (Instant) r[9]));
     }
 
     @Transactional(readOnly = true)
-    public Page<AdminDealDto> deals(String status, Pageable pageable) {
-        Page<Deal> page = status == null || status.isBlank()
-                ? deals.findAllByOrderByCreatedAtDesc(pageable)
-                : deals.findByStatusOrderByCreatedAtDesc(status, pageable);
-
-        Map<UUID, Property> listings = listingsFor(page.map(Deal::getPropertyId));
-        Map<UUID, User> people = peopleFor(page.map(Deal::getCounterpartyId));
-
-        return page.map(row -> {
-            Property listing = listings.get(row.getPropertyId());
-            User counterparty = row.getCounterpartyId() == null
-                    ? null : people.get(row.getCounterpartyId());
-
-            // Prefer the typed deal number: an off-platform close may involve no account.
-            String mobile = row.getCounterpartyMobile() != null
-                    ? row.getCounterpartyMobile()
-                    : counterparty == null ? null : counterparty.getMobile();
-            return new AdminDealDto(
-                    row.getId().toString(),
-                    row.getPropertyId().toString(),
-                    listing == null ? null : listing.getTitle(),
-                    listing == null ? null : listing.getLocalitySlug(),
-                    row.getDeal(),
-                    counterparty == null ? null : counterparty.getName(),
-                    mobile,
-                    row.getAgreedPrice(),
-                    row.getStatus(),
-                    row.getClosedAt(),
-                    row.getCreatedAt());
-        });
+    public Page<AdminDealDto> deals(String status, String deal, String q, Integer days, Pageable pageable) {
+        return queries.deals(filter(status, deal, q, days), Pageables.unsorted(pageable)).map(r -> new AdminDealDto(
+                r[0].toString(), r[1].toString(), (String) r[2], (String) r[3], (String) r[4], (String) r[5],
+                MobileMask.mask(r[6] != null ? (String) r[6] : (String) r[7]), (Long) r[8], (String) r[9],
+                (Instant) r[10], (Instant) r[11]));
     }
 
+    /** Totals, per-status counts and the funnel in one read; {@code days} and {@code deal} narrow the funnel only. */
+    @Transactional(readOnly = true)
+    public AdminEnquirySummary summary(Integer days, String deal) {
+        Map<String, Long> enquiryCounts = withTotal(queries.countsByStatus("ContactRequest"));
+        Map<String, Long> visitCounts = withTotal(queries.countsByStatus("Visit"));
+        Map<String, Long> dealCounts = withTotal(queries.countsByStatus("Deal"));
+        Instant since = since(days);
+        String dealType = deal == null ? "" : deal.trim();
+
+        Map<String, long[]> byLocality = new HashMap<>();
+        for (Object[] r : queries.enquiriesByLocality(since)) {
+            byLocality.computeIfAbsent(localityOf(r[0]), k -> new long[4])[0] += (Long) r[1];
+        }
+        for (Object[] r : queries.visitsByLocality(since)) {
+            byLocality.computeIfAbsent(localityOf(r[0]), k -> new long[4])[1] += (Long) r[1];
+        }
+        for (Object[] r : queries.closedDealsByLocality(since, dealType)) {
+            long[] row = byLocality.computeIfAbsent(localityOf(r[0]), k -> new long[4]);
+            row[2] += (Long) r[1];
+            row[3] += ((Number) r[2]).longValue();
+        }
+        long enquiries = 0;
+        long visits = 0;
+        long closed = 0;
+        long gmv = 0;
+        for (long[] row : byLocality.values()) {
+            enquiries += row[0];
+            visits += row[1];
+            closed += row[2];
+            gmv += row[3];
+        }
+        List<AdminEnquirySummary.Locality> localities = byLocality.entrySet().stream()
+                .map(e -> new AdminEnquirySummary.Locality(e.getKey(), e.getValue()[0], e.getValue()[1],
+                        e.getValue()[2], e.getValue()[3]))
+                .sorted(Comparator.comparingLong(AdminEnquirySummary.Locality::enquiries).reversed()
+                        .thenComparing(AdminEnquirySummary.Locality::locality))
+                .limit(LOCALITY_ROWS)
+                .toList();
+        return new AdminEnquirySummary(enquiryCounts, visitCounts, dealCounts, withTotal(queries.dealTypeCounts()),
+                queries.dealValue(),
+                new AdminEnquirySummary.Funnel(enquiries, visits, closed, gmv, localities));
+    }
+
+    private static String localityOf(Object slug) {
+        return slug == null ? "Unknown" : slug.toString();
+    }
+
+    private static Map<String, Long> withTotal(Map<String, Long> byStatus) {
+        Map<String, Long> out = new LinkedHashMap<>();
+        out.put("all", byStatus.values().stream().mapToLong(Long::longValue).sum());
+        out.putAll(byStatus);
+        return out;
+    }
+
+    private static Instant since(Integer days) {
+        return days == null || days < 1 ? Instant.EPOCH : Instant.now().minus(days, ChronoUnit.DAYS);
+    }
+
+    private static EnquiryBoardQueries.Filter filter(String status, String deal, String q, Integer days) {
+        String term = q == null ? "" : q.trim().toLowerCase();
+        // Whole number only: rows mask the mobile, so a prefix match would let a caller unmask it digit by digit.
+        String mobile = MobileMask.normalise(term);
+        return new EnquiryBoardQueries.Filter(
+                status == null ? "" : status.trim(),
+                deal == null ? "" : deal.trim(),
+                term.isEmpty() ? "" : "%" + escapeLike(term) + "%",
+                mobile == null ? "-" : mobile,
+                since(days));
+    }
+
+    private static String escapeLike(String term) {
+        return term.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_");
+    }
     /** {@code GET /admin/enquiries/{id}} — one contact request; audited, as opening a row is. */
     @Transactional
     public AdminEnquiryDto enquiry(AuthPrincipal actor, String id) {
@@ -215,21 +233,5 @@ public class EnquiryBoardService {
                 row.getStatus(),
                 row.getClosedAt(),
                 row.getCreatedAt());
-    }
-
-    private Map<UUID, Property> listingsFor(Page<UUID> propertyIds) {        return byId(propertyIds.getContent(), properties::findAllById, Property::getId);
-    }
-
-    private Map<UUID, User> peopleFor(Page<UUID> userIds) {
-        return byId(userIds.getContent(), users::findAllById, User::getId);
-    }
-
-    private <T> Map<UUID, T> byId(List<UUID> ids, Function<Collection<UUID>, List<T>> load,
-            Function<T, UUID> key) {
-        List<UUID> wanted = ids.stream().filter(java.util.Objects::nonNull).distinct().toList();
-        if (wanted.isEmpty()) {
-            return Map.of();
-        }
-        return load.apply(wanted).stream().collect(Collectors.toMap(key, Function.identity()));
     }
 }

@@ -127,6 +127,30 @@ class SocietyAdminEditTest extends AbstractApiTest {
     }
 
     @Test
+    @DisplayName("the admin directory is a staff read of slim rows that carries the maintenance figure")
+    void adminDirectoryIsSlimAndStaffOnly() throws Exception {
+        User author = member("9869000040", "Dev Directory");
+        String ops = staff("9869000041");
+        String slug = society(author, "Zephyr Gardens D244");
+        edit(ops, slug, "{\"maintenancePerSqft\":4.25}").andExpect(status().isOk());
+
+        mvc.perform(get("/admin/societies").param("q", "zephyr gardens")
+                        .header(HttpHeaders.AUTHORIZATION, ops))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content[0].slug").value(slug))
+                .andExpect(jsonPath("$.content[0].maintenancePerSqft").value(4.25))
+                .andExpect(jsonPath("$.content[0].avgRating").doesNotExist())
+                .andExpect(jsonPath("$.content[0].reviewCount").doesNotExist());
+
+        mvc.perform(get("/admin/societies").header(HttpHeaders.AUTHORIZATION, bearer(author)))
+                .andExpect(status().isForbidden());
+        mvc.perform(get("/societies").param("q", "zephyr gardens"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content[0].slug").value(slug))
+                .andExpect(jsonPath("$.content[0].maintenancePerSqft").doesNotExist());
+    }
+
+    @Test
     @DisplayName("the internal note never appears on the public read of the same society")
     void theNoteDoesNotLeaveTheBackOffice() throws Exception {
         User author = member("9869000004", "Isha Note");

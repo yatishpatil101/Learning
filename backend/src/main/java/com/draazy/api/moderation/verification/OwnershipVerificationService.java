@@ -14,9 +14,10 @@ import com.draazy.api.common.trust.Notifier;
 import com.draazy.api.common.trust.VerificationAnnouncer;
 import com.draazy.api.common.web.Ids;
 import com.draazy.api.documents.vault.Document;
-import com.draazy.api.documents.vault.DocumentDto;
 import com.draazy.api.documents.vault.DocumentMapper;
 import com.draazy.api.documents.vault.DocumentRepository;
+import com.draazy.api.documents.vault.DocumentSummary;
+import com.draazy.api.documents.vault.DocumentUrl;
 import com.draazy.api.security.AccountPermissions;
 import com.draazy.api.security.AuthPrincipal;
 import com.draazy.api.security.BackOfficePermissions;
@@ -73,24 +74,39 @@ public class OwnershipVerificationService {
                 Instant.now(), reviews(actor));
     }
 
-    // Reviewer-only and audited because it mints signed URLs to identity scans.
+    // Reviewer-only and audited; the files' signed URLs are minted one at a time by documentUrl.
     @Transactional(readOnly = true)
-    public List<DocumentDto> listDocuments(AuthPrincipal actor, String propertyId) {
+    public List<DocumentSummary> listDocuments(AuthPrincipal actor, String propertyId) {
+        Property property = readableProperty(actor, propertyId);
+        List<Document> rows = documents
+                .findByPropertyIdAndServiceRequestIdIsNullOrderByUploadedAtDesc(property.getId());
+        audit.record(actor, "property.documents.read", "property", propertyId,
+                "documents", String.valueOf(rows.size()));
+        return documentMapper.toSummaries(rows);
+    }
+
+    // Same gate and an audit line per open: each mint hands out a scan of an identity document.
+    @Transactional(readOnly = true)
+    public DocumentUrl documentUrl(AuthPrincipal actor, String propertyId, String docId) {
+        Property property = readableProperty(actor, propertyId);
+        Document doc = Ids.parseUuid(docId).flatMap(documents::findById)
+                .filter(d -> property.getId().equals(d.getPropertyId()) && d.getServiceRequestId() == null)
+                .orElseThrow(() -> NotFoundException.of("Document"));
+        audit.record(actor, "property.document.open", "property", propertyId, "document", docId);
+        return new DocumentUrl(documentMapper.urlOf(doc));
+    }
+
+    private Property readableProperty(AuthPrincipal actor, String propertyId) {
         if (!reviews(actor)) {
             throw new ForbiddenException("Only property reviewers may read a listing's documents");
         }
         Property property = load(propertyId);
-
         boolean badgeAsked = property.isOwnershipRequested() && !property.isArchived();
         if (!badgeAsked && !documentAccess.mayRead(property.getId(), Instant.now())) {
             throw new ForbiddenException("document_access_expired",
                     "Document access for this verification case has expired");
         }
-        List<Document> rows = documents
-                .findByPropertyIdAndServiceRequestIdIsNullOrderByUploadedAtDesc(property.getId());
-        audit.record(actor, "property.documents.read", "property", propertyId,
-                "documents", String.valueOf(rows.size()));
-        return documentMapper.toDtos(rows);
+        return property;
     }
 
     // Recording never grants the badge; the gate is a separate judgement.

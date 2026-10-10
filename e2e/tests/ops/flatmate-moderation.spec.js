@@ -156,8 +156,8 @@ test.describe('Ops → flatmate desk (live)', () => {
       const tabs = page.getByRole('tablist', { name: 'Flatmate queues' }).getByRole('tab');
       await expect(tabs).toHaveCount(3);
       await expect(tabs.nth(0)).toContainText('Pending');
-      await expect(tabs.nth(1)).toHaveText('Published');
-      await expect(tabs.nth(2)).toHaveText('Hidden & removed');
+      await expect(tabs.nth(1)).toHaveText(/^Published\d*$/);
+      await expect(tabs.nth(2)).toHaveText(/^Hidden & removed\d*$/);
       await expect(tabs.first()).toHaveAttribute('aria-selected', 'true');
       await expect(page.getByTestId('fm-count-pending')).toHaveText(/^\d+\+?$/);
       await expect(page.getByRole('group', { name: 'Flatmate boards' })).toHaveCount(0);

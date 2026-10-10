@@ -39,6 +39,10 @@ export const readServiceRequestChecklist = async (id) => (await provider()).read
 export const reviewServiceRequestDocument = async (id, category, review) =>
   (await provider()).reviewServiceRequestDocument(id, category, review);
 
+/** A short-lived signed URL for one document of a request, minted when the user opens it. */
+export const getServiceRequestDocumentUrl = async (id, docId) =>
+  (await provider()).getServiceRequestDocumentUrl(id, docId);
+
 /** The registration check's rows (staff/admin; not to a side of the request). */
 export const listServiceRequestRentAgreements = async (id) =>
   (await provider()).listServiceRequestRentAgreements(id);

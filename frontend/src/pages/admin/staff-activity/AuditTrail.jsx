@@ -26,34 +26,57 @@ const shortId = (id) => {
   return s.length > 8 ? `${s.slice(0, 8)}…` : s;
 };
 
+const PAGE_SIZE = 12;
+const EXPORT_SIZE = 100;
+const EXPORT_MAX_PAGES = 50;
+
 const when = (at) => new Date(at).toLocaleString('en-IN');
 
 // Every actor, customers and system included; the staff feed is narrowed to back-office roles.
 export default function AuditTrail() {
   const { toast } = useToast();
   const [rows, setRows] = useState(null);
+  const [page, setPage] = useState(0);
+  const [totalPages, setTotalPages] = useState(1);
   const [error, setError] = useState('');
 
   useEffect(() => {
     let alive = true;
-    listAuditLog({ size: 100 })
-      .then((res) => { if (alive) setRows(res.items || []); })
+    listAuditLog({ page, size: PAGE_SIZE })
+      .then((res) => {
+        if (!alive) return;
+        setRows(res.items || []);
+        setTotalPages(Math.max(1, res.totalPages || 1));
+      })
       .catch(() => {
         if (!alive) return;
         setRows([]);
         setError('The audit trail could not be loaded. This is not an empty log — reload to try again.');
       });
     return () => { alive = false; };
-  }, []);
+  }, [page]);
 
-  const exportAudit = () => {
-    if (!rows?.length) { toast('Nothing to export'); return; }
+  const exportAudit = async () => {
+    const entries = [];
+    let total = 0;
+    try {
+      for (let p = 0; p < EXPORT_MAX_PAGES; p += 1) {
+        const res = await listAuditLog({ page: p, size: EXPORT_SIZE });
+        entries.push(...(res.items || []));
+        total = res.total;
+        if (p + 1 >= res.totalPages) break;
+      }
+    } catch {
+      toast('Could not export the audit log');
+      return;
+    }
+    if (!entries.length) { toast('Nothing to export'); return; }
     exportCsv(
       'draazy-audit-log.csv',
       ['When', 'Actor', 'Actor ID', 'Role', 'Action', 'Entity', 'Entity ID', 'Details'],
-      rows.map((a) => [a.at, a.actorName, a.actor, a.actorRole, a.action, a.entity, a.entityId || '', describe(a.metadata)]),
+      entries.map((a) => [a.at, a.actorName, a.actor, a.actorRole, a.action, a.entity, a.entityId || '', describe(a.metadata)]),
     );
-    toast('Audit log exported');
+    toast(entries.length < total ? `Exported the latest ${entries.length} of ${total} entries` : 'Audit log exported');
   };
 
   const columns = [
@@ -101,7 +124,7 @@ export default function AuditTrail() {
   return (
     <div>
       <div className="mb-3 flex items-center justify-between gap-3">
-        <p className="text-xs text-gray-400">Latest 100 audited actions by anyone, including customers and the system. Read-only.</p>
+        <p className="text-xs text-gray-400">Audited actions by anyone, including customers and the system. Read-only.</p>
         <button onClick={exportAudit} className="dz-btn dz-btn-ghost shrink-0"><Download className="h-4 w-4" /> Export CSV</button>
       </div>
       {error ? (
@@ -111,13 +134,31 @@ export default function AuditTrail() {
         columns={columns}
         rows={rows || []}
         rowKey={(a) => a.id}
-        pageSize={12}
         label="entries"
         mobileCard={card}
         empty={rows === null ? 'Loading…' : (
           <span className="inline-flex items-center gap-2 text-gray-500"><History className="h-4 w-4" /> No audited actions recorded yet.</span>
         )}
       />
+      {totalPages > 1 ? (
+        <div className="mt-3 flex items-center justify-end gap-3">
+          <button
+            onClick={() => setPage((p) => Math.max(0, p - 1))}
+            disabled={page === 0}
+            className="rounded-lg border border-white/10 bg-white/5 px-3 py-1.5 text-xs text-gray-300 hover:bg-white/10 disabled:opacity-40 disabled:hover:bg-white/5 transition"
+          >
+            Previous
+          </button>
+          <span className="text-xs text-gray-500 tabular-nums">Page {page + 1} of {totalPages}</span>
+          <button
+            onClick={() => setPage((p) => Math.min(totalPages - 1, p + 1))}
+            disabled={page >= totalPages - 1}
+            className="rounded-lg border border-white/10 bg-white/5 px-3 py-1.5 text-xs text-gray-300 hover:bg-white/10 disabled:opacity-40 disabled:hover:bg-white/5 transition"
+          >
+            Next
+          </button>
+        </div>
+      ) : null}
     </div>
   );
 }

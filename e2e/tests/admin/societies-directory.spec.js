@@ -1,5 +1,5 @@
-/** Directory tab of the society desk against the live API; needs backend :8081 (`local,e2e`) and a seeded database. Paging asserts the request
- * (350 rows, page of 20) because client-side slicing is indistinguishable from a server fetch on a mock; nothing here seeds storage. */
+/** Paging asserts the request (350 rows, page of 20) because client-side slicing is indistinguishable from a
+ * server fetch on a mock; needs backend :8081 (local,e2e) and a seeded database. */
 import { test, expect, ACTORS } from '../../fixtures/live.js';
 import { API, authHeaders } from '../../helpers/liveAuth.js';
 
@@ -9,7 +9,7 @@ const PAGE_SIZE = 20;
 /** `fmtNum` groups thousands, so the rendered total is `1,234` once the catalogue passes a thousand. */
 const grouped = (n) => n.toLocaleString('en-IN');
 
-/** One page of the catalogue read directly and anonymously: `GET /societies` is public, which the guard tests at the bottom assert. */
+/** Read anonymously: GET /societies is public, which the guard tests at the bottom assert. */
 async function catalogue(params = {}) {
   const qs = new URLSearchParams({ page: '0', size: String(PAGE_SIZE), ...params });
   const res = await fetch(`${API}/societies?${qs}`);
@@ -79,7 +79,7 @@ test('Next fetches the next page from the server instead of slicing one already 
 
   /* Assert the request: `Table`'s own pager advances the range without asking the server. */
   const request = page.waitForResponse(
-    (r) => /\/api\/societies\?/.test(r.url()) && new URL(r.url()).searchParams.get('page') === '1',
+      (r) => /\/api\/admin\/societies\?/.test(r.url()) && new URL(r.url()).searchParams.get('page') === '1',
   );
   await page.getByRole('button', { name: 'Next page' }).first().click();
   await request;
@@ -94,8 +94,8 @@ test('the search finds a society the first page does not contain', async ({ page
   const firstPage = await catalogue();
   const firstPageNames = new Set(firstPage.content.map((s) => s.name));
 
-  /* The adversarial row: a client-side filter over the 20 loaded rows finds nothing, so the target must be provably off the first page
-       (taken from the far end of `name ASC` so catalogue growth cannot move it onto it). */
+  /* The adversarial row: a client-side filter over the 20 loaded rows finds nothing, so the target is taken
+     from the far end of name ASC so catalogue growth cannot move it onto the first page. */
   const last = await catalogue({ page: String(Math.max(0, firstPage.totalPages - 1)) });
   const target = last.content.reverse().find((s) => !firstPageNames.has(s.name));
   expect(target, 'no society exists off the first page — the catalogue is too small to test search').toBeTruthy();
@@ -105,7 +105,7 @@ test('the search finds a society the first page does not contain', async ({ page
   await expect(rows(page).filter({ hasText: target.name }), 'the target must start off screen').toHaveCount(0);
 
   const request = page.waitForResponse(
-    (r) => /\/api\/societies\?/.test(r.url()) && new URL(r.url()).searchParams.get('q') === target.name,
+      (r) => /\/api\/admin\/societies\?/.test(r.url()) && new URL(r.url()).searchParams.get('q') === target.name,
   );
   await page.getByLabel('Search societies').fill(target.name);
   await request;
@@ -116,11 +116,12 @@ test('the search finds a society the first page does not contain', async ({ page
 });
 
 test('the admin society route refuses a stranger and a buyer, though the catalogue is public', async () => {
-  // The console reads the public `GET /societies`: every column it draws is already on the anonymous payload.
+  // The console reads `GET /admin/societies` (a staff-only slim row); the public `GET /societies` stays open to anyone.
   const listing = await fetch(`${API}/societies?page=0&size=1`);
   expect(listing.status).toBe(200);
 
-  // `adminNote` is moderator prose about a named building, so the admin view of one society is guarded by `societies:read`.
+  // adminNote is moderator prose about a named building, so the admin view of one society
+  // is guarded by societies:read.
   const slug = (await catalogue({ size: '1' })).content[0].slug;
   const anonymous = await fetch(`${API}/admin/societies/${slug}`);
   expect(anonymous.status).toBe(401);

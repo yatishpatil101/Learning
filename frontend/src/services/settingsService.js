@@ -5,6 +5,8 @@ const provider = createProvider('settings');
 
 export const getSettings = async () => (await provider()).getSettings();
 
+export const getAdminFlags = async () => (await provider()).getAdminFlags();
+
 export const updateSettings = async (patch) => (await provider()).updateSettings(patch);
 
 /** The console's navigation gate is the atoms the server returns on `/auth/me`. */
@@ -22,7 +24,6 @@ export const PRICING_DEFAULTS = Object.freeze({
   ownerProYearly: 2499,
   rentAgreementPlatform: 500,
   seekerPlusTopup: 199,
-  featuredListing: 999,
   gstPercent: 18,
 });
 

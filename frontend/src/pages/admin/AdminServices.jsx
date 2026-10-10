@@ -1,10 +1,9 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router';
 import { CheckCircle2, Clock, Download, ExternalLink, Hand, Play, Save } from 'lucide-react';
-import { addTicketNote, claimTicket, listTicketQueue, setTicketStatus } from '../../services/ticketService.js';
-import { listTeamMembers } from '../../services/teamService.js';
+import { addTicketNote, claimTicket, getTicket, getTicketSummary, listTicketQueue, setTicketStatus } from '../../services/ticketService.js';
+import { listAssignees } from '../../services/teamService.js';
 import { TEAM_LABEL as DESK_LABEL } from '../../lib/data/tickets.js';
-import { deskFromFunction } from '../../lib/adminModules.js';
 import { fmtINR, classNames } from '../../lib/format.js';
 import { exportCsv } from '../../lib/csv.js';
 import { useToast } from '../../context/ToastContext.jsx';
@@ -16,10 +15,10 @@ import Badge from '../../components/ui/Badge.jsx';
 import Modal from '../../components/ui/Modal.jsx';
 import Loading from '../../components/ui/Loading.jsx';
 import {
-  BTN, CHIP, CHIP_TONE, Cell, Chips, ClearFilters, FactRow, IconAction, PageNav, QueuePanel, QueueTabs, RowCard, RowList, SearchBox, useClientPaging,
+  BTN, CHIP, CHIP_TONE, Cell, Chips, ClearFilters, FactRow, IconAction, PageNav, QueuePanel, QueueTabs, RowCard, RowList, SearchBox,
 } from '../../components/admin/WorkQueue.jsx';
 
-/* The server's `TicketStatuses` vocabulary, including `waiting` and `closed`; `PATCH /tickets/{id}` answers 400 to words like `done`. */
+/* The server's `TicketStatuses` vocabulary (incl. `waiting`, `closed`); `PATCH /tickets/{id}` 400s on `done`. */
 const STATUS_TABS = [
   { key: 'open', label: 'Open' },
   { key: 'in-progress', label: 'In progress' },
@@ -44,13 +43,12 @@ const PRIORITY_CHIPS = [
 const MODAL_STATUS_OPTS = STATUS_TABS.filter((s) => s.key !== 'all').map((s) => ({ value: s.key, label: LABEL[s.key] }));
 const NOTE = 'Customer tickets for this desk. Claim one to own it, Start when you begin, Resolve when it is done.';
 
-/* Every count and filter here is computed across rows, so a page of the list would make them lies —
-   "6 open" taken from page 1 of 4 is not a fact about the desk. */
-const WINDOW = 100;
+/* Counts come from the summary and the list is server-paged, so a page of rows never stands in for the desk. */
 const PAGE_SIZE = 10;
+const EXPORT_SIZE = 100;
+const SUMMARY_KEY = { open: 'open', 'in-progress': 'inProgress', waiting: 'waiting', resolved: 'resolved', closed: 'closed', all: 'all' };
 
 const asDate = (ms) => (ms ? new Date(ms).toISOString().slice(0, 10) : '');
-const memberDesks = (s) => (s.functions || []).map(deskFromFunction).filter(Boolean);
 const Dot = () => <span className="text-gray-600" aria-hidden="true">·</span>;
 
 /* `service` is an ops annotation and null on every ticket a customer raised, so `subject` (the words
@@ -84,99 +82,117 @@ export default function AdminServices({ desk, embedded = false, idPrefix = 'queu
   const { user, role } = useAuth();
   const [searchParams, setSearchParams] = useSearchParams();
 
-  const [tickets, setTickets] = useState(null);
+  const [result, setResult] = useState(null);
+  const [summary, setSummary] = useState(null);
   const [staff, setStaff] = useState([]);
   const [loadError, setLoadError] = useState('');
+  const [token, setToken] = useState(0);
+  const reload = useCallback(() => setToken((n) => n + 1), []);
 
   const [q, setQ] = useState('');
   const [fStat, setFStat] = useState('open');
   const [fPrio, setFPrio] = useState('');
+  const [page, setPage] = useState(1);
+  const filterKey = `${fStat}|${fPrio}|${q}`;
+  const [pageKey, setPageKey] = useState(filterKey);
+  if (pageKey !== filterKey) {
+    setPageKey(filterKey);
+    setPage(1);
+  }
 
   const [openId, setOpenId] = useState(null);
+  const [detail, setDetail] = useState(null);
+  const [detailFailed, setDetailFailed] = useState(false);
   const [form, setForm] = useState({ assigneeId: '', status: 'open', note: '' });
 
-  const reload = useCallback(async () => {
-    const res = await listTicketQueue({ size: WINDOW, team: desk });
-    setTickets(res.items);
-    return res.items;
-  }, [desk]);
+  const filters = useCallback(() => ({
+    team: desk, status: fStat === 'all' ? undefined : fStat, priority: fPrio || undefined, q: q.trim() || undefined,
+  }), [desk, fStat, fPrio, q]);
 
   useEffect(() => {
     let alive = true;
-    // The directory turns "Priya" into the id `TicketUpdate.assigneeId` takes; without it the board is self-claim only.
-    Promise.all([
-      listTicketQueue({ size: WINDOW, team: desk }),
-      // `GET /users` is refused to desk staff, who can only claim for themselves.
-      role === 'staff' ? [] : listTeamMembers().catch(() => []),
-    ]).then(([res, members]) => {
-      if (!alive) return;
-      setTickets(res.items);
-      setStaff(members);
-    }).catch((e) => {
-      if (!alive) return;
-      // Not an empty board: an unread failure rendered as "nothing to do" is how a desk goes home early.
-      setTickets([]);
-      setLoadError(e?.message || 'The service requests could not be read.');
-    });
+    const timer = setTimeout(() => {
+      listTicketQueue({ ...filters(), page: page - 1, size: PAGE_SIZE })
+        .then((res) => { if (alive) { setResult(res); setLoadError(''); } })
+        // Not an empty board: an unread failure rendered as "nothing to do" is how a desk goes home early.
+        .catch((e) => { if (alive) setLoadError(e?.message || 'The service requests could not be read.'); });
+    }, q.trim() ? 300 : 0);
+    return () => {
+      alive = false;
+      clearTimeout(timer);
+    };
+  }, [filters, q, page, token]);
+
+  useEffect(() => {
+    let alive = true;
+    getTicketSummary(desk).then((s) => { if (alive) setSummary(s); }, () => { if (alive) setSummary(null); });
     return () => {
       alive = false;
     };
-  }, [desk, role]);
+  }, [desk, token]);
+
+  useEffect(() => {
+    let alive = true;
+    // The directory maps "Priya" to the id `TicketUpdate.assigneeId` takes; desk staff can only claim for self.
+    if (role !== 'staff') listAssignees().then((list) => { if (alive) setStaff(list); }, () => {});
+    return () => {
+      alive = false;
+    };
+  }, [role]);
 
   const title = DESK_LABEL[desk] || desk;
 
   const openTicket = useCallback((t) => {
-    setOpenId(t.id);
+    setDetail(null);
+    setDetailFailed(false);
     setForm({ assigneeId: '', status: t.status, note: '' });
+    setOpenId(t.id);
   }, []);
 
   // ?open=<id> opens that ticket once per mount, so it does not re-open while the param clears.
-  const deepLinkHandled = useRef(false);
+  const deepLinkId = useRef(null);
   useEffect(() => {
-    if (!tickets || deepLinkHandled.current) return;
     const tid = searchParams.get('open');
-    if (!tid) return;
-    deepLinkHandled.current = true;
-    const t = tickets.find((x) => x.id === tid);
-    if (!t) return;
-    setFStat(t.status);
-    openTicket(t);
-  }, [tickets, searchParams, openTicket]);
+    if (!tid || deepLinkId.current) return;
+    deepLinkId.current = tid;
+    setOpenId(tid);
+  }, [searchParams]);
 
-  const counts = useMemo(() => {
-    const T = tickets || [];
-    const c = { all: T.length };
-    for (const s of STATUS_TABS) if (s.key !== 'all') c[s.key] = T.filter((t) => t.status === s.key).length;
-    return c;
-  }, [tickets]);
+  useEffect(() => {
+    if (!openId) return undefined;
+    let alive = true;
+    getTicket(openId)
+      .then((res) => {
+        if (!alive) return;
+        if (!res) { setDetailFailed(true); return; }
+        setDetail(res);
+        setForm((f) => ({ ...f, status: res.status }));
+        if (deepLinkId.current === openId) setFStat(res.status);
+      })
+      .catch(() => { if (alive) setDetailFailed(true); });
+    return () => {
+      alive = false;
+    };
+  }, [openId]);
 
-  const rows = useMemo(() => {
-    const T = tickets || [];
-    const query = q.toLowerCase();
-    return T.filter((t) => (
-      (fStat === 'all' || t.status === fStat) &&
-      (!fPrio || t.priority === fPrio) &&
-      (!query || (t.id + ' ' + titleOf(t) + ' ' + t.customer + ' ' + (t.detail || '') + ' ' + (t.mobile || '')).toLowerCase().includes(query))
-    ));
-  }, [tickets, q, fStat, fPrio]);
-  const { items: pageRows, paging } = useClientPaging(rows, PAGE_SIZE, `${fStat}|${fPrio}|${q}`);
+  const rows = result?.items || [];
+  const total = result?.total ?? 0;
+  const paging = { page, pageCount: Math.max(1, Math.ceil(total / PAGE_SIZE)), total, size: PAGE_SIZE, onPage: setPage };
+  const count = (key) => (summary ? summary[SUMMARY_KEY[key]] : null);
 
-  const deskStaff = useCallback(
-    (d) => staff.filter((s) => s.status === 'active' && memberDesks(s).includes(d)),
-    [staff],
-  );
+  const deskStaff = useCallback((d) => staff.filter((s) => s.desks.includes(d)), [staff]);
 
-  const doExport = () => {
-    exportCsv(
-      'draazy-service-requests.csv',
-      ['ID', 'Service', 'Desk', 'Customer', 'Mobile', 'Detail', 'Priority', 'Assigned', 'Status', 'Created'],
-      rows.map((t) => [t.id, titleOf(t), DESK_LABEL[t.desk] || t.desk, t.customer, t.mobile, t.detail, t.priority, t.assignedTo || '', t.status, asDate(t.createdAt)]),
-    );
-  };
-
-  const patch = (rec) => {
-    if (!rec) return;
-    setTickets((list) => (list || []).map((t) => (t.id === rec.id ? rec : t)));
+  const doExport = async () => {
+    try {
+      const res = await listTicketQueue({ ...filters(), page: 0, size: EXPORT_SIZE });
+      exportCsv(
+        'draazy-service-requests.csv',
+        ['ID', 'Service', 'Desk', 'Customer', 'Mobile', 'Detail', 'Priority', 'Assigned', 'Status', 'Created'],
+        res.items.map((t) => [t.id, titleOf(t), DESK_LABEL[t.desk] || t.desk, t.customer, t.mobile, t.detail, t.priority, t.assignedTo || '', t.status, asDate(t.createdAt)]),
+      );
+    } catch (e) {
+      toast(e?.message || 'The export could not be read.', 'error');
+    }
   };
 
   /* Claim and move are two calls because they are two decisions, and the server may refuse the move.
@@ -184,33 +200,36 @@ export default function AdminServices({ desk, embedded = false, idPrefix = 'queu
   const startTicket = async (t) => {
     try {
       const first = t.assignedTo ? null : deskStaff(t.desk)[0];
-      if (first) patch(await claimTicket(t.id, first.id));
-      patch(await setTicketStatus(t.id, 'in-progress'));
+      if (first) await claimTicket(t.id, first.id);
+      await setTicketStatus(t.id, 'in-progress');
       toast('Marked in progress');
     } catch (e) {
       toast(e?.message || 'That request could not be started.', 'error');
     }
+    reload();
   };
 
   const claimForMe = async (t) => {
     try {
-      patch(await claimTicket(t.id, user?.id));
+      await claimTicket(t.id, user?.id);
       toast('Assigned to you');
     } catch (e) {
       toast(e?.message || 'That request could not be claimed.', 'error');
     }
+    reload();
   };
 
   const resolveTicket = async (t) => {
     try {
-      patch(await setTicketStatus(t.id, 'resolved'));
+      await setTicketStatus(t.id, 'resolved');
       toast('Request resolved');
     } catch (e) {
       toast(e?.message || 'That request could not be resolved.', 'error');
     }
+    reload();
   };
 
-  const active = (tickets || []).find((t) => t.id === openId) || null;
+  const active = detail;
 
   const clearOpenParam = () => {
     if (searchParams.get('open')) {
@@ -220,29 +239,28 @@ export default function AdminServices({ desk, embedded = false, idPrefix = 'queu
     }
   };
 
+  const closeModal = () => {
+    setOpenId(null);
+    setDetail(null);
+    clearOpenParam();
+  };
+
   const saveTicket = async () => {
     if (!active) return;
     try {
       /* Three calls, ordered to leave the least damage if one fails: assignment, then the status the
          server may refuse, then the note — an append, so a colleague's note saved in between survives. */
-      if (form.assigneeId && form.assigneeId !== '__keep__') patch(await claimTicket(active.id, form.assigneeId));
-      if (form.status && form.status !== active.status) patch(await setTicketStatus(active.id, form.status));
+      if (form.assigneeId && form.assigneeId !== '__keep__') await claimTicket(active.id, form.assigneeId);
+      if (form.status && form.status !== active.status) await setTicketStatus(active.id, form.status);
       const note = form.note.trim();
       if (note) await addTicketNote(active.id, note);
-      setOpenId(null);
-      clearOpenParam();
-      await reload();
+      closeModal();
+      reload();
       toast('Request updated');
     } catch (e) {
       toast(e?.message || 'That request could not be updated.', 'error');
     }
   };
-
-  const closeModal = () => {
-    setOpenId(null);
-    clearOpenParam();
-  };
-
   // Standalone notices keep the page header so an operator can tell which desk they landed on.
   const notice = (body) => {
     const box = <div className="flex flex-col items-center justify-center py-20 text-center">{body}</div>;
@@ -254,11 +272,11 @@ export default function AdminServices({ desk, embedded = false, idPrefix = 'queu
     );
   };
 
-  if (!tickets || flagsLoading) return <Loading />;
-
   if (loadError) {
     return notice(<div className="text-red-300 text-sm">{loadError}</div>);
   }
+
+  if (!result || flagsLoading) return <Loading />;
 
   if (!optionEnabled('services.enabled')) {
     return notice(
@@ -269,7 +287,7 @@ export default function AdminServices({ desk, embedded = false, idPrefix = 'queu
     );
   }
 
-  const statusLabel = (s) => `${s.label} ${counts[s.key]}`;
+  const statusLabel = (s) => (count(s.key) == null ? s.label : `${s.label} ${count(s.key)}`);
 
   const rowPrimary = (t) => (
     <>
@@ -337,7 +355,7 @@ export default function AdminServices({ desk, embedded = false, idPrefix = 'queu
       footer={paging.pageCount > 1 ? <PageNav {...paging} /> : null}
     >
       <RowList isEmpty={!rows.length} empty="No requests match">
-        {pageRows.map((t) => (
+        {rows.map((t) => (
           <RowCard
             key={t.id}
             id={t.id}
@@ -368,29 +386,33 @@ export default function AdminServices({ desk, embedded = false, idPrefix = 'queu
             idPrefix={idPrefix}
             active={fStat}
             onChange={setFStat}
-            tabs={STATUS_TABS.map((s) => ({ key: s.key, label: s.label, count: counts[s.key] }))}
+            tabs={STATUS_TABS.map((s) => ({ key: s.key, label: s.label, count: count(s.key) }))}
           />
           {board}
         </>
       )}
 
       <Modal
-        open={!!active}
+        open={!!openId}
         onClose={closeModal}
-        title={active ? 'Request ' + active.id : ''}
+        title={'Request ' + (openId || '')}
         size="lg"
         footer={
           <>
             <button onClick={closeModal} className="dz-btn dz-btn-ghost">
               Close
             </button>
-            <button onClick={saveTicket} className="dz-btn dz-btn-primary">
+            <button onClick={saveTicket} disabled={!active} className="dz-btn dz-btn-primary">
               <Save className="h-4 w-4" /> Save
             </button>
           </>
         }
       >
-        {active ? (
+        {detailFailed ? (
+          <div className="text-red-300 text-sm">This request could not be opened.</div>
+        ) : !active ? (
+          <Loading />
+        ) : (
           <div className="space-y-5">
             <div className="flex items-start justify-between gap-4 rounded-xl border border-white/10 bg-white/5 p-4">
               <div>
@@ -460,7 +482,7 @@ export default function AdminServices({ desk, embedded = false, idPrefix = 'queu
               />
             </div>
           </div>
-        ) : null}
+        )}
       </Modal>
     </div>
   );

@@ -1,5 +1,6 @@
 import { test, expect } from '../../fixtures/live.js';
 import { API, authHeaders, identityChallengeToken, uniqueMobile } from '../../helpers/liveAuth.js';
+import { pickDate } from '../../helpers/datePicker.helper.js';
 
 const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAARElEQVR4AeyROw0AIAxEL5WADzSw4AcRaGLBDzqKg7uhS4c2eVOTy33snemMtrYzDMErASBBB/0OMNTKCSIoi+pfEYAPAAD//68o26gAAAAGSURBVAMAR8QwUeUtYucAAAAASUVORK5CYII=', 'base64');
 const VERHOEFF_D = [
@@ -207,7 +208,6 @@ test('a staffer holding the KYC function reviews cases and gets the decision con
   await openCase(page, owner);
   await expect(page.getByText('Passport is not expired')).toBeVisible();
   await expect(page.getByRole('tab', { name: 'Approve' })).toBeVisible();
-  await expect(page.getByText('identity:write is required to decide it.')).toHaveCount(0);
 
   await page.getByRole('tab', { name: 'Reject', exact: true }).click();
   await page.getByLabel('Reason').selectOption('other');
@@ -234,8 +234,9 @@ test('a KYC staffer corrects the applicant\'s account name and email from the ca
   await expect(account).toContainText('Kyc Edited Name');
   await expect(account).toContainText(`${owner.mobile}@kyc-edit.example.test`);
 
-  const { review } = await pendingReview(request, owner);
-  expect(review.accountEmail).toBe(`${owner.mobile}@kyc-edit.example.test`);
+  const { review, headers } = await pendingReview(request, owner);
+  const detail = await (await request.get(`${API}/moderation/identity-reviews/${review.id}`, { headers })).json();
+  expect(detail.accountEmail).toBe(`${owner.mobile}@kyc-edit.example.test`);
 
   await page.getByRole('tab', { name: 'Reject', exact: true }).click();
   await page.getByLabel('Reason').selectOption('other');
@@ -267,7 +268,7 @@ test('a decision already in flight cannot be sent twice, or reversed by the othe
   await openCase(page, owner);
   await page.getByLabel('Document number').fill(owner.claims.number);
   await page.getByLabel('Holder name').fill('Nikhil Rao');
-  await page.getByLabel('Date of birth').fill('1988-02-09');
+  await pickDate(page, '[aria-label="Date of birth"]:visible', '1988-02-09');
   await page.getByTestId('ops-identity-pose-confirmed').check();
   await tickChecklist(page);
 

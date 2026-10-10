@@ -52,7 +52,7 @@ class ReviewModerationQueueTest extends AbstractApiTest {
                     VALUES (?::uuid, ?::jsonb)
                     ON CONFLICT (user_id) DO UPDATE SET permissions = EXCLUDED.permissions
                     """, saved.getId().toString(),
-                    "[\"kyc\",\"propertyVerification\",\"listingModeration\",\"support\",\"content\",\"reports\",\"desk:rental\"]");
+                    "[\"kyc\",\"propertyVerification\",\"listingModeration\",\"reviews\",\"support\",\"content\",\"reports\",\"desk:rental\"]");
         }
         return saved;
     }
@@ -76,6 +76,18 @@ class ReviewModerationQueueTest extends AbstractApiTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.content").isArray())
                 .andExpect(jsonPath("$.totalElements").value(2));
+    }
+
+    @Test
+    @DisplayName("a manager reads the queue like staff do")
+    void managersSeeTheQueue() throws Exception {
+        User author = user("9840000030", "buyer");
+        User manager = user("9840000031", "manager");
+        review(author.getId(), ReviewStatuses.PUBLISHED);
+
+        mvc.perform(get("/admin/reviews").header(HttpHeaders.AUTHORIZATION, bearer(manager)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.totalElements").value(1));
     }
 
     /** "What have we taken down": otherwise nothing on the platform can confirm a rejection happened. */
@@ -122,6 +134,33 @@ class ReviewModerationQueueTest extends AbstractApiTest {
                         .header(HttpHeaders.AUTHORIZATION, bearer(staff)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.content[0].id").value(r.getId().toString()));
+    }
+
+    @Test
+    @DisplayName("queue rows are slim, counts=true totals every status, and q matches the author or text")
+    void slimRowsCountsAndSearch() throws Exception {
+        User author = user("9840000020", "buyer");
+        User staff = user("9840000021", "staff");
+        review(author.getId(), ReviewStatuses.PUBLISHED);
+        review(author.getId(), ReviewStatuses.REJECTED);
+
+        mvc.perform(get("/admin/reviews").param("counts", "true").param("q", "reviewer 9840000020")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(staff)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.totalElements").value(2))
+                .andExpect(jsonPath("$.content[0].author").value("Reviewer 9840000020"))
+                .andExpect(jsonPath("$.content[0].body").exists())
+                .andExpect(jsonPath("$.content[0].title").doesNotExist())
+                .andExpect(jsonPath("$.content[0].categories").doesNotExist())
+                .andExpect(jsonPath("$.content[0].recommend").doesNotExist())
+                .andExpect(jsonPath("$.counts.all").value(Matchers.greaterThanOrEqualTo(2)))
+                .andExpect(jsonPath("$.counts.rejected").value(Matchers.greaterThanOrEqualTo(1)))
+                .andExpect(jsonPath("$.counts.pending").isNumber());
+
+        mvc.perform(get("/admin/reviews").param("q", "no-such-text-anywhere")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(staff)))
+                .andExpect(jsonPath("$.totalElements").value(0))
+                .andExpect(jsonPath("$.counts").doesNotExist());
     }
 
     /** Rows carry their status: without it an unfiltered queue mixes live and rejected reviews indistinguishably.

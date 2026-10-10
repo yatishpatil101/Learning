@@ -74,9 +74,7 @@ public class VerificationCases implements ListingCaseNotes {
     @Transactional(propagation = Propagation.MANDATORY)
     public void postInternalOnce(UUID propertyId, String deal, String body) {
         PropertyReview review = ensure(propertyId, deal);
-        boolean alreadySaid = review.getMessages().stream()
-                .anyMatch(message -> message.isInternal() && message.getBody().equals(body));
-        if (!alreadySaid) {
+        if (!reviews.hasInternalNote(review.getId(), body)) {
             write(propertyId, deal, body, true);
         }
     }

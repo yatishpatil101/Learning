@@ -1,5 +1,7 @@
 package com.draazy.api.moderation.user;
 
+import java.util.Collection;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import jakarta.persistence.LockModeType;
@@ -15,6 +17,11 @@ interface BadgeGrantRequestRepository extends JpaRepository<BadgeGrantRequest, U
     boolean existsByUserIdAndStatus(UUID userId, String status);
 
     Optional<BadgeGrantRequest> findFirstByUserIdAndStatus(UUID userId, String status);
+
+    long countByStatus(String status);
+
+    @Query("select r.userId from BadgeGrantRequest r where r.userId in :userIds and r.status = :status")
+    List<UUID> userIdsWithStatus(Collection<UUID> userIds, String status);
 
     Page<BadgeGrantRequest> findByStatusOrderByCreatedAtAsc(String status, Pageable pageable);
 

@@ -34,7 +34,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpHeaders;
 
-/** Mobiles arrive in full on the lists; opening one row is audited with the masked number. Rows are seeded via repositories to skip the contact gate. */
+/** Rows are seeded via repositories to skip the contact gate. */
 @DisplayName("D25 — the demand board")
 class EnquiryBoardEndpointsTest extends AbstractApiTest {
 
@@ -59,7 +59,7 @@ class EnquiryBoardEndpointsTest extends AbstractApiTest {
     class Enquiries {
 
         @Test
-        @DisplayName("an admin sees the row with the requester's full number")
+        @DisplayName("an admin sees the row with the requester's masked number")
         void adminReadsFullMobile() throws Exception {
             User owner = user("9855100001", Roles.Wire.OWNER, "Owner One");
             User buyer = user(RAW, Roles.Wire.BUYER, "Curious Buyer");
@@ -71,7 +71,7 @@ class EnquiryBoardEndpointsTest extends AbstractApiTest {
                             .param("status", ContactRequestStatuses.PENDING))
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.content[0].requesterName").value("Curious Buyer"))
-                    .andExpect(jsonPath("$.content[0].requesterMobile").value(RAW))
+                    .andExpect(jsonPath("$.content[0].requesterMobile").value(MASKED))
                     .andExpect(jsonPath("$.content[0].propertyTitle")
                             .value("Enquiry board fixture"));
         }
@@ -97,7 +97,7 @@ class EnquiryBoardEndpointsTest extends AbstractApiTest {
     class Visits {
 
         @Test
-        @DisplayName("the visitor's full number, and the slot survives the projection")
+        @DisplayName("the visitor's masked number, and the slot survives the projection")
         void visitorMobileInFull() throws Exception {
             User owner = user("9855100007", Roles.Wire.OWNER, "Owner Four");
             User visitor = user(RAW, Roles.Wire.BUYER, "Site Visitor");
@@ -109,7 +109,7 @@ class EnquiryBoardEndpointsTest extends AbstractApiTest {
                             .header(HttpHeaders.AUTHORIZATION, bearer(admin("9855100008"))))
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.content[0].visitorName").value("Site Visitor"))
-                    .andExpect(jsonPath("$.content[0].visitorMobile").value(RAW))
+                    .andExpect(jsonPath("$.content[0].visitorMobile").value(MASKED))
                     .andExpect(jsonPath("$.content[0].mode").value(VisitModes.IN_PERSON))
                     .andExpect(jsonPath("$.content[0].slot").exists());
         }
@@ -135,7 +135,7 @@ class EnquiryBoardEndpointsTest extends AbstractApiTest {
                             .header(HttpHeaders.AUTHORIZATION, bearer(admin("9855100010"))))
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.content[0].counterpartyName").value("Registered Party"))
-                    .andExpect(jsonPath("$.content[0].counterpartyMobile").value(RAW))
+                    .andExpect(jsonPath("$.content[0].counterpartyMobile").value(MASKED))
                     .andExpect(jsonPath("$.content[0].agreedPrice").value(24000));
         }
 
@@ -155,17 +155,116 @@ class EnquiryBoardEndpointsTest extends AbstractApiTest {
                             .param("status", DealStatuses.CLOSED))
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.content[0].counterpartyName").doesNotExist())
-                    .andExpect(jsonPath("$.content[0].counterpartyMobile").value(RAW));
+                    .andExpect(jsonPath("$.content[0].counterpartyMobile").value(MASKED));
         }
     }
 
+    @Nested
+    @DisplayName("server paging, search and summary")
+    class Narrowing {
+
+        @Test
+        @DisplayName("q matches the person's name, case-insensitively, and a mobile only as the whole number")
+        void searchByNameAndMobile() throws Exception {
+            User owner = user("9855100031", Roles.Wire.OWNER, "Owner Search");
+            User buyer = user("9855100032", Roles.Wire.BUYER, "Zebulon Searchable");
+            enquiry(listing(owner, "Search fixture"), buyer, ContactRequestStatuses.PENDING);
+            String token = bearer(admin("9855100033"));
+
+            mvc.perform(get(Routes.Moderation.ADMIN_ENQUIRIES).header(HttpHeaders.AUTHORIZATION, token)
+                            .param("q", "ZEBULON"))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.totalElements").value(1))
+                    .andExpect(jsonPath("$.content[0].requesterName").value("Zebulon Searchable"));
+            mvc.perform(get(Routes.Moderation.ADMIN_ENQUIRIES).header(HttpHeaders.AUTHORIZATION, token)
+                            .param("q", "9855100032"))
+                    .andExpect(jsonPath("$.content[?(@.requesterName == 'Zebulon Searchable')]").isNotEmpty());
+            mvc.perform(get(Routes.Moderation.ADMIN_ENQUIRIES).header(HttpHeaders.AUTHORIZATION, token)
+                            .param("q", "985510003"))
+                    .andExpect(jsonPath("$.content[?(@.requesterName == 'Zebulon Searchable')]").isEmpty());
+            mvc.perform(get(Routes.Moderation.ADMIN_ENQUIRIES).header(HttpHeaders.AUTHORIZATION, token)
+                            .param("q", "no such person anywhere"))
+                    .andExpect(jsonPath("$.totalElements").value(0));
+        }
+
+        @Test
+        @DisplayName("days drops older rows; the deal type narrows deals only")
+        void daysAndDealType() throws Exception {
+            User owner = user("9855100034", Roles.Wire.OWNER, "Owner Days");
+            Deal rent = new Deal(listing(owner, "Days fixture rent").getId(), "rent");
+            rent.setStatus(DealStatuses.CLOSED);
+            rent.setClosedAt(Instant.now().minus(40, ChronoUnit.DAYS));
+            rent.setAgreedPrice(10000L);
+            deals.saveAndFlush(rent);
+            Deal buy = new Deal(listing(owner, "Days fixture buy").getId(), "buy");
+            buy.setStatus(DealStatuses.CLOSED);
+            buy.setClosedAt(Instant.now());
+            buy.setAgreedPrice(5000000L);
+            deals.saveAndFlush(buy);
+            String token = bearer(admin("9855100035"));
+
+            mvc.perform(get(Routes.Moderation.ADMIN_DEALS).header(HttpHeaders.AUTHORIZATION, token)
+                            .param("days", "7").param("q", "Days fixture"))
+                    .andExpect(jsonPath("$.totalElements").value(1))
+                    .andExpect(jsonPath("$.content[0].deal").value("buy"));
+            mvc.perform(get(Routes.Moderation.ADMIN_DEALS).header(HttpHeaders.AUTHORIZATION, token)
+                            .param("deal", "rent").param("q", "Days fixture"))
+                    .andExpect(jsonPath("$.totalElements").value(1))
+                    .andExpect(jsonPath("$.content[0].deal").value("rent"));
+        }
+
+        @Test
+        @DisplayName("the summary counts every tab and scopes the funnel by days and deal type")
+        void summary() throws Exception {
+            User owner = user("9855100036", Roles.Wire.OWNER, "Owner Summary");
+            User buyer = user("9855100037", Roles.Wire.BUYER, "Summary Buyer");
+            Property p = listing(owner, "Summary fixture");
+            enquiry(p, buyer, ContactRequestStatuses.PENDING);
+            Deal old = new Deal(p.getId(), "rent");
+            old.setStatus(DealStatuses.CLOSED);
+            old.setClosedAt(Instant.now().minus(60, ChronoUnit.DAYS));
+            old.setAgreedPrice(777000L);
+            deals.saveAndFlush(old);
+            String token = bearer(admin("9855100038"));
+
+            mvc.perform(get(Routes.Moderation.ADMIN_ENQUIRIES_SUMMARY).header(HttpHeaders.AUTHORIZATION, token))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.enquiries.all").isNumber())
+                    .andExpect(jsonPath("$.enquiries.pending").isNumber())
+                    .andExpect(jsonPath("$.deals.closed").isNumber())
+                    .andExpect(jsonPath("$.dealTypes.rent").isNumber())
+                    .andExpect(jsonPath("$.gmv").isNumber())
+                    .andExpect(jsonPath("$.funnel.dealsClosed").isNumber());
+            String narrowed = mvc.perform(get(Routes.Moderation.ADMIN_ENQUIRIES_SUMMARY)
+                            .header(HttpHeaders.AUTHORIZATION, token).param("days", "7"))
+                    .andReturn().getResponse().getContentAsString();
+            String all = mvc.perform(get(Routes.Moderation.ADMIN_ENQUIRIES_SUMMARY)
+                            .header(HttpHeaders.AUTHORIZATION, token))
+                    .andReturn().getResponse().getContentAsString();
+            assertThat(com.jayway.jsonpath.JsonPath.<Number>read(all, "$.funnel.gmv").longValue())
+                    .isGreaterThanOrEqualTo(com.jayway.jsonpath.JsonPath.<Number>read(narrowed, "$.funnel.gmv")
+                            .longValue() + 777000L);
+        }
+
+        @Test
+        @DisplayName("the summary honours the enquiries permission")
+        void summaryIsGuarded() throws Exception {
+            User owner = user("9855100039", Roles.Wire.OWNER, "Owner Guard");
+            mvc.perform(get(Routes.Moderation.ADMIN_ENQUIRIES_SUMMARY)
+                            .header(HttpHeaders.AUTHORIZATION, bearer(owner)))
+                    .andExpect(status().isForbidden());
+            mvc.perform(get(Routes.Moderation.ADMIN_ENQUIRIES_SUMMARY))
+                    .andExpect(status().isUnauthorized());
+        }
+    }
     // --- who may open the board ---------------------------------------------------------------
 
     @Nested
     @DisplayName("who may open the board")
     class Authorisation {
 
-        /** {@code enquiries:read} is an ops atom held by staff from the baseline with no permissions document; asserted so the route cannot silently become admin-only. */
+        /** enquiries:read is an ops atom staff hold from the baseline with no permissions document; asserted so
+         * the route cannot silently become admin-only. */
         @Test
         @DisplayName("a staffer reads it too — this is a floor tool, not an admin-only one")
         void staffMayRead() throws Exception {

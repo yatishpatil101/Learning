@@ -2,7 +2,6 @@ package com.draazy.api.services;
 
 import static org.hamcrest.Matchers.hasSize;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -15,7 +14,6 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
-import org.springframework.mock.web.MockMultipartFile;
 
 // The live API must own checklist names; frontend-only mock data emptied the missing-docs tracker.
 @DisplayName("D120 — service-request document checklist")
@@ -166,14 +164,6 @@ class ServiceRequestChecklistTest extends ServiceFixtures {
                 .andExpect(status().isUnauthorized());
     }
 
-    private void upload(User caller, String id, String category) throws Exception {
-        mvc.perform(multipart(Routes.ServiceRequests.DOCS, id)
-                        .file(new MockMultipartFile("file", "scan.pdf", "application/pdf",
-                                "%PDF-1.4".getBytes()))
-                        .param("category", category)
-                        .header(HttpHeaders.AUTHORIZATION, bearer(caller)))
-                .andExpect(status().isCreated());
-    }
 
     private String createWithState(User caller, String state) throws Exception {
         String json = mvc.perform(post(Routes.ServiceRequests.BASE)

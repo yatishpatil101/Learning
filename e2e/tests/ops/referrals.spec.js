@@ -121,11 +121,10 @@ test.describe('Ops → referral fraud desk (live)', () => {
     const { accessToken } = await apiLogin(referrer.mobile);
     const summary = await fetch(`${API}/me/referrals`, { headers: auth(accessToken) }).then((r) => r.json());
     expect(summary.converted).toBe(1);
-    expect(summary.contactsEarned).toBeGreaterThan(0);
-    expect(summary.contactsPending).toBe(0);
+    expect(summary).not.toHaveProperty('contactsEarned');
 
     const ent = await fetch(`${API}/me/entitlements`, { headers: auth(accessToken) }).then((r) => r.json());
-    expect(ent.contacts.referralBonus).toBe(summary.contactsEarned);
+    expect(ent.contacts.referralBonus).toBeGreaterThan(0);
     expect(ent.contacts.allowance).toBeGreaterThan(ent.contacts.referralBonus);
   });
 

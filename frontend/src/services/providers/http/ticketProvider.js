@@ -1,45 +1,32 @@
-/**
- * HTTP ticket provider — the ops work board (`/ops/requests`), live against `GET|POST /tickets`.
- *
- * ## Desk scoping is the server's
- *
- * `TicketService.list` narrows a staff caller to their own desk. The client does not pass desk
- * filters for access; it asks for the queue and renders what the server allows.
- *
- * ## What is deliberately absent
- *
- * Free assignment. `TicketUpdate.assigneeId` will accept any ops user, but the board only offers
- * self-claim — the same shape as the drafting desk's *Take*. Handing work to a named stranger
- * needs a staff directory the ops portal does not have, and a rule for what happens when
- * re-teaming a ticket removes it from the assigner's own view (which `TicketService.update`
- * warns it routinely does).
- */
+/** Only self-claim is offered, not free assignment: naming another user needs a staff directory the ops portal
+ * lacks, and re-teaming a ticket can remove it from the assigner's own view. */
 import { get, patch, post } from '../../http.js';
 import { toClaim, toCreate, toNote, toViewModel, toViewModelPage, toWireStatus } from './ticketMapper.js';
 
-/**
- * The board — `GET /tickets`, paged.
- *
- * Errors propagate. A queue that renders an unread failure as an empty list is how a desk goes home
- * early, and a 403 here is *information* — it means a staffer asked for a desk that is not theirs,
- * which the caller turns into a sentence rather than a blank table.
- *
- * No desk is sent here; staff scoping is derived from back-office functions server-side.
- */
-export async function listTicketQueue({ status, team, page = 0, size = 20 } = {}) {
+/** Errors propagate: a queue that renders an unread failure as an empty list sends a desk home early,
+ * and a 403 is information the caller turns into a sentence rather than a blank table. */
+export async function listTicketQueue({ status, team, priority, q, page = 0, size = 20 } = {}) {
   const query = { page, size };
   const wire = toWireStatus(status);
   if (wire) query.status = wire;
   if (team) query.team = team;
+  if (priority) query.priority = priority;
+  if (q) query.q = q;
   return toViewModelPage(await get('/tickets', query), { page, size });
 }
 
-/**
- * Claim — `PATCH /tickets/{id}` with the caller's own id.
- *
- * Status is not touched. See `toClaim`: claiming and moving are two decisions, and bundling them
- * would advance a ticket the person only meant to put their name against.
- */
+/** Per-status counts for the caller's scope — GET /tickets/summary, so tab pills never depend on a page of rows. */
+export async function getTicketSummary(team) {
+  return get('/tickets/summary', team ? { team } : {});
+}
+
+/** One ticket with its notes and values — the list rows carry neither. */
+export async function getTicket(id) {
+  return toViewModel(await get(`/tickets/${encodeURIComponent(id)}`));
+}
+
+/** Status is untouched (see `toClaim`): claiming and moving are two decisions,
+ * and bundling them would advance a ticket the person only meant to claim. */
 export async function claimTicket(id, userId) {
   return toViewModel(await patch(`/tickets/${encodeURIComponent(id)}`, toClaim(userId)));
 }
@@ -49,55 +36,22 @@ export async function setTicketStatus(id, status) {
   return toViewModel(await patch(`/tickets/${encodeURIComponent(id)}`, { status: toWireStatus(status) }));
 }
 
-/**
- * Append an internal note — `POST /tickets/{id}/notes`, 201.
- *
- * An append, not a rewrite. Sending the whole `notes` array back would quietly
- * discard anything a colleague added between the read and the write; the endpoint exists so that
- * two people taking notes on one ticket both keep theirs.
- *
- * Returns the new note alone — the server does not re-send the ticket — so the caller pushes it
- * onto the list it already has.
- */
+/** An append, not a rewrite: sending the whole `notes` array back would discard a colleague's concurrent note.
+ * Returns the new note alone, so the caller pushes it onto the list it already holds. */
 export async function addTicketNote(id, text) {
   return toNote(
     await post(`/tickets/${encodeURIComponent(id)}/notes`, { body: String(text || '').trim() }),
   );
 }
 
-/**
- * Raise a ticket — `POST /tickets`, 201.
- *
- * The one route on this controller with no role guard, and the asymmetry is deliberate upstream:
- * "a queue only privileged people can write to collects nothing". The response is the
- * *customer* view (`CustomerTicketDto`), not the staff record — it carries no internal notes — so
- * it is mapped through the same view model but will simply have an empty `notes`.
- */
+/** The one route on this controller with no role guard: "a queue only privileged people can write to collects
+ * nothing". The response is the customer view (`CustomerTicketDto`), so `notes` is always empty. */
 export async function createTicket(data) {
   return toViewModel(await post('/tickets', toCreate(data)));
 }
 
-/**
- * Join a service waitlist — `POST /service-waitlist`, 201, **no body back**.
- *
- * The one route in this file that does not need a signed-in caller, and the only one whose reply is
- * empty. Both follow from what it is for: somebody who has not decided whether this company is worth
- * an account, asking to be told when something launches. An id would be a reference they could never
- * resolve — reading the board is ops-only — and a 409 on a repeat would tell a stranger whether a
- * given number was already on the list, so the server answers 201 either way.
- *
- * **Not routed through `toCreate`.** That mapper is for the ops board's own shape; this endpoint
- * takes three fields and derives everything else — desk, subject, priority — server-side, precisely
- * so an anonymous caller cannot put a lead on the legal desk. Passing a ticket-shaped object here
- * would suggest those fields mean something, and they are ignored.
- *
- * Errors propagate, and the caller must wait for this one before telling anybody they are on a
- * list — otherwise a success message is shown for a lead that went nowhere.
- *
- * @param {{service:string, name?:string, mobile:string}} data `service` is a slug the server knows
- *   (`move-in-pack`); an unknown one is a 400. `mobile` is ten digits; malformed is a 422. Too many
- *   from one number in an hour is a 429 with `Retry-After`.
- */
+/** Unauthenticated and bodyless: a 409 on a repeat would reveal whether a number is listed, so it answers 201.
+ * Not routed through `toCreate`: desk and priority are server-derived, so no anonymous caller picks the desk. */
 export async function joinServiceWaitlist({ service, name, mobile }) {
   await post('/service-waitlist', { service, name: name || undefined, mobile });
 }

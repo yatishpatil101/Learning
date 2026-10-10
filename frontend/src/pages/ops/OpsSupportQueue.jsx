@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { MessageSquare, RefreshCw, Send } from 'lucide-react';
-import { getTicket, listSupportQueue, markTicketRead, replyToTicket } from '../../services/supportService.js';
+import { getTicket, listSupportQueue, replyToTicket } from '../../services/supportService.js';
 import { classNames } from '../../lib/format.js';
 import { useToast } from '../../context/ToastContext.jsx';
 import PageHeader from '../../components/ui/PageHeader.jsx';
@@ -56,16 +56,21 @@ export default function OpsSupportQueue() {
   const [detailStatus, setDetailStatus] = useState('idle');
   const [reply, setReply] = useState('');
   const sending = useRef(false);
+  const wantCounts = useRef(true);
 
   const load = useCallback(() => {
     const { awaitingReply } = TABS.find((x) => x.key === tab);
     let live = true;
+    const counts = wantCounts.current;
     setState((s) => ({ ...s, status: 'loading', error: null }));
-    listSupportQueue({ awaitingReply, page, size: PAGE_SIZE })
+    listSupportQueue({ awaitingReply, page, size: PAGE_SIZE, counts })
       .then((res) => {
         if (!live) return;
         setState({ status: 'ready', items: res.items, total: res.total, error: null });
-        setCounts(res.counts || {});
+        if (counts) {
+          wantCounts.current = false;
+          setCounts(res.counts || {});
+        }
       })
       .catch((err) => {
         // Never an empty list: "nothing is waiting" over a failed read ends a shift early.
@@ -77,6 +82,7 @@ export default function OpsSupportQueue() {
   useEffect(load, [load, nonce]);
 
   const switchTab = (key) => { setTab(key); setPage(0); };
+  const reload = () => { wantCounts.current = true; setNonce((n) => n + 1); };
 
   const open = async (row) => {
     setDetail({ id: row.id, subject: row.subject, status: row.status, category: row.category, raiser: row.raiser, messages: [] });
@@ -87,9 +93,8 @@ export default function OpsSupportQueue() {
       if (!full) { setDetailStatus('error'); return; }
       setDetail(full);
       setDetailStatus('ready');
-      // Clears only the desk's side of the read model; the customer's flag is theirs to clear.
+      // The staff read clears the desk's side of the read model; the customer's flag is theirs to clear.
       if (row.awaitingReply) {
-        await markTicketRead(row.id);
         setState((s) => ({ ...s, items: s.items.map((r) => (r.id === row.id ? { ...r, awaitingReply: false } : r)) }));
         setCounts((c) => ({ ...c, awaiting: c.awaiting > 0 ? c.awaiting - 1 : c.awaiting, answered: c.answered != null ? c.answered + 1 : c.answered }));
       }
@@ -135,7 +140,7 @@ export default function OpsSupportQueue() {
         note={NOTES[tab]}
         toolbar={(
           <>
-            <button type="button" onClick={() => setNonce((n) => n + 1)} className={BTN.ghost}>
+            <button type="button" onClick={reload} className={BTN.ghost}>
               <RefreshCw className="h-3.5 w-3.5" />Refresh
             </button>
             {state.status === 'ready' ? <div className="ml-auto"><PageNav {...paging} /></div> : null}
@@ -150,7 +155,7 @@ export default function OpsSupportQueue() {
             <p className="text-sm text-gray-300">
               We could not read the support queue. This is not an empty queue — nothing was loaded.
             </p>
-            <button type="button" onClick={() => setNonce((n) => n + 1)} className="dz-btn dz-btn-primary">
+            <button type="button" onClick={reload} className="dz-btn dz-btn-primary">
               <RefreshCw className="h-4 w-4" /> Try again
             </button>
           </div>

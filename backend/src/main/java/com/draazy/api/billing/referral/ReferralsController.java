@@ -20,19 +20,14 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
-/**
- * Referral scheme endpoints (contract tag {@code Billing &amp; Growth}).
- *
- * <p>Two audiences on one resource. {@code GET /me/referrals} and {@code POST /referrals/redeem} are
- * any authenticated user's; the queue and the three decisions are the fraud desk's and carry
- * {@code @PreAuthorize} matching the {@code x-roles} the contract gained in spec fix S53.
- */
+/** Two audiences on one resource: {@code /me/referrals} and redeem are any user's; the queue and the three
+ * decisions are the fraud desk's and carry a matching {@code @PreAuthorize}. */
 @RestController
 public class ReferralsController {
 
-    private static final String STAFF_OR_ADMIN =
-            "hasAnyRole('" + Roles.STAFF + "', '" + Roles.ADMIN + "') and "
-                    + BackOfficePermissions.REQUIRE_REPORTS_WRITE;
+    private static final String STAFF_OR_ADMIN = "hasAnyRole('" + Roles.STAFF + "', '" + Roles.ADMIN + "') and ";
+    private static final String READ = STAFF_OR_ADMIN + BackOfficePermissions.REQUIRE_REFERRALS_READ;
+    private static final String WRITE = STAFF_OR_ADMIN + BackOfficePermissions.REQUIRE_REFERRALS_WRITE;
 
     private final ReferralService service;
 
@@ -56,23 +51,27 @@ public class ReferralsController {
 
     /** {@code GET /referrals} (contract {@code listReferrals}) — the paged fraud-desk queue. */
     @GetMapping(Routes.Referrals.BASE)
-    @PreAuthorize(STAFF_OR_ADMIN)
+    @PreAuthorize(READ)
     public PageResponse<ReferralDto> queue(@RequestParam(required = false) String status,
             @RequestParam(required = false) String risk,
+            @RequestParam(required = false) String q,
+            @RequestParam(defaultValue = "false") boolean counts,
             @PageableDefault(size = 20) Pageable pageable) {
-        return PageResponse.of(service.queue(status, risk, Pageables.unsorted(pageable)), dto -> dto);
+        PageResponse<ReferralDto> page = PageResponse.of(
+                service.queue(status, risk, q, Pageables.unsorted(pageable)), dto -> dto);
+        return counts ? page.withCounts(service.queueCounts()) : page;
     }
 
     /** {@code POST /referrals/{id}/approve} (contract {@code approveReferral}). */
     @PostMapping(Routes.Referrals.APPROVE)
-    @PreAuthorize(STAFF_OR_ADMIN)
+    @PreAuthorize(WRITE)
     public ReferralDto approve(@CurrentUser AuthPrincipal principal, @PathVariable String id) {
         return service.approve(principal, id);
     }
 
     /** {@code POST /referrals/{id}/reject} (contract {@code rejectReferral}). */
     @PostMapping(Routes.Referrals.REJECT)
-    @PreAuthorize(STAFF_OR_ADMIN)
+    @PreAuthorize(WRITE)
     public ReferralDto reject(@CurrentUser AuthPrincipal principal, @PathVariable String id,
             @RequestBody(required = false) ReasonRequest body) {
         return service.reject(principal, id, body == null ? null : body.reason());
@@ -80,30 +79,18 @@ public class ReferralsController {
 
     /** {@code POST /referrals/{id}/clawback} (contract {@code clawbackReferral}). */
     @PostMapping(Routes.Referrals.CLAWBACK)
-    @PreAuthorize(STAFF_OR_ADMIN)
+    @PreAuthorize(WRITE)
     public ReferralDto clawback(@CurrentUser AuthPrincipal principal, @PathVariable String id,
             @RequestBody(required = false) ReasonRequest body) {
         return service.clawback(principal, id, body == null ? null : body.reason());
     }
 
-    /**
-     * Body of {@code redeemReferral} (inline schema, {@code code} required).
-     *
-     * <p>{@code shareChannel} is optional and unvalidated here on purpose (D60): it says how the
-     * link reached this person, and an older client that does not send it, or sends a value this
-     * build has no name for, must still be able to redeem. {@link ShareChannels#normalise} drops
-     * what it does not recognise rather than turning an advisory analytics field into a way to fail
-     * a real referral.
-     */
+    /** {@code shareChannel} is advisory and unvalidated so older or unknown clients can still redeem;
+     * {@link ShareChannels#normalise} drops unrecognised values instead of failing a real referral. */
     public record RedeemRequest(@NotBlank String code, String shareChannel) {
     }
 
-    /**
-     * Body of {@code rejectReferral} and {@code clawbackReferral} (schema {@code ReasonRequest}).
-     *
-     * <p>The request body is declared without {@code required: true}, so the reason is best-effort
-     * context on the audit trail, not a gate.
-     */
+    /** The body is declared without {@code required: true}, so the reason is best-effort audit context. */
     public record ReasonRequest(String reason) {
     }
 }

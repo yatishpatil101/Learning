@@ -2,9 +2,9 @@ package com.draazy.api.services.request;
 
 import com.draazy.api.catalog.fee.LeaveAndLicenceCharges;
 import com.draazy.api.documents.vault.Document;
-import com.draazy.api.documents.vault.DocumentDto;
 import com.draazy.api.documents.vault.DocumentMapper;
 import com.draazy.api.documents.vault.DocumentRepository;
+import com.draazy.api.documents.vault.DocumentSummary;
 import com.draazy.api.identity.user.User;
 import com.draazy.api.identity.user.UserRepository;
 import com.draazy.api.security.AuthPrincipal;
@@ -16,6 +16,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
@@ -112,7 +113,7 @@ public class ServiceRequestMapper {
                         timelines.getOrDefault(r.getId(), List.of()).stream().map(e -> new ServiceRequestDto.TimelineEntry(
                                         e.getAt(), e.getEvent(), e.getBy())).toList(),
                         visibleFiles(r, files.getOrDefault(r.getId(), List.<Document>of()),
-                                checks.getOrDefault(r.getId(), List.of()), viewer).stream().map(d -> toDocumentDto(d, r, sides.getOrDefault(r.getId(), List.of()), viewer)).toList(),
+                                checks.getOrDefault(r.getId(), List.of()), viewer).stream().map(d -> toDocumentSummary(d, r, sides.getOrDefault(r.getId(), List.of()), viewer)).toList(),
                         threads.getOrDefault(r.getId(), List.of()).stream().map(m -> toMessageDto(m, names)).toList(),
                         sides.getOrDefault(r.getId(), List.<ServiceRequestParty>of()).stream().map(p -> CoFillParties.toDto(p, r.getType(),
                                         names.get(p.getUserId()), names.get(p.getInvitedBy()))).toList(),
@@ -175,15 +176,28 @@ public class ServiceRequestMapper {
                 names.get(g.getRecordedBy()), g.getCreatedAt());
     }
 
-    private DocumentDto toDocumentDto(Document d, ServiceRequest request,
+    private DocumentSummary toDocumentSummary(Document d, ServiceRequest request,
             List<ServiceRequestParty> parties, AuthPrincipal viewer) {
-        DocumentDto dto = documentMapper.toDto(d);
-        String side = RentAgreementReadiness.identityScanSide(d.getCategory());
-        if (side == null || readableSides(request, parties, viewer).contains(side)) {
-            return dto;
+        if (readable(d, request, parties, viewer)) {
+            return documentMapper.toSummary(d);
         }
-        return new DocumentDto(dto.id(), dto.propertyId(), dto.category(), null, null,
-                null, null, dto.uploadedAt());
+        return new DocumentSummary(d.getId().toString(), d.getCategory(), null, null, null, d.getUploadedAt());
+    }
+
+    private static boolean readable(Document d, ServiceRequest request, List<ServiceRequestParty> parties,
+            AuthPrincipal viewer) {
+        String side = RentAgreementReadiness.identityScanSide(d.getCategory());
+        return side == null || readableSides(request, parties, viewer).contains(side);
+    }
+
+    // The same visibility and identity-scan rules as the list, applied to one file when it is opened.
+    Optional<String> documentUrl(ServiceRequest request, UUID documentId, AuthPrincipal viewer) {
+        List<UUID> ids = List.of(request.getId());
+        List<Document> files = visibleFiles(request, documents.findByServiceRequestIdInOrderByUploadedAtDesc(ids),
+                draftChecks.findByRequestIdIn(ids), viewer);
+        return files.stream().filter(d -> d.getId().equals(documentId)).findFirst()
+                .filter(d -> readable(d, request, parties.findByRequestIdIn(ids), viewer))
+                .map(documentMapper::urlOf);
     }
 
     private static Set<String> readableSides(ServiceRequest request, List<ServiceRequestParty> parties,

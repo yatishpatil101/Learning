@@ -36,7 +36,7 @@ class TeamPerformanceController {
 
     @GetMapping(Routes.Admin.MY_WORK)
     @PreAuthorize(MY_WORK_GUARD)
-    TeamPerformanceResponse myWork(@CurrentUser AuthPrincipal caller,
+    MyWorkResponse myWork(@CurrentUser AuthPrincipal caller,
             @RequestParam(defaultValue = "7") int days) {
         if (days != 7 && days != 30) {
             throw new BadRequestException("days must be 7 or 30");

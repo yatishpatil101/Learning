@@ -104,8 +104,8 @@ class ReferralEndpointsTest extends AbstractApiTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.invited").value(0))
                 .andExpect(jsonPath("$.converted").value(0))
-                .andExpect(jsonPath("$.contactsEarned").value(0))
-                .andExpect(jsonPath("$.contactsPending").value(0));
+                .andExpect(jsonPath("$.contactsEarned").doesNotExist())
+                .andExpect(jsonPath("$.contactsPending").doesNotExist());
     }
 
     // ---- 2: redeeming ----
@@ -120,9 +120,7 @@ class ReferralEndpointsTest extends AbstractApiTest {
         mvc.perform(get(Routes.Referrals.MINE).header(HttpHeaders.AUTHORIZATION, bearer(referrer)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.invited").value(1))
-                .andExpect(jsonPath("$.converted").value(0))
-                .andExpect(jsonPath("$.contactsEarned").value(0))
-                .andExpect(jsonPath("$.contactsPending").value(REWARD));
+                .andExpect(jsonPath("$.converted").value(0));
     }
 
     @Test
@@ -191,7 +189,52 @@ class ReferralEndpointsTest extends AbstractApiTest {
                 // False because the fixture redeems from a different address than the code was
                 // minted from — see codeOf. False means "no correlation found".
                 .andExpect(jsonPath("$.content[0].sameDevice").value(false))
-                .andExpect(jsonPath("$.content[0].sameIp").value(false));
+                .andExpect(jsonPath("$.content[0].sameIp").value(false))
+                .andExpect(jsonPath("$.counts").doesNotExist())
+                .andExpect(jsonPath("$.content[0].handledBy").doesNotExist())
+                .andExpect(jsonPath("$.content[0].handledAt").doesNotExist())
+                .andExpect(jsonPath("$.content[0].shareChannel").doesNotExist())
+                .andExpect(jsonPath("$.content[0].qualifiedAt").doesNotExist());
+    }
+
+    @Test
+    void theQueueFiltersOnTheServerAndCountsOnRequest() throws Exception {
+        User referrer = user("9866600060", "owner");
+        User referred = user("9866600061", "buyer");
+        User staff = user("9866600062", "staff");
+        String id = referralFrom(referrer, referred);
+
+        mvc.perform(get(Routes.Referrals.BASE)
+                        .header(HttpHeaders.AUTHORIZATION, bearer(staff))
+                        .param("status", ReferralStatuses.PENDING + ",qualified")
+                        .param("q", referred.getName().toLowerCase())
+                        .param("counts", "true"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content[?(@.id=='" + id + "')]").isNotEmpty())
+                .andExpect(jsonPath("$.counts.all").value(org.hamcrest.Matchers.greaterThanOrEqualTo(1)))
+                .andExpect(jsonPath("$.counts.pending").value(org.hamcrest.Matchers.greaterThanOrEqualTo(1)))
+                .andExpect(jsonPath("$.counts.highRisk").exists())
+                .andExpect(jsonPath("$.counts.rewarded").exists())
+                .andExpect(jsonPath("$.counts.refused").exists());
+
+        mvc.perform(get(Routes.Referrals.BASE)
+                        .header(HttpHeaders.AUTHORIZATION, bearer(staff))
+                        .param("status", ReferralStatuses.REWARDED)
+                        .param("q", referred.getName().toLowerCase()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content[?(@.id=='" + id + "')]").isEmpty());
+
+        mvc.perform(get(Routes.Referrals.BASE)
+                        .header(HttpHeaders.AUTHORIZATION, bearer(staff))
+                        .param("q", referrer.getMobile()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content[?(@.id=='" + id + "')]").isNotEmpty());
+
+        mvc.perform(get(Routes.Referrals.BASE)
+                        .header(HttpHeaders.AUTHORIZATION, bearer(staff))
+                        .param("q", "zz-no-such-person"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content", org.hamcrest.Matchers.hasSize(0)));
     }
 
     @Test
@@ -206,13 +249,11 @@ class ReferralEndpointsTest extends AbstractApiTest {
                         .header(HttpHeaders.AUTHORIZATION, bearer(staff)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value(ReferralStatuses.REWARDED))
-                .andExpect(jsonPath("$.handledAt").value(Matchers.notNullValue()));
+                .andExpect(jsonPath("$.handledAt").doesNotExist());
 
         mvc.perform(get(Routes.Referrals.MINE).header(HttpHeaders.AUTHORIZATION, bearer(referrer)))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.converted").value(1))
-                .andExpect(jsonPath("$.contactsEarned").value(REWARD))
-                .andExpect(jsonPath("$.contactsPending").value(0));
+                .andExpect(jsonPath("$.converted").value(1));
 
         mvc.perform(post("/referrals/" + id + "/approve")
                         .header(HttpHeaders.AUTHORIZATION, bearer(staff)))
@@ -259,8 +300,7 @@ class ReferralEndpointsTest extends AbstractApiTest {
 
         mvc.perform(get(Routes.Referrals.MINE).header(HttpHeaders.AUTHORIZATION, bearer(referrer)))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.contactsEarned").value(0))
-                .andExpect(jsonPath("$.contactsPending").value(0));
+                .andExpect(jsonPath("$.converted").value(0));
     }
 
     @Test
@@ -294,7 +334,7 @@ class ReferralEndpointsTest extends AbstractApiTest {
                 .andExpect(status().isOk())
                 // The grant is derived from the row's status, so the clawback withdrew it with no
                 // compensating write.
-                .andExpect(jsonPath("$.contactsEarned").value(0));
+                .andExpect(jsonPath("$.converted").value(0));
     }
 
     @Test

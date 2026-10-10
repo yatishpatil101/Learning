@@ -12,13 +12,13 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-/** A merge is a pointer (see {@link Society#getMergedInto()}); chains are refused both ways so {@code merged_into} stays one hop
+/** A merge is a pointer ({@link Society#getMergedInto()}); chains are refused both ways so it stays one hop
  * and every undo is exact. Merges and undos are audited because an undo erases the evidence in the row. */
 @Service
 @Transactional
 public class SocietyMergeService {
 
-    /** Three names keep the refusal readable at a glance; one or two merges is a correction, a dozen a decision to reconsider. */
+    /** Three names keep the refusal readable; one or two merges is a correction, a dozen a decision to revisit. */
     private static final int NAMED_IN_REFUSAL = 3;
 
     private final SocietyRepository societies;
@@ -29,14 +29,16 @@ public class SocietyMergeService {
         this.audit = audit;
     }
 
-    /** The only surface where an operator can find a merge to undo: a merged-away society is absent from the directory and its slug resolves to the survivor. */
+    /** The only place an operator can find a merge to undo: a merged-away society is absent from
+     * the directory and its slug resolves to the survivor. */
     @Transactional(readOnly = true)
     public Page<SocietyMergeResponse> list(Pageable pageable) {
         Page<Society> page = societies.merged(pageable);
         return page.map(this::describe);
     }
 
-    /** Records {@code from} as a duplicate of {@code into}; refused for unknown slugs (404), the same society (422), or a side already in a merge (409). */
+    /** Records {@code from} as a duplicate of {@code into}; refused for unknown slugs (404), the same society
+     * (422), or a side already in a merge (409). */
     public SocietyMergeResponse merge(SocietyMergeRequest request, AuthPrincipal operator) {
         Society loser = require(request.from());
         Society survivor = require(request.into());
@@ -80,7 +82,7 @@ public class SocietyMergeService {
                 "intoName", survivor.getName());
 
         return new SocietyMergeResponse(loser.getSlug(), loser.getName(),
-                survivor.getSlug(), survivor.getName(), java.time.Instant.now(), operator.userId());
+                survivor.getSlug(), survivor.getName(), java.time.Instant.now());
     }
 
     /** Keyed by the merged-away slug: a survivor may have absorbed several duplicates.
@@ -113,7 +115,7 @@ public class SocietyMergeService {
     private SocietyMergeResponse describe(Society merged) {
         Society survivor = SocietyMergePointer.survivor(societies, merged);
         return new SocietyMergeResponse(merged.getSlug(), merged.getName(),
-                survivor.getSlug(), survivor.getName(), merged.getMergedAt(), merged.getMergedBy());
+                survivor.getSlug(), survivor.getName(), merged.getMergedAt());
     }
 
     /** The slug travels with the name because duplicates commonly share a name, which alone isn't actionable. */

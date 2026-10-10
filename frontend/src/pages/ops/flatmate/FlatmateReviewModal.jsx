@@ -114,8 +114,8 @@ export default function FlatmateReviewModal({ entry, onClose, onChanged }) {
   };
 
   const [decided, setDecided] = useState(null);
-  // The decided review wins over the list row: before the refetch lands, entry.review is still `pending`.
-  const review = decided || detail.data?.review || (detail.data ? null : entry.review) || null;
+  // The list row is a card with no agreement file or mobile, so the badge section waits for the detail read.
+  const review = decided || detail.data?.review || null;
   const decideBadge = (decision, note) => run(
     async () => setDecided(await decideFlatmateReview(review.id, decision, note)),
     decision === 'approved' ? 'Approved — the host now shows Ops-verified' : 'Rejected — the host is told why',

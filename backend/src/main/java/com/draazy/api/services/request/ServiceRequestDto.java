@@ -1,6 +1,6 @@
 package com.draazy.api.services.request;
 
-import com.draazy.api.documents.vault.DocumentDto;
+import com.draazy.api.documents.vault.DocumentSummary;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
@@ -18,7 +18,7 @@ public record ServiceRequestDto(
         String assignee,
         boolean assignedToMe,
         List<TimelineEntry> timeline,
-        List<DocumentDto> documents,
+        List<DocumentSummary> documents,
         List<MessageDto> messages,
         List<ServiceRequestPartyDto> parties,
         Instant createdAt,

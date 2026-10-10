@@ -1,4 +1,5 @@
 import { test, expect } from '../../fixtures/live.js';
+import { pickDate } from '../../helpers/datePicker.helper.js';
 
 test.use({ viewport: { width: 1440, height: 900 } });
 
@@ -127,7 +128,7 @@ test('a case opens with evidence beside the fields, a checklist gating approve, 
 
   await dialog.getByLabel('Document number').fill('1234');
   await dialog.getByLabel('Holder name').fill('Applicant 1');
-  await dialog.getByLabel('Date of birth').fill('1990-01-01');
+  await pickDate(dialog.page(), '[aria-label="Date of birth"]:visible', '1990-01-01');
   await dialog.getByTestId('ops-identity-pose-confirmed').check();
   const approve = dialog.getByTestId('ops-identity-approve');
   await expect(approve).toBeDisabled();

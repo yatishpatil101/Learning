@@ -1,3 +1,9 @@
+import { openDocFrom } from '../../../lib/openDoc.js';
+import { getServiceRequestDocumentUrl } from '../../../services/serviceRequestService.js';
+
+export const openRequestDoc = (requestId, docId) =>
+  openDocFrom(() => getServiceRequestDocumentUrl(requestId, docId));
+
 export const fmtAgo = (ts) => {
   if (!ts) return '';
   const s = Math.floor((Date.now() - ts) / 1000);

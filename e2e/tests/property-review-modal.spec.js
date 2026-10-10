@@ -143,7 +143,7 @@ test('a needs-info listing pauses at In review and its console card says it is a
 
 test('a rejected case offers the second-review reopen flow', async ({ page, login, request }) => {
   const { id } = await createListing(request, { title: `Rejected ${seeded.title}` });
-  await page.route(`**/api/properties/${id}/verification`, async (route) => {
+  await page.route((url) => url.pathname === `/api/properties/${id}/verification`, async (route) => {
     if (route.request().method() !== 'POST') return route.fallback();
     return route.fulfill({
       status: 200,

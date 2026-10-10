@@ -5,10 +5,20 @@ import com.draazy.api.common.error.BadRequestException;
 import com.draazy.api.common.error.ConflictException;
 import com.draazy.api.common.error.NotFoundException;
 import com.draazy.api.common.web.Ids;
+import com.draazy.api.engagement.flatmate.FlatmateModerationService;
 import com.draazy.api.moderation.property.PropertyModerationService;
 import com.draazy.api.moderation.user.UserAdminService;
 import com.draazy.api.security.AuthPrincipal;
+import java.time.Instant;
+import java.time.temporal.ChronoUnit;
+import java.util.HashMap;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Locale;
+import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Collectors;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -24,14 +34,17 @@ public class ReportService {
     private final AuditService audit;
     private final PropertyModerationService propertyModeration;
     private final UserAdminService userAdmin;
+    private final FlatmateModerationService flatmateModeration;
 
     public ReportService(ReportRepository reports, ReportMapper mapper, AuditService audit,
-            PropertyModerationService propertyModeration, UserAdminService userAdmin) {
+            PropertyModerationService propertyModeration, UserAdminService userAdmin,
+            FlatmateModerationService flatmateModeration) {
         this.reports = reports;
         this.mapper = mapper;
         this.audit = audit;
         this.propertyModeration = propertyModeration;
         this.userAdmin = userAdmin;
+        this.flatmateModeration = flatmateModeration;
     }
 
     /** Target is deliberately not resolved: a scammer deleting the listing must not also delete the complaint. */
@@ -58,13 +71,16 @@ public class ReportService {
         }
     }
 
-    /** Filters are validated: an unknown value would give an empty page that reads as "queue clear". */
+    /** Filters are validated: an unknown value would give an empty page that reads as "queue clear".
+     * Each row carries how many reports its target has drawn, counted for this page only. */
     @Transactional(readOnly = true)
-    public Page<ReportResponse> list(String status, String reason, String targetType,
-            Pageable pageable) {
+    public Page<ReportResponse> list(String status, String reason, String targetType, String q,
+            Integer sinceDays, Pageable pageable) {
         String wantedStatus = blankToNull(status);
         String wantedReason = blankToNull(reason);
         String wantedTargetType = blankToNull(targetType);
+        String like = blankToNull(q) == null ? null : "%" + q.strip().toLowerCase(Locale.ROOT) + "%";
+        Instant since = sinceDays == null || sinceDays <= 0 ? null : Instant.now().minus(sinceDays, ChronoUnit.DAYS);
 
         if (wantedStatus != null && !ReportStatuses.isValid(wantedStatus)) {
             throw new BadRequestException("Unknown report status: " + wantedStatus);
@@ -76,14 +92,57 @@ public class ReportService {
             throw new BadRequestException("Unknown report reason: " + wantedReason);
         }
 
-        if (wantedReason == null && wantedTargetType == null) {
-            Page<Report> page = wantedStatus == null
+        Page<Report> page;
+        if (wantedReason == null && wantedTargetType == null && like == null && since == null) {
+            page = wantedStatus == null
                     ? reports.findAllByOrderByCreatedAtDesc(pageable)
                     : reports.findByStatusOrderByCreatedAtDesc(wantedStatus, pageable);
-            return page.map(mapper::toResponse);
+        } else {
+            page = reports.search(wantedStatus, wantedReason, wantedTargetType, like,
+                    since == null ? Instant.EPOCH : since, pageable);
         }
-        return reports.search(wantedStatus, wantedReason, wantedTargetType, pageable)
-                .map(mapper::toResponse);
+        Map<String, Long> perTarget = targetTallies(page.getContent());
+        return page.map(r -> mapper.toResponse(r).withTargetReportCount(perTarget.getOrDefault(r.getTargetId(), 1L)));
+    }
+
+    /** Undecided per target type for the tab badges, and per status within {@code targetType} for the chips. */
+    @Transactional(readOnly = true)
+    public Map<String, Long> counts(String targetType) {
+        String wantedTargetType = blankToNull(targetType);
+        if (wantedTargetType != null && !ReportTargetTypes.isValid(wantedTargetType)) {
+            throw new BadRequestException("Unknown report target type: " + wantedTargetType);
+        }
+        Map<String, Long> out = new LinkedHashMap<>();
+        for (String type : List.of(ReportTargetTypes.PROPERTY, ReportTargetTypes.USER, ReportTargetTypes.POST)) {
+            out.put("undecided." + type, 0L);
+        }
+        for (Object[] row : reports.countByTargetType(ReportStatuses.LIVE)) {
+            out.put("undecided." + row[0], ((Number) row[1]).longValue());
+        }
+        for (String s : List.of(ReportStatuses.OPEN, ReportStatuses.REVIEWING, ReportStatuses.ACTIONED,
+                ReportStatuses.DISMISSED)) {
+            out.put("status." + s, 0L);
+        }
+        long all = 0;
+        for (Object[] row : reports.countByStatus(wantedTargetType)) {
+            long n = ((Number) row[1]).longValue();
+            out.put("status." + row[0], n);
+            all += n;
+        }
+        out.put("status.all", all);
+        return out;
+    }
+
+    private Map<String, Long> targetTallies(List<Report> rows) {
+        Set<String> ids = rows.stream().map(Report::getTargetId).collect(Collectors.toSet());
+        Map<String, Long> out = new HashMap<>();
+        if (ids.isEmpty()) {
+            return out;
+        }
+        for (Object[] row : reports.countByTarget(ids)) {
+            out.put((String) row[0], ((Number) row[1]).longValue());
+        }
+        return out;
     }
 
     /** Defined here so "outstanding" stays with the status vocabulary and the tile matches the screen. */
@@ -137,8 +196,13 @@ public class ReportService {
         String because = "Reported: " + report.getReason()
                 + (note == null || note.isBlank() ? "" : " — " + note.trim());
         switch (enforcement) {
-            case ReportEnforcement.HIDE_CONTENT ->
+            case ReportEnforcement.HIDE_CONTENT -> {
+                if (ReportTargetTypes.POST.equals(report.getTargetType())) {
+                    flatmateModeration.moderate(actor, parseId(report.getTargetId()), "removed", because);
+                } else {
                     propertyModeration.flag(actor, report.getTargetId(), because);
+                }
+            }
             case ReportEnforcement.SUSPEND_ACCOUNT ->
                     userAdmin.archive(actor, report.getTargetId(), because);
             default -> {

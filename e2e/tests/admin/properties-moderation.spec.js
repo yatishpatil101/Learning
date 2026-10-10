@@ -94,7 +94,9 @@ test('flagging takes an approved listing off the site and keeps the reason', asy
   const queue = await fetch(`${API}/admin/properties?size=100&status=flagged`, { headers: await admin() });
   const row = (await queue.json()).content.find((p) => p.id === id);
   expect(row).toBeTruthy();
-  expect(row.flagReason).toBe(REASON);
+  expect(row.flagReason, 'the queue row is slim; the reason rides the detail read').toBeUndefined();
+  const detail = await fetch(`${API}/admin/properties/${id}`, { headers: await admin() });
+  expect((await detail.json()).flagReason).toBe(REASON);
 
   // And the other half of the same field: the owner's own read of the very same listing does not carry it.
   const mine = await fetch(`${API}/me/listings/${id}`, { headers });

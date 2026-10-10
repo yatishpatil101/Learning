@@ -2,7 +2,7 @@
  * `serviceRequestMapper.js` holds shape translation. */
 import { PAGE_LOAD_TTL, del, get, patch, post, postMultipart, put } from '../../http.js';
 import {
-  toChecklist, toIdentityList, toViewModel, toViewModelList, toViewModelPage, toCreate, toWireType,
+  toChecklist, toIdentityList, toViewModel, toViewModelList, toQueueRowPage, toCreate, toWireType,
 } from './serviceRequestMapper.js';
 
 export async function listServiceRequests(typeFilter) {
@@ -22,7 +22,7 @@ export async function listServiceRequestQueue({ type, status, mine, unassigned, 
   if (unassigned) query.unassigned = true;
   if (overdue) query.overdue = true;
   if (q) query.q = q;
-  return toViewModelPage(await get('/service-requests', query), { page, size });
+  return toQueueRowPage(await get('/service-requests/queue', query), { page, size });
 }
 
 export async function getServiceRequestQueueSummary(team) {
@@ -122,6 +122,11 @@ export async function confirmServiceRequestPoliceIntimation(id, { reference, sub
     reference: reference || undefined,
     submittedOn: submittedOn || undefined,
   }));
+}
+
+/** Signs one document of one request when it is opened; list and detail reads carry no URLs. */
+export async function getServiceRequestDocumentUrl(id, docId) {
+  return (await get(`/service-requests/${encodeURIComponent(id)}/docs/${encodeURIComponent(docId)}/url`))?.url || null;
 }
 
 /** The tenancy rows a registered copy produced, for the second operator's check. Errors propagate. */

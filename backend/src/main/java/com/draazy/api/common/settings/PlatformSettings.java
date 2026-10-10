@@ -52,13 +52,11 @@ public class PlatformSettings {
 
     private static final long DEFAULT_SEEKER_PLUS_TOPUP = 199L;
 
-    private static final long DEFAULT_FEATURED_LISTING = 999L;
-
     public static final int MAX_PRICE = 100_000;
 
     // An out-of-range price falls back to its default here, so the admin write must refuse one.
     public static final List<String> PRICE_FIELDS = List.of("ownerPlanYearly", "ownerProYearly",
-            "rentAgreementPlatform", "seekerPlusTopup", "featuredListing");
+            "rentAgreementPlatform", "seekerPlusTopup");
 
     public static final String LISTINGS_KEY = "listings";
 
@@ -112,10 +110,6 @@ public class PlatformSettings {
 
     public long seekerPlusTopup() {
         return wholeNumber(FEES_KEY, "seekerPlusTopup", DEFAULT_SEEKER_PLUS_TOPUP, MAX_PRICE);
-    }
-
-    public long featuredListing() {
-        return wholeNumber(FEES_KEY, "featuredListing", DEFAULT_FEATURED_LISTING, MAX_PRICE);
     }
 
     public long freeContactLimit() {

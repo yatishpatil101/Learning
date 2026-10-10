@@ -37,7 +37,7 @@ class StaffActivityRepository {
             """ + BACK_OFFICE + "\n" + FILTERS;
 
     private static final String FEED = """
-            select a.id, a.actor, coalesce(u.name, a.actor), a.actor_role, u.team,
+            select a.id, coalesce(u.name, a.actor), a.actor_role,
                    a.action, a.entity, a.entity_id, a.at, a.metadata::text
             """ + JOIN + """
             order by a.at desc
@@ -69,7 +69,7 @@ class StaffActivityRepository {
         this.em = em;
     }
 
-    List<StaffActivityEntry> feed(StaffActivityFilter filter, int limit, int offset) {
+    List<StaffActivityEntry> feed(StaffActivityFilter filter, int limit, int offset, boolean withMetadata) {
         Query query = bind(em.createNativeQuery(FEED), filter);
         query.setParameter("limit", limit);
         query.setParameter("offset", offset);
@@ -83,10 +83,8 @@ class StaffActivityRepository {
                     text(cells[3]),
                     text(cells[4]),
                     text(cells[5]),
-                    text(cells[6]),
-                    text(cells[7]),
-                    toInstant(cells[8]),
-                    AuditMetadata.parse(text(cells[9]))));
+                    toInstant(cells[6]),
+                    withMetadata ? AuditMetadata.parse(text(cells[7])) : null));
         }
         return out;
     }

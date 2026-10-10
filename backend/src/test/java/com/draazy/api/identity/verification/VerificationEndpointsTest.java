@@ -266,7 +266,7 @@ class VerificationEndpointsTest extends AbstractApiTest {
         mvc.perform(get(Routes.Moderation.IDENTITY_REVIEWS)
                         .header(HttpHeaders.AUTHORIZATION, bearer(reviewer)))
                 .andExpect(status().isOk())
-            .andExpect(jsonPath("$.content[?(@.id == '" + id + "')].claims.number").value(PAN.substring(6)))
+            .andExpect(jsonPath("$.content[?(@.id == '" + id + "')].claims").doesNotExist())
             .andExpect(jsonPath("$.content[?(@.id == '" + id + "')].userMobile").value("9830000010"));
 
         mvc.perform(get(reviewPath(Routes.Moderation.IDENTITY_REVIEW_BY_ID, id))
@@ -280,7 +280,7 @@ class VerificationEndpointsTest extends AbstractApiTest {
         approve(reviewer, id, PAN)
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value(VerificationStatuses.VERIFIED))
-                .andExpect(jsonPath("$.docLast4").value(PAN.substring(6)))
+                .andExpect(jsonPath("$.docLast4").doesNotExist())
                 .andExpect(jsonPath("$.holderName").value("Asha Patil"));
 
         IdentityVerification row = verifications.findById(id).orElseThrow();
@@ -611,6 +611,83 @@ class VerificationEndpointsTest extends AbstractApiTest {
                 .isEqualTo(VerificationStatuses.PENDING);
         assertThat(verifications.findById(staleId).orElseThrow().getStatus())
                 .isEqualTo(VerificationStatuses.REJECTED);
+    }
+
+    private java.util.List<Map<String, Object>> notificationsFor(User u) {
+        return jdbc.queryForList(
+                "select type, title, body, link from notifications where user_id = ? order by created_at",
+                u.getId());
+    }
+
+    @Test
+    void reviewerReject_notifiesTheSubjectNotTheReviewer() throws Exception {
+        User u = user("9830000061");
+        User reviewer = admin("9830000062");
+        submitPan(u, PAN).andExpect(status().isAccepted());
+
+        reject(reviewer, caseOf(u)).andExpect(status().isOk());
+
+        assertThat(notificationsFor(u)).singleElement().satisfies(row -> {
+            assertThat(row.get("type")).isEqualTo("identity.rejected");
+            assertThat(row.get("title")).isEqualTo("Verification needs another try");
+            assertThat(row.get("body")).isEqualTo("We couldn't verify your ID this time. "
+                    + "Open the verification page to see why and retake.");
+            assertThat(row.get("link")).isEqualTo("/verify-identity");
+        });
+        assertThat(notificationsFor(reviewer)).isEmpty();
+    }
+
+    @Test
+    void systemReject_notifiesTheSubject() throws Exception {
+        User u = user("9830000063");
+        submitPan(u, PAN).andExpect(status().isAccepted());
+
+        mvc.perform(post(Routes.Verification.IDENTITY_SIMULATE).param("outcome", "reject")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(u)))
+                .andExpect(status().isOk());
+
+        assertThat(notificationsFor(u)).singleElement().satisfies(row -> {
+            assertThat(row.get("type")).isEqualTo("identity.rejected");
+            assertThat(row.get("link")).isEqualTo("/verify-identity");
+        });
+    }
+
+    @Test
+    void stalePendingSweep_notifiesTheSubjectWithTheReviewDelayNote() throws Exception {
+        User u = user("9830000064");
+        submitPan(u, PAN).andExpect(status().isAccepted());
+        IdentityVerification row = verifications.findById(caseOf(u)).orElseThrow();
+        row.setSubmittedAt(Instant.now().minus(15, ChronoUnit.DAYS));
+        verifications.saveAndFlush(row);
+
+        service.expireStalePending(Duration.ofDays(14));
+
+        assertThat(notificationsFor(u)).singleElement().satisfies(n -> {
+            assertThat(n.get("type")).isEqualTo("identity.rejected");
+            assertThat(n.get("title")).isEqualTo("Verification needs another try");
+            assertThat((String) n.get("body")).contains("couldn't review this in time");
+            assertThat(n.get("link")).isEqualTo("/verify-identity");
+        });
+    }
+
+    @Test
+    void revoke_notifiesTheSubjectWithTheReasonAndNotTheReviewer() throws Exception {
+        User u = user("9830000065");
+        User reviewer = admin("9830000066");
+        submitPan(u, PAN).andExpect(status().isAccepted());
+        UUID id = caseOf(u);
+        approve(reviewer, id, PAN).andExpect(status().isOk());
+
+        revoke(reviewer, id, "The approved document was disputed").andExpect(status().isOk());
+
+        assertThat(notificationsFor(u)).extracting(n -> n.get("type"))
+                .containsExactly("identity.approved", "identity.revoked");
+        assertThat(notificationsFor(u).get(1)).satisfies(row -> {
+            assertThat(row.get("title")).isEqualTo("Verified badge withdrawn");
+            assertThat(row.get("body")).isEqualTo("The approved document was disputed");
+            assertThat(row.get("link")).isEqualTo("/verify-identity");
+        });
+        assertThat(notificationsFor(reviewer)).isEmpty();
     }
 
     @Test

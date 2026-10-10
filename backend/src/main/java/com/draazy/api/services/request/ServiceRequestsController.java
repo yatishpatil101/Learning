@@ -5,6 +5,7 @@ import com.draazy.api.common.web.PageResponse;
 import com.draazy.api.common.web.Pageables;
 import com.draazy.api.common.web.Routes;
 import com.draazy.api.documents.vault.DocumentDto;
+import com.draazy.api.documents.vault.DocumentUrl;
 import com.draazy.api.security.AuthPrincipal;
 import com.draazy.api.security.BackOfficePermissions;
 import com.draazy.api.security.Capabilities;
@@ -121,11 +122,29 @@ public class ServiceRequestsController {
             @RequestParam(defaultValue = "false") boolean mine,
             @RequestParam(required = false) String q,
             @PageableDefault(size = 20) Pageable pageable) {
-        parties.claimPendingFor(principal);
+        claimInvitesIfCustomer(principal);
         return PageResponse.of(
                 queries.list(principal, type, status, team, ticketId, unassigned, overdue, mine, q,
                         Pageables.unsorted(pageable)),
                 dto -> dto);
+    }
+
+    @GetMapping(Routes.ServiceRequests.QUEUE)
+    @PreAuthorize(QUEUE_READ)
+    public PageResponse<ServiceRequestQueueRow> queue(@CurrentUser AuthPrincipal principal,
+            @RequestParam(required = false) String type,
+            @RequestParam(required = false) String status,
+            @RequestParam(required = false) String team,
+            @RequestParam(required = false) String ticketId,
+            @RequestParam(defaultValue = "false") boolean unassigned,
+            @RequestParam(defaultValue = "false") boolean overdue,
+            @RequestParam(defaultValue = "false") boolean mine,
+            @RequestParam(required = false) String q,
+            @PageableDefault(size = 20) Pageable pageable) {
+        return PageResponse.of(
+                queries.queue(principal, type, status, team, ticketId, unassigned, overdue, mine, q,
+                        Pageables.unsorted(pageable)),
+                row -> row);
     }
 
     @PostMapping(Routes.ServiceRequests.BASE)
@@ -151,8 +170,21 @@ public class ServiceRequestsController {
 
     @GetMapping(Routes.ServiceRequests.BY_ID)
     public ServiceRequestDto get(@CurrentUser AuthPrincipal principal, @PathVariable String id) {
-        parties.claimPendingFor(principal);
+        claimInvitesIfCustomer(principal);
         return service.get(principal, id);
+    }
+
+    // A back-office account holds no invitations, so binding them is a write the desk's reads can skip.
+    private void claimInvitesIfCustomer(AuthPrincipal principal) {
+        if (!Roles.isBackOffice(principal.role())) {
+            parties.claimPendingFor(principal);
+        }
+    }
+
+    @GetMapping(Routes.ServiceRequests.DOC_URL)
+    public DocumentUrl documentUrl(@CurrentUser AuthPrincipal principal, @PathVariable String id,
+            @PathVariable String docId) {
+        return service.documentUrl(principal, id, docId);
     }
 
     @PutMapping(Routes.ServiceRequests.PARTY_DETAILS)

@@ -14,7 +14,7 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
-/** Three tabs of one page over tables owned by {@code leads} and {@code deals}, so this concern stays out of those contexts. */
+/** Three tabs of one page over tables owned by {@code leads} and {@code deals}, kept out of those contexts. */
 @RestController
 public class EnquiryBoardController {
 
@@ -33,8 +33,10 @@ public class EnquiryBoardController {
     @PreAuthorize(ENQUIRIES_READ)
     public PageResponse<AdminEnquiryDto> enquiries(
             @RequestParam(required = false) String status,
+            @RequestParam(required = false) String q,
+            @RequestParam(required = false) Integer days,
             @PageableDefault(size = 20) Pageable pageable) {
-        return PageResponse.of(service.enquiries(status, pageable), dto -> dto);
+        return PageResponse.of(service.enquiries(status, q, days, pageable), dto -> dto);
     }
 
     /** {@code GET /admin/visits} — {@code scheduled}, {@code completed}, {@code cancelled}. */
@@ -42,8 +44,10 @@ public class EnquiryBoardController {
     @PreAuthorize(ENQUIRIES_READ)
     public PageResponse<AdminVisitDto> visits(
             @RequestParam(required = false) String status,
+            @RequestParam(required = false) String q,
+            @RequestParam(required = false) Integer days,
             @PageableDefault(size = 20) Pageable pageable) {
-        return PageResponse.of(service.visits(status, pageable), dto -> dto);
+        return PageResponse.of(service.visits(status, q, days, pageable), dto -> dto);
     }
 
     /** {@code GET /admin/deals} — {@code active}, {@code reserved}, {@code closed}. */
@@ -51,8 +55,20 @@ public class EnquiryBoardController {
     @PreAuthorize(ENQUIRIES_READ)
     public PageResponse<AdminDealDto> deals(
             @RequestParam(required = false) String status,
+            @RequestParam(required = false) String deal,
+            @RequestParam(required = false) String q,
+            @RequestParam(required = false) Integer days,
             @PageableDefault(size = 20) Pageable pageable) {
-        return PageResponse.of(service.deals(status, pageable), dto -> dto);
+        return PageResponse.of(service.deals(status, deal, q, days, pageable), dto -> dto);
+    }
+
+    /** Board totals plus the funnel; {@code days} and {@code deal} narrow only the funnel. */
+    @GetMapping(Routes.Moderation.ADMIN_ENQUIRIES_SUMMARY)
+    @PreAuthorize(ENQUIRIES_READ)
+    public AdminEnquirySummary summary(
+            @RequestParam(required = false) Integer days,
+            @RequestParam(required = false) String deal) {
+        return service.summary(days, deal);
     }
 
     // Detail reads write an audit row: opening one person's row is logged, browsing the list is not.

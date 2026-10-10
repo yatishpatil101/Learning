@@ -12,7 +12,7 @@ async function twoDecisionsAbout(page, name) {
   for (const verb of ['Suspend', 'Reactivate']) {
     await page.goto('/admin/users');
     await expect(page.getByRole('heading', { name: 'Users', exact: true })).toBeVisible();
-    await page.getByPlaceholder('Search name, mobile, email…').fill(name);
+    await page.getByPlaceholder('Search name or mobile…').fill(name);
 
     const row = page.getByTestId('queue-row').filter({ hasText: name }).first();
     await expect(row).toBeVisible();
@@ -136,7 +136,7 @@ test('the Details column, and the metadata behind it, are administrator-only', a
   await approveOnePendingListing();
   const manager = await fetch(`${API}/admin/staff-activity?size=100`, { headers: await authHeaders(ACTORS.manager) });
   expect(manager.status).toBe(200);
-  for (const entry of (await manager.json()).content) expect(entry.metadata ?? {}, 'a manager must not receive audit metadata').toEqual({});
+  for (const entry of (await manager.json()).content) expect(entry.metadata, 'a manager must not receive audit metadata').toBeUndefined();
 
   const admin = await fetch(`${API}/admin/staff-activity?size=100`, { headers: await authHeaders(ACTORS.admin) });
   expect(admin.status).toBe(200);
@@ -167,17 +167,17 @@ test('staff cannot read the record that exists to hold them to account', async (
 test('All actors reads the full audit trail, customers and the system included, and exports it', async ({ page, login }) => {
   const trail = await fetch(`${API}/admin/audit-log?size=100`, { headers: await authHeaders(ACTORS.admin) });
   expect(trail.status).toBe(200);
-  const entries = (await trail.json()).content;
+  const { content: entries, totalElements } = await trail.json();
   expect(entries.length, 'the seed must hold audited actions for the trail to show').toBeGreaterThan(0);
 
   await login.asAdmin();
   await openActivity(page);
   await expect(page.getByRole('button', { name: 'Back-office', exact: true })).toHaveAttribute('aria-pressed', 'true');
-  await expect(page.getByText(/Latest 100 audited actions by anyone/)).toHaveCount(0);
+  await expect(page.getByText(/Audited actions by anyone/)).toHaveCount(0);
 
   await page.getByRole('button', { name: 'All actors', exact: true }).click();
   await expect(page.getByRole('button', { name: 'All actors', exact: true })).toHaveAttribute('aria-pressed', 'true');
-  await expect(page.getByText('Latest 100 audited actions by anyone, including customers and the system. Read-only.')).toBeVisible();
+  await expect(page.getByText('Audited actions by anyone, including customers and the system. Read-only.')).toBeVisible();
   for (const name of ['When', 'Actor', 'Action', 'Record', 'Details']) {
     await expect(page.getByRole('columnheader', { name, exact: true })).toBeVisible();
   }
@@ -189,10 +189,10 @@ test('All actors reads the full audit trail, customers and the system included, 
   const csv = fs.readFileSync(await (await download).path(), 'utf8').trim().split(/\r?\n/);
   expect(csv[0]).toContain('Actor');
   expect(csv[0]).toContain('Role');
-  expect(csv.length, 'the export is every row the trail loaded').toBeGreaterThanOrEqual(entries.length + 1);
+  expect(csv.length, 'the export pages through the whole trail, not just the first 100').toBeGreaterThanOrEqual(Math.min(totalElements, 5000) + 1);
 
   await page.getByRole('button', { name: 'Back-office', exact: true }).click();
-  await expect(page.getByText(/Latest 100 audited actions by anyone/)).toHaveCount(0);
+  await expect(page.getByText(/Audited actions by anyone/)).toHaveCount(0);
   await expect(total(page)).toBeVisible();
 });
 
@@ -203,7 +203,7 @@ test('a manager is not offered All actors', async ({ page, login }) => {
   await expect(page.getByRole('button', { name: 'Back-office' })).toHaveCount(0);
 });
 /* A disabled module must say so and offer the way back, not render a blank pane that looks like a broken fetch.
-   `AdminFlagsContext` reads the flag from `GET /admin/settings`, so the switch must be flipped there. */
+   `AdminFlagsContext` reads the flag from `GET /admin/settings/flags`, so the switch must be flipped there. */
 test('a disabled module explains itself instead of rendering nothing', async ({ page, login }) => {
   const flag = { adminFlags: { staffActivity: { enabled: false } } };
 

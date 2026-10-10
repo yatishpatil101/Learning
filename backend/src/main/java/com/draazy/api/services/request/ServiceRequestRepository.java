@@ -54,8 +54,21 @@ public interface ServiceRequestRepository extends JpaRepository<ServiceRequest, 
             """)
     Optional<ServiceRequest> findByIdForUpdate(@Param("id") UUID id);
 
-    // The staff queue — every request on the given desk that has entered it, newest first.
-    // A request still awaiting-payment is deliberately excluded: ops does not work a rent agreement nobody has paid for.
+    // Serialises one user's credit spends; a row lock on the request alone cannot,
+    // as each spend is on a different request.
+    @Query(value = "select id from users where id = :id for update", nativeQuery = true)
+    Optional<UUID> lockUser(@Param("id") UUID id);
+
+    // Cancelled requests release their credit, so only live and delivered ones are counted.
+    @Query("""
+            select count(r) from ServiceRequest r
+            where r.requesterId = :userId
+              and r.referralCredit = true
+              and r.status <> com.draazy.api.services.request.ServiceRequestStatus.CANCELLED
+            """)
+    long countReferralCreditsHeld(@Param("userId") UUID userId);
+
+    // Awaiting-payment requests are excluded: ops does not work a rent agreement nobody has paid for.
     // Teams are resolved by the service from the caller, never taken from ?team= as-is.
     @Query("""
             select r from ServiceRequest r
@@ -181,10 +194,7 @@ public interface ServiceRequestRepository extends JpaRepository<ServiceRequest, 
               and r.status not in ('awaiting-payment', 'cancelled')
               and ((cast(:propertyId as uuid) is not null and r.property_id = cast(:propertyId as uuid))
                 or (cast(:flat as text) is not null
-                  and regexp_replace(lower(coalesce(r.details #>> '{_state,prop,flatNo}', '')), '[^a-z0-9]', '', 'g')
-                    || '|' || regexp_replace(lower(coalesce(r.details #>> '{_state,prop,society}', '')), '[^a-z0-9]', '', 'g')
-                    || '|' || regexp_replace(lower(coalesce(r.details #>> '{_state,prop,pincode}', '')), '[^a-z0-9]', '', 'g')
-                    = cast(:flat as text)))
+                  and rent_agreement_flat_key(r.details) = cast(:flat as text)))
             order by r.created_at asc
             limit 50
             """, nativeQuery = true)

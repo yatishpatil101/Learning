@@ -29,6 +29,7 @@ public class ServiceRequestQueryService {
     private final ServiceRequestMapper mapper;
     private final AccountPermissions accountPermissions;
     private final TicketService tickets;
+    private final ServiceRequestQueueRows rows;
 
     private static final Set<ServiceRequestStatus> MINE_STATUSES = EnumSet.of(
             ServiceRequestStatus.ASSIGNED,
@@ -44,11 +45,13 @@ public class ServiceRequestQueryService {
             ServiceRequestStatus.APPROVED);
 
     public ServiceRequestQueryService(ServiceRequestRepository requests,
-            ServiceRequestMapper mapper, AccountPermissions accountPermissions, TicketService tickets) {
+            ServiceRequestMapper mapper, AccountPermissions accountPermissions, TicketService tickets,
+            ServiceRequestQueueRows rows) {
         this.requests = requests;
         this.mapper = mapper;
         this.accountPermissions = accountPermissions;
         this.tickets = tickets;
+        this.rows = rows;
     }
 
     // Scope comes only from principal role; clients cannot set or remove requester scope.
@@ -65,17 +68,39 @@ public class ServiceRequestQueryService {
         UUID requestId = term == null ? null : Ids.parseUuid(term).orElse(null);
         String prefix = term == null ? null : anchoredPrefix(term);
 
-        Instant now = Instant.now();
         Page<ServiceRequest> page = isOps(caller)
-                ? findForQueue(caller, team, typeFilter, statusFilters(statusValue), ticket, unassigned, overdue, mine,
-                        now.minus(RentAgreementSla.PICKUP), now.minus(RentAgreementSla.FIRST_DRAFT),
-                        now.minus(RentAgreementSla.REVISION), now.minus(RentAgreementSla.REGISTRATION),
-                        prefix, requestId, pageable)
+                ? queuePage(caller, team, typeFilter, statusValue, ticket, unassigned, overdue, mine, prefix,
+                        requestId, pageable)
                 : requests.findForRequester(caller.userId(), typeFilter, singleStatus(statusValue), ticket,
                         pageable);
 
         List<ServiceRequestDto> content = mapper.toDtos(page.getContent(), caller);
         return new PageImpl<>(content, page.getPageable(), page.getTotalElements());
+    }
+
+    // The desk's rows: the same scope and filters as `list`, projected to what a row draws.
+    @Transactional(readOnly = true)
+    public Page<ServiceRequestQueueRow> queue(AuthPrincipal caller, String type, String status, String team,
+            String ticketId, boolean unassigned, boolean overdue, boolean mine, String q, Pageable pageable) {
+        String ticketFilter = blankToNull(ticketId);
+        UUID ticket = ticketFilter == null ? null : Ids.parseUuid(ticketFilter).orElseThrow(() -> new BadRequestException("ticketId must be a valid id"));
+        String term = blankToNull(q);
+        UUID requestId = term == null ? null : Ids.parseUuid(term).orElse(null);
+        String prefix = term == null ? null : anchoredPrefix(term);
+
+        Page<ServiceRequest> page = queuePage(caller, team, blankToNull(type), blankToNull(status), ticket,
+                unassigned, overdue, mine, prefix, requestId, pageable);
+        return new PageImpl<>(rows.of(page.getContent(), caller), page.getPageable(), page.getTotalElements());
+    }
+
+    private Page<ServiceRequest> queuePage(AuthPrincipal caller, String team, String typeFilter,
+            String statusValue, UUID ticket, boolean unassigned, boolean overdue, boolean mine, String prefix,
+            UUID requestId, Pageable pageable) {
+        Instant now = Instant.now();
+        return findForQueue(caller, team, typeFilter, statusFilters(statusValue), ticket, unassigned, overdue, mine,
+                now.minus(RentAgreementSla.PICKUP), now.minus(RentAgreementSla.FIRST_DRAFT),
+                now.minus(RentAgreementSla.REVISION), now.minus(RentAgreementSla.REGISTRATION),
+                prefix, requestId, pageable);
     }
 
     @Transactional(readOnly = true)

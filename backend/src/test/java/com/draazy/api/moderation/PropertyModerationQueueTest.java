@@ -334,6 +334,9 @@ class PropertyModerationQueueTest extends AbstractApiTest {
         mvc.perform(get("/admin/properties").param("status", PropertyStatus.FLAGGED)
                         .header(HttpHeaders.AUTHORIZATION, bearer(staff)))
                 .andExpect(jsonPath("$.totalElements").value(1))
-                .andExpect(jsonPath("$.content[0].flagReason").value("duplicate photos"));
+                .andExpect(jsonPath("$.content[0].flagReason").doesNotExist());
+        mvc.perform(get("/admin/properties/" + p.getId())
+                        .header(HttpHeaders.AUTHORIZATION, bearer(staff)))
+                .andExpect(jsonPath("$.flagReason").value("duplicate photos"));
     }
 }

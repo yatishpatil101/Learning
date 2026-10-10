@@ -301,4 +301,56 @@ class ReviewLifecycleTest extends AbstractApiTest {
                                 .andExpect(status().isOk())
                                 .andExpect(jsonPath("$[?(@.id == '" + messageId + "')].status").value("prepared"));
         }
+
+    private String chase(Property p, User staff, String template) throws Exception {
+        return mvc.perform(post("/properties/" + p.getId() + "/outreach")
+                .header("Authorization", bearer(staff)).contentType(MediaType.APPLICATION_JSON)
+                .content("{\"templateId\":\"" + template + "\"}"))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
+    }
+
+    private java.sql.Timestamp claimLinkSentAt(Property p) {
+        properties.flush();
+        return jdbc.queryForObject("select claim_link_sent_at from properties where id = ?",
+                java.sql.Timestamp.class, p.getId());
+    }
+
+    @Test void attestingTheOnboardingMessageRecordsTheClaimLinkAsSent() throws Exception {
+        User staff = user("9800011920", "staff");
+        Property p = listing(user("9800011921", "owner"));
+        p.markPostedOnBehalf(staff.getId().toString());
+        properties.saveAndFlush(p);
+        String prepared = chase(p, staff, "wa-onboard");
+        assertThat((String) com.jayway.jsonpath.JsonPath.read(prepared, "$.body"))
+                .contains("/signin?claim=" + p.getId());
+        String messageId = com.jayway.jsonpath.JsonPath.read(prepared, "$.id");
+
+        mvc.perform(post("/properties/" + p.getId() + "/outreach/" + messageId + "/sent")
+                .header("Authorization", bearer(staff)))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.status").value("sent"));
+        assertThat(claimLinkSentAt(p)).isNotNull();
+    }
+
+    @Test void attestingAChaserWithoutTheClaimLinkLeavesTheStepAlone() throws Exception {
+        User staff = user("9800011922", "staff");
+        Property p = listing(user("9800011923", "owner"));
+        p.markPostedOnBehalf(staff.getId().toString());
+        properties.saveAndFlush(p);
+        String messageId = com.jayway.jsonpath.JsonPath.read(chase(p, staff, "wa-gentle"), "$.id");
+        mvc.perform(post("/properties/" + p.getId() + "/outreach/" + messageId + "/sent")
+                .header("Authorization", bearer(staff)))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.status").value("sent"));
+        assertThat(claimLinkSentAt(p)).isNull();
+    }
+
+    @Test void aMessageCannotBeAttestedThroughAnotherListing() throws Exception {
+        User staff = user("9800011924", "staff");
+        User owner = user("9800011925", "owner");
+        Property p = listing(owner);
+        Property other = listing(owner);
+        String messageId = com.jayway.jsonpath.JsonPath.read(chase(p, staff, "wa-gentle"), "$.id");
+        mvc.perform(post("/properties/" + other.getId() + "/outreach/" + messageId + "/sent")
+                .header("Authorization", bearer(staff)))
+                .andExpect(status().isNotFound());
+    }
 }

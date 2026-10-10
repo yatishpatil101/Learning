@@ -43,8 +43,8 @@
     seeded. `Signup.jsx` now redeems on `?ref=`.
 
 ## 3. Actors & roles
-- **Any ops user (staff or admin)** can review referrals - unlike the service desks, there is **no**
-  team gate on this route. All referral records are visible to every ops user.
+- **Staff holding the `referrals` function, or admin**, review referrals: `referrals:read` lists the
+  queue and `referrals:write` decides. There is no desk gate; every referral is visible to a holder.
 - **Reviewer actions** are the same for all: Approve, Reject, Clawback.
 - See [`../../system/cross-cutting.md`](../../system/cross-cutting.md) section 1 for the role model.
   As with all ops guards, this is UX-only and MUST be re-enforced server-side (section 11).
@@ -53,10 +53,10 @@
 Link definitions: [`../../system/data-model.md`](../../system/data-model.md).
 
 - **Referral** (`referrals` in Postgres, read through `referralService.js`) - read (list) and
-  updated (status + `handledBy` + `handledAt`). Never hard-deleted; state is a status flag. Fields
+  updated (status, with the actor and time kept in the audit trail, not on the DTO). Never hard-deleted; state is a status flag. Fields
   as they arrive on `ReferralDto`:
   - Identity: `id` (UUID, not `RF####`), `referrer` (name) + `referrerMobile`, `referred` (name) +
-    `referredMobile`, `channel` (`seeker` | `owner`), `shareChannel`.
+    `referredMobile`, `channel` (`seeker` | `owner`).
   - **Both mobiles are masked, and stay masked.** A privileged *list* is masked platform-wide, and
     the contract declares no unmasked single-record read for referrals — so a checker decides on
     the signals, which are computed server-side from the unmasked data. The checker sees the
@@ -72,7 +72,7 @@ Link definitions: [`../../system/data-model.md`](../../system/data-model.md).
     `identity_verified` and `identity_unique` are `updatable = false` — they are a snapshot of the
     redeem moment, which is why the approve gate reads the referred party's *current* badge
     instead (§5.2).
-  - Lifecycle: `status`, `at` (redeemed), `qualifiedAt`, `handledBy`, `handledAt`.
+  - Lifecycle: `status`, `at` (redeemed).
 - **The referrer's reward balance** - owner contacts, reported by `GET /me/entitlements` and derived
   from the referrals that justify it on every read (`count(qualified or rewarded) ×
   settings.fees.referralContactBonus`). There is no balance column and no grant ledger, which is
@@ -141,9 +141,9 @@ at the reward layer where money is at risk.
 - **There is no Flagged tab.** `ReferralStatuses` has no `flagged`, so the old tab would have sat
   permanently empty — a fraud desk being told there is nothing suspicious. **High risk** asks the
   question it was reaching for, using a field the server already computes.
-- The desk pulls a **window** of the 100 newest referrals and counts what is in hand. When the
-  server's total is larger a banner says so, because a fraud queue that size is a queue with a
-  problem and the desk should be told rather than shown the first hundred as if that were all.
+- The desk is **server-paged** (20 a page, newest first). Each tab is a server filter (`status` as a
+  comma list, or `risk=high`), the search box is `q` (debounced), and the tab counts come from the
+  server (`counts=true` on the first load and on Refresh only, over the whole table).
 
 ### 5.4 Reviewer actions (`doAction`)
 - **Approve** (shown for `pending` / `qualified`, enabled when `canQualify`):
@@ -158,8 +158,8 @@ at the reward layer where money is at risk.
   this reason: its generic "Referral is pending and cannot be rewarded" is right for an illegal
   transition but actively misleading for the identity refusal, since `pending` *is* the state
   approve works from.
-- `handledBy` and `handledAt` are stamped server-side.
-- After any action the list reloads, moving the row into its new tab.
+- The handler and time are stamped server-side (audit trail) and are not on the DTO.
+- The decision answers with the row; the desk patches it in place (leaving the tab if it no longer matches) and shifts the tab counts locally instead of reloading.
 
 ### 5.5 Reward release
 - **The desk cannot address a referrer by phone number.** `referrerMobile` is masked and there is no
@@ -217,9 +217,7 @@ Applicable - this queue is a checker gate. See
   anything goes round it. The toast shows the server's own sentence.
 - **Clawback confirmation:** none - a single click reverses the reward. The endpoint takes an
   optional reason the UI does not yet collect; both are worth adding.
-- **Windowing, not paging:** the 100 newest are fetched and a banner appears when the server holds
-  more. Server-side `status` / `risk` filters exist on `GET /referrals` and are not yet wired to
-  the tabs.
+- **Export CSV** covers the current page only.
 - **Concurrency:** decisions are single server-side transitions; a second decision on an already
   decided referral is refused with a 409 rather than silently overwriting.
 

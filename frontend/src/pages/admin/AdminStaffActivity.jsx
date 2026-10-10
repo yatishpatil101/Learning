@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router';
 import { ExternalLink, Search, X } from 'lucide-react';
 import { listStaffActivity, getStaffActivitySummary } from '../../services/staffActivityService.js';
@@ -15,7 +15,7 @@ import { Chips, QueueTabs } from '../../components/admin/WorkQueue.jsx';
 import PerformanceTab from './staff-activity/PerformanceTab.jsx';
 import AuditTrail, { describe } from './staff-activity/AuditTrail.jsx';
 
-/** Team Activity: queue health per colleague and the audited action log. Every figure is counted by the server, not folded from the rows in hand. */
+/** Every figure is counted by the server, not folded from the rows in hand. */
 
 const TABS = [['performance', 'Performance'], ['log', 'Activity log']];
 
@@ -65,25 +65,19 @@ export default function AdminStaffActivity() {
     return () => { alive.current = false; };
   }, []);
 
-  const from = days ? new Date(Date.now() - Number(days) * 86400000).toISOString() : undefined;
+  const from = useMemo(
+    () => (days ? new Date(Date.now() - Number(days) * 86400000).toISOString() : undefined),
+    [days],
+  );
 
-  /** Three reads: the feed and headline take the full filter; the facets and staff list take only the date range and search,
-   * because a picker built from a narrowed window would delete its own options. */
-  const refresh = useCallback(async () => {
-    const filter = { actor, entity, action, from, q };
-    const open = { from, q };
+  /** A page flip is this read alone; the headline and facets below do not depend on `page`. */
+  const loadFeed = useCallback(async () => {
     setError('');
     try {
-      const [feed, narrow, wide] = await Promise.all([
-        listStaffActivity({ ...filter, page, size: PAGE_SIZE }),
-        getStaffActivitySummary(filter),
-        getStaffActivitySummary(open),
-      ]);
+      const feed = await listStaffActivity({ actor, entity, action, from, q, page, size: PAGE_SIZE });
       if (!alive.current) return;
       setRows(feed.items);
       setPageInfo({ page: feed.page, totalPages: feed.totalPages, total: feed.total });
-      setHeadline({ total: narrow.total, staffCount: narrow.staffCount, byEntity: narrow.byEntity });
-      setFacets({ actions: wide.actions, byEntity: wide.byEntity, leaderboard: wide.leaderboard });
     } catch (err) {
       if (!alive.current) return;
       setRows([]);
@@ -91,12 +85,35 @@ export default function AdminStaffActivity() {
     }
   }, [actor, entity, action, from, q, page]);
 
-  /* Debounced because `q` changes on every keystroke and each change is three requests. */
+  /** The headline takes the full filter; the facets take only the date range and search, because a
+   * picker built from a narrowed window would delete its own options. */
+  const loadSummaries = useCallback(async () => {
+    try {
+      const [narrow, wide] = await Promise.all([
+        getStaffActivitySummary({ actor, entity, action, from, q }),
+        getStaffActivitySummary({ from, q }),
+      ]);
+      if (!alive.current) return;
+      setHeadline({ total: narrow.total, staffCount: narrow.staffCount, byEntity: narrow.byEntity });
+      setFacets({ actions: wide.actions, byEntity: wide.byEntity, leaderboard: wide.leaderboard });
+    } catch (err) {
+      if (!alive.current) return;
+      setError(err?.message || 'Could not load staff activity.');
+    }
+  }, [actor, entity, action, from, q]);
+
+  /* Debounced because `q` changes on every keystroke and each change is a request. */
   useEffect(() => {
     if (tab !== 'log' || allActors) return undefined;
-    const timer = setTimeout(refresh, 250);
+    const timer = setTimeout(loadFeed, 250);
     return () => clearTimeout(timer);
-  }, [refresh, tab, allActors]);
+  }, [loadFeed, tab, allActors]);
+
+  useEffect(() => {
+    if (tab !== 'log' || allActors) return undefined;
+    const timer = setTimeout(loadSummaries, 250);
+    return () => clearTimeout(timer);
+  }, [loadSummaries, tab, allActors]);
 
   /* Any change to the filters is a different result set, so page 1 is the only honest place to be. */
   useEffect(() => { setPage(0); }, [actor, entity, action, days, q]);

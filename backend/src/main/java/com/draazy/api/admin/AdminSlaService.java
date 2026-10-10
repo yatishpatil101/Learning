@@ -32,8 +32,8 @@ public class AdminSlaService {
     /** Guard rail on {@code ?days=}, matching {@code AdminSupplyGapService}. */
     private static final int MAX_WINDOW_DAYS = 365;
 
-    /** Casts the uuid down to text because audit {@code entity_id} may hold a slug (casting it up would raise); the window is a
-     * {@code having} on {@code min(a.at)} so a later re-check is never promoted to the first decision. */
+    /** Casts uuid to text since audit {@code entity_id} may hold a slug; the window is a {@code having} on
+     * {@code min(a.at)} so a later re-check is never promoted to the first decision. */
     private static final String SUMMARY = """
             with reviewed as (
                 select cast(extract(epoch from (min(a.at) - p.created_at)) / 3600.0
@@ -63,7 +63,7 @@ public class AdminSlaService {
                    (select count(*) from pending where hours > :target)
             """;
 
-    /** Unwindowed like {@code pendingCount}: the oldest rows are exactly what a {@code ?days=} filter would remove first. */
+    /** Unwindowed like {@code pendingCount}: a {@code ?days=} filter would drop the oldest rows first. */
     private static final String WORST_PENDING = """
             select cast(p.id as text),
                    p.title,
@@ -76,8 +76,8 @@ public class AdminSlaService {
              limit :limit
             """;
 
-    /** The six figures of one track over a completed and an outstanding set, under the review summary's window, cast and no-{@code coalesce} rules
-     * (an empty set stays null, not a perfect score); a format template so the window predicate is fixed in one place. */
+    /** Six figures of one track under the review summary's window, cast and no-{@code coalesce} rules, so an empty
+     * set stays null, not a perfect score; a format template keeps the window predicate in one place. */
     private static final String TRACK = """
             with completed as (
                 %s
@@ -96,7 +96,8 @@ public class AdminSlaService {
     /** Raised to a service desk and not yet finished — the two states of an open ticket. */
     private static final String TICKET_UNRESOLVED = "('open', 'in-progress', 'waiting')";
 
-    /** {@code <> 'none'} is {@code TicketUpdate.UNASSIGN}: handing a ticket back writes a non-null {@code assigneeId} too, which must not count as a pickup. */
+    /** {@code <> 'none'} is {@code TicketUpdate.UNASSIGN}: handing a ticket back writes a non-null
+     * {@code assigneeId} too, which must not count as a pickup. */
     private static final String PICKUP_COMPLETED = """
             select cast(extract(epoch from (min(a.at) - t.created_at)) / 3600.0
                         as double precision) as hours
@@ -176,6 +177,16 @@ public class AdminSlaService {
 
     @Transactional(readOnly = true)
     public SlaSummary report(Integer days) {
+        return summarize(days, true);
+    }
+
+    /** The dashboard tile: the same figures as the all-time {@link #report}, without the worst-pending listing list. */
+    @Transactional(readOnly = true)
+    public SlaSummary glance() {
+        return summarize(null, false);
+    }
+
+    private SlaSummary summarize(Integer days, boolean withWorstPending) {
         // All time by default: a review record is history, and a 30-day default would answer a different question.
         if (days != null && (days < 1 || days > MAX_WINDOW_DAYS)) {
             throw new BadRequestException("days must be between 1 and " + MAX_WINDOW_DAYS);
@@ -197,7 +208,7 @@ public class AdminSlaService {
         Integer slaRate = complianceRate(reviewed, breached);
 
         return new SlaSummary(TARGET_HOURS, reviewed, avg, median, breached, slaRate,
-                num(row[4]), num(row[5]), worstPending(),
+                num(row[4]), num(row[5]), withWorstPending ? worstPending() : List.of(),
                 track(PICKUP_COMPLETED, PICKUP_OUTSTANDING, PICKUP_TARGET_HOURS, since),
                 track(DELIVERY_COMPLETED, DELIVERY_OUTSTANDING, DELIVERY_TARGET_HOURS, since),
                 track(CONCIERGE_COMPLETED, CONCIERGE_OUTSTANDING, CONCIERGE_TARGET_HOURS, since));

@@ -10,7 +10,6 @@ public record FlatmateModerationQueueDto(
         UUID id,
         String kind,
         String modStatus,
-        UUID authorId,
         String authorName,
         String headline,
         String locality,
@@ -29,7 +28,7 @@ public record FlatmateModerationQueueDto(
         // different posts to a moderator judging whether somebody is spraying the whole city.
         String where = post.getLocalities() == null ? null : String.join(", ", post.getLocalities());
         return new FlatmateModerationQueueDto(post.getId(), KIND_POST, post.getModStatus(),
-                post.getUserId(), authorName, post.getName(), where, post.getNote(),
+                authorName, post.getName(), where, post.getNote(),
                 List.of(), post.getRecheck().getReason(),
                 post.getRecheck().getRequestedAt(), post.getCreatedAt());
     }
@@ -40,7 +39,7 @@ public record FlatmateModerationQueueDto(
         String headline = room.getSociety() == null ? room.getFlatType()
                 : room.getSociety() + (room.getFlatNumber() == null ? "" : " " + room.getFlatNumber());
         return new FlatmateModerationQueueDto(room.getId(), KIND_ROOM, room.getModStatus(),
-                room.getHostId(), authorName, headline, room.getLocality(), room.getNote(),
+                authorName, headline, room.getLocality(), room.getNote(),
                 room.getPhotos() == null ? List.of() : List.copyOf(room.getPhotos()),
                 room.getRecheck().getReason(), room.getRecheck().getRequestedAt(),
                 room.getCreatedAt());
@@ -48,7 +47,7 @@ public record FlatmateModerationQueueDto(
 
     static FlatmateModerationQueueDto of(FlatmateGroup group, String authorName) {
         return new FlatmateModerationQueueDto(group.getId(), KIND_GROUP, group.getModStatus(),
-                group.getHostId(), authorName, group.getTitle(), group.getLocality(),
+                authorName, group.getTitle(), group.getLocality(),
                 group.getNote(), List.of(), group.getRecheck().getReason(),
                 group.getRecheck().getRequestedAt(), group.getCreatedAt());
     }

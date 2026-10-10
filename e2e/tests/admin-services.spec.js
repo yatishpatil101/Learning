@@ -27,10 +27,9 @@ async function raiseTicket(request, subject, team = TEAM) {
 /** Read one ticket back off the desk as staff, by id. */
 async function readTicket(request, id) {
   const headers = await authHeaders(STAFF.loans);
-  const res = await request.get(`${API}/tickets?team=${TEAM}&size=100`, { headers });
+  const res = await request.get(`${API}/tickets/${id}`, { headers });
   expect(res.status()).toBe(200);
-  const body = await res.json();
-  return (body?.content || []).find((t) => t.id === id) || null;
+  return res.json();
 }
 
 /** The themed dropdown is not a native `<select>` — `Select.jsx` renders `dz-dropdown`. */
@@ -63,10 +62,11 @@ test.describe('admin service requests desk', () => {
     await row.getByRole('button', { name: 'Start' }).click();
     await expect(page.getByRole('alert')).toContainText('Marked in progress');
 
-    /* Assert on the server: `TicketStatuses` spells it `in-progress`, and a UI-only check would miss a wrong status word. */
+    /* Assert on the server: TicketStatuses spells it in-progress, and a UI-only check would miss a wrong word. */
     const after = await readTicket(request, id);
     expect(after.status).toBe('in-progress');
-    /* Start also claims the ticket for the first active colleague on the desk, so in-progress work is never left unassigned. */
+    /* Start also claims the ticket for the first active colleague on the desk,
+       so in-progress work is never unassigned. */
     expect(after.assignee, 'starting a request also gives it an owner').toBeTruthy();
   });
 
@@ -135,7 +135,7 @@ test.describe('admin service requests desk', () => {
     const subject = stamp();
     await raiseTicket(request, subject);
 
-    /* Both colleagues are signed into, since a successful login proves each is active and the negative below is then only about the team filter. */
+    /* A successful login proves each colleague is active, so the negative below is only about the team filter. */
     const onDesk = await apiLogin(STAFF.loans);
     const elsewhere = await apiLogin(STAFF.packers);
 
@@ -155,7 +155,8 @@ test.describe('admin service requests desk', () => {
 
     await page.getByLabel('Assign to', { exact: true }).click();
     await expect(page.getByRole('option', { name: onDesk.user.name, exact: true })).toBeVisible();
-    /* The desk is the entire filter: the server does not check an assignee belongs to the ticket's team, so this dropdown is the only enforcement. */
+    /* The server does not check an assignee belongs to the ticket's team,
+       so this dropdown is the only enforcement. */
     await expect(page.getByRole('option', { name: elsewhere.user.name, exact: true })).toHaveCount(0);
   });
 

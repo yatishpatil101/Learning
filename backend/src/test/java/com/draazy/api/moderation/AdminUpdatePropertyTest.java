@@ -62,6 +62,42 @@ class AdminUpdatePropertyTest extends AbstractApiTest {
         return properties.saveAndFlush(p);
     }
 
+    @Test
+    @DisplayName("moving the listing to another locality moves the map pin, unless the edit names a pin")
+    void localityEditMovesThePin() throws Exception {
+        User owner = user("9871110040", Roles.Wire.OWNER, "Owner");
+        User staff = user("9871110041", Roles.Wire.STAFF, "Ops");
+        jdbc.update("insert into localities (slug, name, city, lat, lng) values ('pin-from', 'Pin From', 'Pune', 18.56, 73.77)");
+        jdbc.update("insert into localities (slug, name, city, lat, lng) values ('pin-to', 'Pin To', 'Pune', 18.50, 73.85)");
+        Property listing = approvedListing(owner);
+        listing.setLocality("Pin From");
+        listing.setLocalitySlug("pin-from");
+        listing.setLat(18.56);
+        listing.setLng(73.77);
+        properties.saveAndFlush(listing);
+
+        mvc.perform(patch(Routes.Moderation.PROPERTY_ADMIN_UPDATE, listing.getId())
+                        .header(HttpHeaders.AUTHORIZATION, bearer(staff))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"localitySlug\":\"pin-to\"}"))
+                .andExpect(status().isOk());
+
+        Property moved = properties.findById(listing.getId()).orElseThrow();
+        assertThat(moved.getLocalitySlug()).isEqualTo("pin-to");
+        assertThat(moved.getLat()).isEqualTo(18.50);
+        assertThat(moved.getLng()).isEqualTo(73.85);
+
+        mvc.perform(patch(Routes.Moderation.PROPERTY_ADMIN_UPDATE, listing.getId())
+                        .header(HttpHeaders.AUTHORIZATION, bearer(staff))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"localitySlug\":\"pin-from\",\"lat\":18.57,\"lng\":73.78}"))
+                .andExpect(status().isOk());
+
+        Property pinned = properties.findById(listing.getId()).orElseThrow();
+        assertThat(pinned.getLat()).isEqualTo(18.57);
+        assertThat(pinned.getLng()).isEqualTo(73.78);
+    }
+
     /** Foundation fields {@code price} and {@code bhk} cost an owner a re-review; here they must cost nothing, or
      * fixing a typo would take the listing off the site or queue a re-check of the moderator's own correction. */
     @Test

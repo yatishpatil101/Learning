@@ -77,12 +77,12 @@ test('retired tabs and cards are gone and their replacements are in place: Analy
     await expect(page.getByRole('heading', { name: 'Staff Leaderboard' })).toHaveCount(0);
     await expect(page.getByText("Today's Progress")).toHaveCount(0);
   });
-  await test.step('Content has no Localities tab and no City Demand tab', async () => {
+  await test.step('Content is the FAQ desk alone, with no Localities or City Demand tab', async () => {
     await openAdmin(page, '/admin/content');
 
-    /* `Banners` anchors the strip; Localities moved to its own page and City Demand's data moved to
+    /* `Add FAQ` anchors the page; Localities moved to its own page and City Demand's data moved to
        Analytics. */
-    await expect(page.getByRole('tab', { name: /^Banners\b/ })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Add FAQ' })).toBeVisible();
 
     await expect(page.getByRole('tab', { name: /Localities/i })).toHaveCount(0);
     await expect(page.getByRole('tab', { name: /City Demand/i })).toHaveCount(0);
@@ -148,21 +148,11 @@ test('Enquiries shows its tabs and rows, and the Funnel and Visits tabs carry th
        funnel component mounting. */
     await expect(page.getByText('Breakdown by Locality')).toBeVisible();
   });
-  await test.step('Funnel deal pills leave enquiry and visit totals intact', async () => {
-     await openAdmin(page, '/admin/enquiries?tab=funnel');
-     const main = page.getByRole('main');
-     const totalEnquiries = main.getByText('Total Enquiries', { exact: true }).locator('..').locator(':scope > div').first();
-     const siteVisits = main.getByText('Site Visits', { exact: true }).locator('..').locator(':scope > div').first();
-     const beforeEnquiries = await totalEnquiries.textContent();
-     const beforeVisits = await siteVisits.textContent();
-     expect(beforeEnquiries, 'the seeded funnel contains enquiries').not.toBe('0');
-     expect(beforeVisits, 'the seeded funnel contains visits').not.toBe('0');
-
-     /* Only deals carry deal intent; the pill may change closed-deal figures but not enquiry or visit
-         totals with no category to compare. */
-     await main.getByRole('button', { name: 'Buy', exact: true }).click();
-     await expect(totalEnquiries).toHaveText(beforeEnquiries);
-     await expect(siteVisits).toHaveText(beforeVisits);
+  await test.step('the Funnel offers a date filter and no deal-type filter that would skew one stage', async () => {
+    await openAdmin(page, '/admin/enquiries?tab=funnel');
+    const main = page.getByRole('main');
+    await expect(main.getByRole('button', { name: '7d', exact: true })).toBeVisible();
+    await expect(main.getByRole('button', { name: 'Buy', exact: true })).toHaveCount(0);
   });
   await test.step('the Enquiries Visits tab lists scheduled visits', async () => {
     await openAdmin(page, '/admin/enquiries?tab=visits');

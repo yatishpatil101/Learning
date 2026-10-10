@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router';
 import { Download } from 'lucide-react';
-import { searchForModeration, getProperty, setListingStatus, clearFlag, flagListing, updateListingAsModerator, archiveListing, restoreListing, moderationSummary } from '../../services/propertyService.js';
+import { searchForModeration, getModerationProperty, setListingStatus, clearFlag, flagListing, updateListingAsModerator, archiveListing, restoreListing, moderationSummary } from '../../services/propertyService.js';
 import { chaseOwner } from '../../services/outreachService.js';
 import { startPropertyReview, decidePropertyReview } from '../../services/propertyReviewService.js';
 import { saveNoteIfAny } from '../../components/ui/InternalNote.jsx';
@@ -29,7 +29,7 @@ const TABS = [
   { key: 'verify', label: 'To verify', count: (s) => s?.pending, note: 'Open only: new and resubmitted listings with no decision yet, including ones waiting on the owner. A listing leaves once you approve or reject it. Oldest first.' },
   { key: 'recheck', label: 'Re-checks', count: (s) => s?.recheck, note: 'Open only: live listings whose owner changed price, furnishing or possession. They stay in search until you check them, and leave this tab once you pass or take them down.' },
   { key: 'badge', label: 'Badge requests', count: (s) => s?.badgeRequests, note: 'Open only: owners asking for the Verified badge. Check the vault documents in the review; a request leaves once you grant or decline it.' },
-  { key: 'followup', label: 'Follow-up', count: (s) => s?.unconfirmed, note: 'Open only: live listings not confirmed as available in over 30 days. Send a WhatsApp nudge; a listing leaves once the owner confirms.' },
+  { key: 'followup', label: 'Follow-up', count: (s) => s?.unconfirmed, note: 'Open only: live listings not confirmed as available in over 14 days. Send a WhatsApp nudge; a listing leaves once the owner confirms.' },
   { key: 'flagged', label: 'Flagged', count: (s) => s?.flagged, note: 'Open only: listings taken out of search. A listing leaves once you clear the flag (back to review) or archive it.' },
   { key: 'duplicates', label: 'Duplicates', count: (s, dup) => dup },
   { key: 'all', label: 'All listings', count: (s) => s?.total, note: 'Every listing, open or closed. Filter by status to find approved, not approved or archived ones.' },
@@ -103,17 +103,6 @@ function QueueFailed({ noun }) {
       Could not load the {noun} queue. This is a failed request, not an empty queue — retry before acting on it.
     </p>
   );
-}
-
-/* A deep link may carry the uuid (review inbox) or the slug (analytics): the desk search matches the
-   uuid, so a slug is resolved through the public read first. */
-async function findForReview(id) {
-  const match = (rows) => rows.find((l) => l.id === id || l.uuid === id);
-  const hit = match((await searchForModeration({ q: id }, 'newest', { size: 5 })).items);
-  if (hit) return hit;
-  const found = await getProperty(id).catch(() => null);
-  if (!found?.uuid) return null;
-  return match((await searchForModeration({ q: found.uuid }, 'newest', { size: 5 })).items) || found;
 }
 
 export default function AdminProperties() {
@@ -205,11 +194,24 @@ export default function AdminProperties() {
 
   const findListing = useCallback((id) => rows.find((l) => l.id === id) || (review?.id === id ? review : undefined), [rows, review]);
 
-  const openReview = (l) => {
-    setReview(l);
+  const showReview = (full) => {
+    setReview(full);
     // Opening the case marks the owner's replies read server-side.
-    setOpenedIds((ids) => new Set(ids).add(pid(l)));
+    setOpenedIds((ids) => new Set(ids).add(pid(full)));
   };
+  // A row is slim, so the modal and the View card read the whole listing; the newest click wins.
+  const detailTicket = useRef(0);
+  const withDetail = (l, show) => {
+    const ticket = ++detailTicket.current;
+    return getModerationProperty(pid(l))
+      .then((full) => {
+        if (ticket !== detailTicket.current) return;
+        if (full) show(full); else toast(`No listing ${l.title || pid(l)} — it may have been removed`, 'error');
+      })
+      .catch((err) => { if (ticket === detailTicket.current) toast(`Could not open the listing: ${err.message}`, 'error'); });
+  };
+  const openReview = (l) => withDetail(l, showReview);
+  const openView = (l) => withDetail(l, setView);
 
   // Keyed by id, not a boolean: the bell links here with a new ?review= while the page is mounted.
   const handledReviewId = useRef(null);
@@ -217,16 +219,17 @@ export default function AdminProperties() {
   useEffect(() => {
     if (!reviewParam || handledReviewId.current === reviewParam) return undefined;
     let live = true;
-    findForReview(reviewParam)
+    // The id may be the uuid (review inbox) or the slug (analytics); the server takes either.
+    getModerationProperty(reviewParam)
       .then((l) => {
         if (!live) return;
         handledReviewId.current = reviewParam;
-        if (l) openReview(l);
+        if (l) showReview(l);
         else toast(`No listing ${reviewParam} — it may have been archived`, 'error');
       })
       .catch((err) => { if (live) toast(`Could not open listing ${reviewParam}: ${err.message}`, 'error'); });
     return () => { live = false; };
-    // `openReview` only sets state; listing it would re-run the lookup on every render.
+    // `showReview` only sets state; listing it would re-run the lookup on every render.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [reviewParam, toast]);
 
@@ -368,7 +371,7 @@ export default function AdminProperties() {
     refresh();
     if (edit._fromReview) {
       const saved = { ...ref, ...nextPatch, ...(canModerate ? { status: edit.status } : {}) };
-      const fresh = await findForReview(ref.uuid || edit.id).catch(() => null);
+      const fresh = await getModerationProperty(ref.uuid || edit.id).catch(() => null);
       // Something opened while the read was in flight wins over this late reopen.
       setReview((current) => current ?? (fresh || saved));
     }
@@ -416,12 +419,12 @@ export default function AdminProperties() {
     onRecheckFail: openRecheckReject,
   } : {};
   const actionsFor = {
-    verify: { onView: setView, onEdit, onReview: canVerify ? openReview : null, onReminder: moderateActions.onReminder, onFlag: moderateActions.onFlag, onArchive: moderateActions.onArchive },
-    recheck: { onView: setView, onEdit, onReview: canVerify ? openReview : null, onRecheckPass: moderateActions.onRecheckPass, onRecheckFail: moderateActions.onRecheckFail, onFlag: moderateActions.onFlag, onArchive: moderateActions.onArchive },
-    badge: { onView: setView, onEdit, onReview: canVerify ? openReview : null, onFlag: moderateActions.onFlag, onArchive: moderateActions.onArchive },
-    followup: { onView: setView, onEdit, onReminder: moderateActions.onConfirmReminder, reminderAlways: true, onFlag: moderateActions.onFlag, onArchive: moderateActions.onArchive },
-    flagged: { onView: setView, onEdit, onClearFlag: moderateActions.onClearFlag, onArchive: moderateActions.onArchive },
-    all: { onView: setView, onEdit, onFlag: moderateActions.onFlag, onClearFlag: moderateActions.onClearFlag, onArchive: moderateActions.onArchive, onRestore: moderateActions.onRestore, onReview: canVerify ? openReview : null, onReminder: moderateActions.onReminder, onRecheckPass: moderateActions.onRecheckPass, onRecheckFail: moderateActions.onRecheckFail },
+    verify: { onView: openView, onEdit, onReview: canVerify ? openReview : null, onReminder: moderateActions.onReminder, onFlag: moderateActions.onFlag, onArchive: moderateActions.onArchive },
+    recheck: { onView: openView, onEdit, onReview: canVerify ? openReview : null, onRecheckPass: moderateActions.onRecheckPass, onRecheckFail: moderateActions.onRecheckFail, onFlag: moderateActions.onFlag, onArchive: moderateActions.onArchive },
+    badge: { onView: openView, onEdit, onReview: canVerify ? openReview : null, onFlag: moderateActions.onFlag, onArchive: moderateActions.onArchive },
+    followup: { onView: openView, onEdit, onReminder: moderateActions.onConfirmReminder, reminderAlways: true, onFlag: moderateActions.onFlag, onArchive: moderateActions.onArchive },
+    flagged: { onView: openView, onEdit, onClearFlag: moderateActions.onClearFlag, onArchive: moderateActions.onArchive },
+    all: { onView: openView, onEdit, onFlag: moderateActions.onFlag, onClearFlag: moderateActions.onClearFlag, onArchive: moderateActions.onArchive, onRestore: moderateActions.onRestore, onReview: canVerify ? openReview : null, onReminder: moderateActions.onReminder, onRecheckPass: moderateActions.onRecheckPass, onRecheckFail: moderateActions.onRecheckFail },
   };
 
   const activeMeta = TABS.find((t) => t.key === activeTab);

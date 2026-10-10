@@ -22,15 +22,15 @@ public class AdminSupportTicketsController {
         this.service = service;
     }
 
-    /** Newest first, threads omitted; {@link com.draazy.api.common.web.Pageables#unsorted} strips {@code ?sort=}, as this endpoint
-     * publishes no sort whitelist (api-standards.md §5). {@code counts} carries the three tab totals over the whole table. */
+    /** Sort is stripped as this endpoint publishes no sort whitelist (api-standards.md §5). */
     @GetMapping(Routes.Admin.SUPPORT_TICKETS)
     @PreAuthorize("hasAnyRole('" + Roles.STAFF + "', '" + Roles.ADMIN + "') and "
             + BackOfficePermissions.REQUIRE_TICKETS_READ)
     public PageResponse<AdminSupportTicketDto> queue(
             @RequestParam(required = false) Boolean awaitingReply,
+            @RequestParam(defaultValue = "false") boolean counts,
             @PageableDefault(size = 20) Pageable pageable) {
-        return PageResponse.of(service.queue(awaitingReply, pageable), d -> d)
-                .withCounts(service.queueCounts());
+        PageResponse<AdminSupportTicketDto> page = PageResponse.of(service.queue(awaitingReply, pageable), d -> d);
+        return counts ? page.withCounts(service.queueCounts()) : page;
     }
 }

@@ -215,7 +215,7 @@ function QueueRow({ row, tab, onOpen }) {
               : lockedByOther ? <span className="rounded-full border border-amber-400/30 bg-amber-500/15 px-2 py-0.5 text-amber-200">In review · {row.claimedByName}</span>
                 : <span className="text-gray-500">Unclaimed</span>
           ) : tab === 'qa' ? (
-            <span className="text-gray-300">{row.approvedByName || row.reviewerName || '—'}</span>
+            <span className="text-gray-300">{row.approvedByName || '—'}</span>
           ) : (
             <Badge status={row.status}>{STATUS_LABELS[row.status] || row.status}</Badge>
           )}

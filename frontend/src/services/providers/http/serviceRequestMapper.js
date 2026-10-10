@@ -61,7 +61,7 @@ function toMessage(m) {
   };
 }
 
-/** Newest `documents[]` entry of a category → the `{ fileName, dataUrl }` shape `openDocUrl` reads. */
+/** Newest `documents[]` entry of a category, with how many versions exist. */
 function newestDoc(docs, category) {
   const rows = docs
     .filter((d) => d && d.category === category)
@@ -85,8 +85,8 @@ export function toViewModel(dto) {
   const created = epoch(dto.createdAt);
   const draft = draftDoc.row
     ? {
+        id: draftDoc.row.id || '',
         fileName: draftDoc.row.fileName || 'draft',
-        dataUrl: draftDoc.row.url || '',
         sharedAt: epoch(draftDoc.row.uploadedAt),
         version: draftDoc.count,
         opened: timeline.reduce((seen, t) => (t.stage === 'draft.shared' ? false : t.stage === 'draft.opened' || seen), false),
@@ -94,8 +94,8 @@ export function toViewModel(dto) {
     : null;
   const final = finalDoc.row
     ? {
+        id: finalDoc.row.id || '',
         fileName: finalDoc.row.fileName || 'final-document',
-        dataUrl: finalDoc.row.url || '',
         uploadedAt: epoch(finalDoc.row.uploadedAt),
       }
     : null;
@@ -119,7 +119,6 @@ export function toViewModel(dto) {
       id: document?.id || '',
       category: document?.category || '',
       fileName: document?.fileName || 'document',
-      url: document?.url || '',
       uploadedAt: epoch(document?.uploadedAt),
     })),
     draft,
@@ -203,12 +202,35 @@ export function toViewModelList(rows) {
     .sort((a, b) => b.updatedAt - a.updatedAt);
 }
 
-/** The rows keep the server's order rather than being re-sorted into `updatedAt` order the way `toViewModelList`
- * does. */
-export function toViewModelPage(res, fallback = {}) {
+/** One slim `ServiceRequestQueueRow` → the row shape the desk lists draw. No thread, parties, documents or timeline
+ * are fetched for a list; the single `draft.approved` instant the age chip needs arrives as `approvedAt`. */
+export function toQueueRow(row) {
+  if (!row) return null;
+  const created = epoch(row.createdAt);
+  const type = toViewType(row.type);
+  const approvedAt = epoch(row.approvedAt);
+  return {
+    id: row.id,
+    type,
+    service: serviceName(type),
+    status: STATUS[row.status] || row.status,
+    details: row.details && typeof row.details === 'object' ? row.details : {},
+    assignedTo: row.assignee || null,
+    assignedToMe: !!row.assignedToMe,
+    createdAt: created,
+    amount: row.amount ?? null,
+    sla: row.sla ? { waitingOn: row.sla.waitingOn, dueAt: epoch(row.sla.dueAt) || null, overdue: !!row.sla.overdue } : null,
+    draftCheck: row.draftCheckStatus ? { status: row.draftCheckStatus } : null,
+    policeIntimation: { confirmed: !!row.policeConfirmed },
+    timeline: approvedAt ? [{ stage: 'draft.approved', by: '', at: approvedAt }] : [],
+    updatedAt: Math.max(created, approvedAt),
+  };
+}
+
+export function toQueueRowPage(res, fallback = {}) {
   const rows = Array.isArray(res?.content) ? res.content : [];
   return {
-    items: rows.map(toViewModel).filter(Boolean),
+    items: rows.map(toQueueRow).filter(Boolean),
     total: res?.totalElements ?? rows.length,
     page: res?.page ?? res?.number ?? fallback.page ?? 0,
     size: res?.size ?? fallback.size ?? rows.length,

@@ -181,7 +181,7 @@ class AdminPageViewAnalyticsServiceTest extends AbstractApiTest {
         assertThat(surfers.signups())
                 .as("the signup landed inside the window and on the IST day the views did")
                 .isGreaterThanOrEqualTo(1L);
-        assertThat(surfers.weeks())
+        assertThat(service.traffic(7).identity())
                 .as("the anonymous share is counted, not derived from the conversion rate")
                 .filteredOn(week -> week.anonymous() + week.signedIn() > 0)
                 .singleElement()

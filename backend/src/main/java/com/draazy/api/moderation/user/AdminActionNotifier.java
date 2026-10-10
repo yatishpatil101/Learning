@@ -25,8 +25,8 @@ class AdminActionNotifier {
         if (!Roles.Wire.MANAGER.equals(actor.role())) {
             return;
         }
-        users.findLiveByRole(Roles.Wire.ADMIN).stream().findFirst()
-                .ifPresent(admin -> notifier.notify(admin.getId(), TYPE, "Manager changed team access",
+        users.findLiveByRole(Roles.Wire.ADMIN)
+                .forEach(admin -> notifier.notify(admin.getId(), TYPE, "Manager changed team access",
                         action + ": " + target.getName(), LINK));
     }
 }

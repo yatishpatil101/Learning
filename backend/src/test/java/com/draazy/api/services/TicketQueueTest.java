@@ -26,15 +26,8 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import tools.jackson.databind.ObjectMapper;
 
-/**
- * The ops ticket board.
- *
- * <p>Two properties carry this suite. First, <strong>anyone signed in can raise a ticket and only
- * ops can read the board</strong> — the same asymmetry as the abuse queue, and the reason
- * {@code POST /tickets} deliberately carries no {@code x-roles}. Second, <strong>team scoping fails
- * closed</strong>: a staff account with no desk sees nothing rather than everything, which is the
- * one case a "filter by my team" implementation gets wrong by accident.
- */
+/** Anyone signed in can raise a ticket but only ops can read the board, so POST /tickets carries no x-roles;
+ * team scoping fails closed: a staff account with no desk sees nothing, not everything. */
 @DisplayName("Slice 11 — the ops ticket board")
 class TicketQueueTest extends ServiceFixtures {
 
@@ -125,6 +118,27 @@ class TicketQueueTest extends ServiceFixtures {
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.content", hasSize(1)))
                     .andExpect(jsonPath("$.content[0].team").value("legal"));
+        }
+
+        @Test
+        @DisplayName("a team-less ticket shows on every desk's board and can be worked, but not under another desk's filter")
+        void teamlessTicketsAreOnEveryDesk() throws Exception {
+            User buyer = customer("9820000380");
+            String id = create(buyer, "{\"subject\":\"Not sure who owns this\"}", 201);
+            create(buyer, "{\"subject\":\"Site visit\",\"team\":\"rental\"}", 201);
+            User legal = staff("9820000381", Teams.LEGAL);
+
+            mvc.perform(get(Routes.Tickets.BASE)
+                            .header(HttpHeaders.AUTHORIZATION, bearer(legal)))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.content", hasSize(1)))
+                    .andExpect(jsonPath("$.content[0].id").value(id));
+            mvc.perform(get(Routes.Tickets.BASE)
+                            .header(HttpHeaders.AUTHORIZATION, bearer(legal))
+                            .param("team", "legal"))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.content", hasSize(0)));
+            patchTicket(legal, id, "{\"status\":\"in-progress\"}", 200);
         }
 
         @Test
@@ -265,12 +279,12 @@ class TicketQueueTest extends ServiceFixtures {
             note(legal, id, "called the owner", 201);
             note(legal, id, "owner will send the deed", 201);
 
-            mvc.perform(get(Routes.Tickets.BASE)
+            mvc.perform(get(Routes.Tickets.BY_ID, id)
                             .header(HttpHeaders.AUTHORIZATION, bearer(legal)))
                     .andExpect(status().isOk())
-                    .andExpect(jsonPath("$.content[0].notes", hasSize(2)))
-                    .andExpect(jsonPath("$.content[0].notes[0].by").value("Rohit Desk"))
-                    .andExpect(jsonPath("$.content[0].notes[0].text").value("called the owner"));
+                    .andExpect(jsonPath("$.notes", hasSize(2)))
+                    .andExpect(jsonPath("$.notes[0].by").value("Rohit Desk"))
+                    .andExpect(jsonPath("$.notes[0].text").value("called the owner"));
         }
 
         @Test
@@ -293,17 +307,8 @@ class TicketQueueTest extends ServiceFixtures {
         }
     }
 
-    /**
-     * Debt D47 — the raiser and the desk are two audiences, and only one of them may read the
-     * internal thread.
-     *
-     * <p>The old arrangement was safe by arithmetic rather than by rule: {@code POST /tickets}
-     * handed back the staff record, and the {@code notes} array on it was empty only because a
-     * ticket cannot be annotated inside the transaction that created it. A test that asserted an
-     * empty array on a fresh ticket would have been asserting the coincidence, not the control, and
-     * would still have passed on the day something wrote a note on the way in. So the assertion that
-     * matters here is made against a ticket that <em>does</em> have a note.
-     */
+    /** The raiser and the desk are two audiences: assert against a ticket that already has a note, since an
+     * empty array on a fresh ticket would only prove a coincidence, not the control. */
     @Nested
     @DisplayName("what the raiser may see (D47)")
     class RaiserView {
@@ -330,15 +335,18 @@ class TicketQueueTest extends ServiceFixtures {
             assertThat(noteRepo.findByTicketIdOrderByAtAsc(UUID.fromString(id))).hasSize(1);
 
             // The desk still gets it — a leak closed by deleting the feature is not a fix.
+            mvc.perform(get(Routes.Tickets.BY_ID, id)
+                            .header(HttpHeaders.AUTHORIZATION, bearer(legal)))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.notes", hasSize(1)))
+                    .andExpect(jsonPath("$.notes[0].text").value(SECRET));
             mvc.perform(get(Routes.Tickets.BASE)
                             .header(HttpHeaders.AUTHORIZATION, bearer(legal)))
                     .andExpect(status().isOk())
-                    .andExpect(jsonPath("$.content[0].notes", hasSize(1)))
-                    .andExpect(jsonPath("$.content[0].notes[0].text").value(SECRET));
+                    .andExpect(jsonPath("$.content[0].notes").doesNotExist());
 
-            // The raiser's projection of that same annotated ticket. There is no customer read
-            // endpoint on this board yet (D47 exists precisely to land before one does), so the
-            // assertion is made where the guarantee now lives: the type the customer path returns.
+            // There is no customer read endpoint on this board, so the guarantee is asserted on the type
+            // the customer path returns.
             Ticket annotated = ticketRepo.findById(UUID.fromString(id)).orElseThrow();
             String raiserView = json.writeValueAsString(mapper.toCustomer(annotated));
 

@@ -39,8 +39,8 @@ public class SupportTicketService {
     }
 
     @Transactional(readOnly = true)
-    public List<SupportTicketDto> list(AuthPrincipal caller) {
-        return mapper.toDtos(tickets.findByUserIdOrderByCreatedAtDesc(caller.userId()));
+    public List<SupportTicketSummary> list(AuthPrincipal caller) {
+        return mapper.toSummaries(tickets.findByUserIdOrderByCreatedAtDesc(caller.userId()));
     }
 
     @Transactional(readOnly = true)
@@ -78,12 +78,18 @@ public class SupportTicketService {
         return mapper.toDto(ticket);
     }
 
-    @Transactional(readOnly = true)
+    // A desk member opening a ticket clears the desk's side; the raiser's own flag is cleared by markRead.
+    @Transactional
     public SupportTicketDto get(AuthPrincipal caller, String id) {
-        return mapper.toDto(readable(caller, id, BackOfficePermissions.TICKETS_READ));
+        SupportTicket ticket = readable(caller, id, BackOfficePermissions.TICKETS_READ);
+        if (ticket.isStaffUnread() && !ticket.getUserId().equals(caller.userId())
+                && permissions.granted(caller, BackOfficePermissions.TICKETS_WRITE)) {
+            ticket.setStaffUnread(false);
+            tickets.saveAndFlush(ticket);
+        }
+        return mapper.toDto(ticket);
     }
 
-    // Bind attachments only after #readable, so unauthorized replies leave no rows behind.
     @Transactional
     public MessageDto reply(AuthPrincipal caller, String id, String body) {
         SupportTicket ticket = readable(caller, id, BackOfficePermissions.TICKETS_WRITE);
@@ -97,12 +103,10 @@ public class SupportTicketService {
         User author = users.findById(caller.userId()).orElse(null);
         return new MessageDto(
                 sent.getId().toString(),
-                sent.getAuthorId().toString(),
                 author == null ? null : author.getName(),
                 sent.getAuthorRole(),
                 sent.getBody(),
-                sent.getCreatedAt(),
-                List.of());
+                sent.getCreatedAt());
     }
 
     // Clears only the caller's side; staff reads remove tickets from the ops queue.

@@ -373,6 +373,49 @@ class OwnershipVerificationTest extends AbstractApiTest {
     }
 
     @Test
+    @DisplayName("the vault list is metadata only; each file is signed and audited when it is opened")
+    void theVaultListCarriesNoUrlsAndEachOpenIsSignedAndAudited() throws Exception {
+        User ownerUser = user("9820000751", Roles.Wire.OWNER);
+        Property listing = listing(ownerUser);
+        Property other = listing(user("9820000752", Roles.Wire.OWNER));
+        User staffUser = user("9820000753", Roles.Wire.STAFF);
+        Document bill = vaultFile(listing, "Electricity Bill", "msedcl.pdf");
+        Document foreign = vaultFile(other, "Electricity Bill", "other.pdf");
+        caseFile(listing, "pending", null);
+        caseFile(other, "pending", null);
+        String staff = bearer(staffUser);
+
+        mvc.perform(get(ownership(listing) + "/documents").header(HttpHeaders.AUTHORIZATION, staff))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].id").value(bill.getId().toString()))
+                .andExpect(jsonPath("$[0].category").value("Electricity Bill"))
+                .andExpect(jsonPath("$[0].fileName").value("msedcl.pdf"))
+                .andExpect(jsonPath("$[0].url").doesNotExist())
+                .andExpect(jsonPath("$[0].propertyId").doesNotExist());
+
+        mvc.perform(get(ownership(listing) + "/documents/" + bill.getId() + "/url")
+                        .header(HttpHeaders.AUTHORIZATION, staff))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.url").isNotEmpty());
+
+        assertThat(jdbc.queryForObject(
+                "select count(*) from audit_log where action = 'property.document.open'"
+                        + " and entity_id = ? and actor = ?", Integer.class,
+                listing.getId().toString(), staffUser.getId().toString()))
+                .isEqualTo(1);
+
+        mvc.perform(get(ownership(listing) + "/documents/" + foreign.getId() + "/url")
+                        .header(HttpHeaders.AUTHORIZATION, staff))
+                .andExpect(status().isNotFound());
+        mvc.perform(get(ownership(listing) + "/documents/" + java.util.UUID.randomUUID() + "/url")
+                        .header(HttpHeaders.AUTHORIZATION, staff))
+                .andExpect(status().isNotFound());
+        mvc.perform(get(ownership(listing) + "/documents/" + bill.getId() + "/url")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(ownerUser)))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
     @DisplayName("staff can read ownership documents within 30 days of a decision, but not after")
     void staffDocumentAccessExpiresThirtyDaysAfterDecision() throws Exception {
         Property inside = listing(user("9820000711", Roles.Wire.OWNER));
@@ -843,8 +886,8 @@ class OwnershipVerificationTest extends AbstractApiTest {
                 2048L, "application/pdf"));
     }
 
-    // ownership_evidence.document_id is ON DELETE SET NULL, so if the cited file were deletable the
-    // badge could stand while pointing at nothing; the whole arc is the point, refuse-only would look identical to the owner losing their vault.
+    // ownership_evidence.document_id is ON DELETE SET NULL, so a deletable cited file would leave the badge
+    // pointing at nothing; refuse-only would look identical to the owner losing their vault.
     private void caseFile(Property listing, String status, Instant decidedAt) {
         jdbc.update("insert into property_reviews (property_id, status, decided_at, last_message_at)"
                 + " values (?, ?, ?, now())",

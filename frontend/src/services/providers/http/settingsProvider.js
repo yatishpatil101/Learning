@@ -3,15 +3,29 @@ import { bootstrapSection } from './bootstrap.js';
 import { PRICING_DEFAULTS } from '../../settingsService.js';
 import { DEFAULT_MAX_PHOTOS, MAX_PHOTOS_CEILING } from '../../../lib/uploads/policy.js';
 
+/** The `ETag` of the last document read or written, sent back as `If-Match` so a stale save answers 412. */
+let settingsEtag = null;
+
 /** The whole configuration document. */
 export async function getSettings() {
-  const doc = await get('/admin/settings');
+  const { data: doc, etag } = await get('/admin/settings', undefined, { withStatus: true });
+  settingsEtag = etag;
   return doc && typeof doc === 'object' ? doc : {};
+}
+
+/** Only the console module switches (`adminFlags`) - the shell reads this, not the whole document. */
+export async function getAdminFlags() {
+  const flags = await get('/admin/settings/flags');
+  return flags && typeof flags === 'object' ? flags : {};
 }
 
 /** Deep-merge `patch` into the stored document; resolves with the document **as saved**. */
 export async function updateSettings(patch) {
-  const doc = await put('/admin/settings', patch);
+  const { data: doc, etag } = await put('/admin/settings', patch, {
+    withStatus: true,
+    headers: settingsEtag ? { 'If-Match': settingsEtag } : undefined,
+  });
+  settingsEtag = etag;
   window.dispatchEvent(new CustomEvent('draazy-settings-change'));
   return doc && typeof doc === 'object' ? doc : {};
 }

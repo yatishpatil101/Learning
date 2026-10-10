@@ -14,15 +14,15 @@ const rowFor = (page, name) => rows(page).filter({ hasText: name }).first();
 
 // Search by `q` instead of paging through an order the server does not promise.
 async function findUser(page, name) {
-  await page.getByPlaceholder('Search name, mobile, email…').fill(name);
+  await page.getByPlaceholder('Search name or mobile…').fill(name);
   const row = rowFor(page, name);
   await expect(row).toBeVisible();
   return row;
 }
 
-test('the directory lists accounts with role, status and a full mobile, filters by status on the server, and narrows by search', async ({ page, login, consoleErrors }) => {
+test('the directory lists accounts with role, status and a masked mobile, filters by status on the server, and narrows by search', async ({ page, login, consoleErrors }) => {
   await login.asAdmin();
-  await test.step('the directory lists accounts with role, status and a full mobile', async () => {
+  await test.step('the directory lists accounts with role, status and a masked mobile', async () => {
     await openUsers(page);
 
     // Directory copy depends on shared population size, not this test.
@@ -32,7 +32,7 @@ test('the directory lists accounts with role, status and a full mobile, filters 
 
     // Use Nikhil Sharma because Nikhil Nair is not unique in the seed.
     const row = await findUser(page, 'Nikhil Sharma');
-    await expect(row.getByText(/^\d{10}$/)).toBeVisible();
+    await expect(row.getByText(/^\d{2}X{5}\d{3}$/)).toBeVisible();
     await expect(row.getByText('owner', { exact: true })).toBeVisible();
 
     expect(consoleErrors).toHaveLength(0);
@@ -137,7 +137,7 @@ test('a review-granted badge cannot be withdrawn by hand; a hand-granted one can
   await login.asAdmin();
   await openUsers(page);
 
-  await page.getByPlaceholder('Search name, mobile, email…').fill(mobile);
+  await page.getByPlaceholder('Search name or mobile…').fill(mobile);
   await expect(rows(page)).toHaveCount(1);
   const earned = rows(page).first().getByRole('button', { name: /Earned through identity review/ });
   await expect(earned).toBeVisible();

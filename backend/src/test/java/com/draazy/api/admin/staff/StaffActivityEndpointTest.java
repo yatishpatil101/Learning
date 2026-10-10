@@ -69,7 +69,7 @@ class StaffActivityEndpointTest extends AbstractApiTest {
                         .param("action", "d213.price.change")
                         .header(HttpHeaders.AUTHORIZATION, bearer(manager)))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.content[0].metadata").isEmpty());
+                .andExpect(jsonPath("$.content[0].metadata").doesNotExist());
     }
 
     @Test
@@ -83,7 +83,8 @@ class StaffActivityEndpointTest extends AbstractApiTest {
                         .header(HttpHeaders.AUTHORIZATION, bearer(admin)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.content[0].actorName").value(admin.getName()))
-                .andExpect(jsonPath("$.content[0].actor").value(admin.getId().toString()))
+                .andExpect(jsonPath("$.content[0].actor").doesNotExist())
+                .andExpect(jsonPath("$.content[0].actorTeam").doesNotExist())
                 .andExpect(jsonPath("$.content[0].actorRole").value(Roles.Wire.ADMIN))
                 .andExpect(jsonPath("$.content[0].entity").value("user"));
     }

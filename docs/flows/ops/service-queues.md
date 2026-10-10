@@ -26,10 +26,8 @@
 > ported that the contract declines to model.
 >
 > The repo now has **four** ops surfaces:
-> - `OpsQueue.jsx` - the ticket board, on the **live seam** (`ticketService.js` → http provider).
->   Only `/ops/requests` renders it. A board that cannot
->   reach the API says so and shows nothing, rather than showing an empty queue it did not read
->   (D184). Sections 5.1 and 7.1.
+> - `OpsQueue.jsx` - **deleted** (2026-10-10, A07): the ticket board was unrouted (`/ops/requests` falls
+>   to the `/ops/*` catch-all); sections 5.1 and 7.1 describe the retired board.
 > - `OpsDraftingDesk.jsx` - the service-request desk, on the **live seam**
 >   (`serviceRequestService.js` → http provider). Team-scoped by the server, with the D120 document
 >   checklist. Sections 5.1a and 7.2.
@@ -52,8 +50,7 @@
 
 ## 2. Entry points
 - **Routes** (all under `RoleRoute roles=['staff','admin']` + `AdminLayout variant="ops"`):
-  - `/ops` - `OpsDashboard` (KPI landing).
-  - `/ops/requests` - `OpsRequests` -> `OpsQueue` (all-teams ticket board).
+  - `/ops`, `/ops/requests` - `OpsDashboard` / `OpsRequests` -> `OpsQueue` were deleted (unrouted).
   - `/ops/drafting-desk` - `OpsDraftingDesk` (service requests, live API). `?type=` picks the desk;
     a staffer is offered only their own.
   - `/ops/rent-agreement`, `/ops/legal`, `/ops/interior`, `/ops/packers`, `/ops/valuation` -
@@ -66,12 +63,10 @@
   and the "All tickets" link on the dashboard. Login (`/staff-login`) redirects a staffer to
   their team home via `TEAM_HOME` (`loans -> /ops/requests`, every other team -> the drafting desk).
 - **Source components:**
-  - `src/pages/ops/OpsQueue.jsx` - ticket board.
   - `src/pages/ops/OpsDraftingDesk.jsx` - service-request desk (live).
   - `src/pages/ops/service-queue/helpers.js` - `fmtAgo`, shared with `OpsSupportQueue`. The rest of
     that folder (`Stepper`, `DocViewer`, `constants`) went with `OpsServiceQueue`.
   - `src/pages/ops/OpsFlatmateReview.jsx` - flatmate host-verification desk (section 5.3).
-  - `src/pages/ops/OpsDashboard.jsx` - ops landing.
 
 ## 3. Actors & roles
 - **staff** - sees and acts on their own desk only. Enforced **on the server**:
@@ -300,7 +295,7 @@ only, and returns summaries with **no thread and no mobile number**.
   looked" is not "we have not answered", and a queue that collapses them tells the desk to chase
   people it has already answered.
 - **Reading is side-aware** (D50, `staff_unread` added in V53). Opening a ticket clears the desk's
-  side only; the raiser's own `unread` is untouched, and neither side can mark the other as caught
+  side only, in that one `GET /support/tickets/{id}` (the desk does not post `/read`; queue counts come only with `?counts=true`); the raiser's own `unread` is untouched, and neither side can mark the other as caught
   up. One column could not do both jobs, which is why there are two.
 - **The thread is a second read.** The row carries no messages, so the modal fetches
   `GET /support/tickets/{id}` — which succeeds for a ticket the caller did not raise because

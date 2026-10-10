@@ -65,7 +65,8 @@ public interface UserRepository extends JpaRepository<User, UUID>, RoleSource {
     @Query("select u from User u where u.role in ('admin', 'manager', 'staff') order by u.createdAt desc")
     List<User> findBackOfficeAccounts();
 
-    // Prefix match is deliberate: the directory is not a broad substring search.
+    // Names match by prefix; a mobile only as the whole number, since rows mask it and a prefix would
+    // unmask it digit by digit.
     @Query("""
             select u from User u
             where u.archived = :archived
@@ -75,12 +76,13 @@ public interface UserRepository extends JpaRepository<User, UUID>, RoleSource {
               and (:flagged is null or u.flagged = :flagged)
               and (:prefix is null
                    or lower(u.name) like :prefix escape '\\'
-                   or u.mobile like :prefix escape '\\')
+                   or u.mobile = :mobile)
             order by u.createdAt desc
             """)
     Page<User> searchForAdmin(@Param("role") String role,
             @Param("customers") boolean customers,
             @Param("prefix") String prefix,
+            @Param("mobile") String mobile,
             @Param("status") String status,
             @Param("flagged") Boolean flagged,
             @Param("archived") boolean archived,
@@ -93,9 +95,10 @@ public interface UserRepository extends JpaRepository<User, UUID>, RoleSource {
               and (:customers = false or u.role in ('owner', 'buyer'))
               and (:prefix is null
                    or lower(u.name) like :prefix escape '\\'
-                   or u.mobile like :prefix escape '\\')
+                   or u.mobile = :mobile)
             group by u.archived, u.status
             """)
     List<Object[]> countByStanding(@Param("role") String role,
-            @Param("customers") boolean customers, @Param("prefix") String prefix);
+            @Param("customers") boolean customers, @Param("prefix") String prefix,
+            @Param("mobile") String mobile);
 }

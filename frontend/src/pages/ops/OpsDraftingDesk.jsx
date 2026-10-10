@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Hand, RefreshCw } from 'lucide-react';
 import {
-  addServiceRequestMessage, cancelServiceRequestAsOps, getServiceRequestQueueSummary,
+  addServiceRequestMessage, cancelServiceRequestAsOps, getServiceRequest, getServiceRequestQueueSummary,
   readServiceRequestChecklist, shareServiceRequestDraft,
   takeServiceRequest, uploadServiceRequestFinalDoc, checkServiceRequestDraft,
 } from '../../services/serviceRequestService.js';
@@ -107,12 +107,26 @@ export default function OpsDraftingDesk({ desk }) {
   const total = queue.page?.total ?? 0;
   const paging = { page, pageCount: Math.ceil(total / PAGE_SIZE), total, size: PAGE_SIZE, onPage: setPage, stale: queue.stale };
 
+  const [target, setTarget] = useState(null);
   const [detail, setDetail] = useState(null);
+  const [detailFailed, setDetailFailed] = useState(false);
   const [checklist, setChecklist] = useState(null);
   const [checklistStatus, setChecklistStatus] = useState('idle');
   const [internalNote, setInternalNote] = useState('');
   const [cancelTarget, setCancelTarget] = useState(null);
   const busy = useRef(false);
+
+  const targetId = target?.id || null;
+  useEffect(() => {
+    if (!targetId) return undefined;
+    let live = true;
+    setDetail(null);
+    setDetailFailed(false);
+    getServiceRequest(targetId)
+      .then((res) => { if (live) { if (res) setDetail(res); else setDetailFailed(true); } })
+      .catch(() => { if (live) setDetailFailed(true); });
+    return () => { live = false; };
+  }, [targetId]);
 
   const detailId = detail?.id || null;
   useEffect(() => {
@@ -129,13 +143,14 @@ export default function OpsDraftingDesk({ desk }) {
   }, [detailId]);
 
   const closeDetail = () => {
+    setTarget(null);
     setDetail(null);
     setInternalNote('');
   };
 
   const openDetail = (row) => {
     setInternalNote('');
-    setDetail(row);
+    setTarget(row);
   };
 
   // The open request is held as an object, so a change that moves it to another tab leaves the modal put.
@@ -301,8 +316,12 @@ export default function OpsDraftingDesk({ desk }) {
         </QueuePanel>
       )}
 
-      <Modal open={!!detail} onClose={closeDetail} title={detail ? `${detail.service} · ${detail.id}` : ''} size="lg">
-        {detail ? (
+      <Modal open={!!target} onClose={closeDetail} title={target ? `${target.service} · ${target.id}` : ''} size="lg">
+        {!detail ? (
+          detailFailed
+            ? <p role="alert" className="p-4 text-sm text-gray-300">This request could not be opened. Close it and try again.</p>
+            : <Loading label="Opening the request…" />
+        ) : (
           <div className="space-y-4">
             <div className="flex flex-wrap items-center gap-2 text-sm">
               <Badge status={detail.status} />
@@ -334,7 +353,7 @@ export default function OpsDraftingDesk({ desk }) {
               onChange={setChecklist}
               onError={(message) => toast(message, 'error')}
             >
-              <ServiceDocuments documents={detail.docs} onUnavailable={docUnavailable} />
+              <ServiceDocuments requestId={detail.id} documents={detail.docs} onUnavailable={docUnavailable} />
             </DocumentChecklist>
 
             {detail.draftCheck?.status === 'pending' ? (
@@ -380,7 +399,7 @@ export default function OpsDraftingDesk({ desk }) {
               </div>
             ) : null}
           </div>
-        ) : null}
+        )}
       </Modal>
       <CancelDialog key={cancelTarget?.id || 'closed'} request={cancelTarget} onClose={() => setCancelTarget(null)} onConfirm={cancel} />
     </div>

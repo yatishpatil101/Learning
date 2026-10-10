@@ -7,12 +7,11 @@ import com.draazy.api.security.AuthPrincipal;
 import com.draazy.api.security.BackOfficePermissions;
 import com.draazy.api.security.Capabilities;
 import com.draazy.api.security.PermissionMap;
-import com.draazy.api.services.ticket.TicketDto;
+import com.draazy.api.services.ticket.TicketRow;
 import com.draazy.api.services.ticket.TicketService;
 import com.draazy.api.services.ticket.TicketStatuses;
 import java.time.Duration;
 import java.time.Instant;
-import java.util.List;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 
@@ -64,14 +63,11 @@ public class AdminDashboardService {
     }
 
     private AdminDashboard.Traffic traffic() {
-        var series = traffic.traffic(TRAFFIC_DAYS).series();
-        var today = series.getLast();
-        return new AdminDashboard.Traffic(today.signups(), today.sessions(),
-                series.stream().mapToLong(d -> d.sessions()).sum());
+        return traffic.glance(TRAFFIC_DAYS);
     }
 
     private AdminDashboard.SlaGlance slaGlance() {
-        SlaSummary s = sla.report(null);
+        SlaSummary s = sla.glance();
         return new AdminDashboard.SlaGlance(
                 new AdminDashboard.Track(s.slaRatePct(), s.targetHours(), s.pendingBreachingCount()),
                 track(s.ticketPickup()), track(s.ticketDelivery()), track(s.conciergeToLive()));
@@ -96,17 +92,19 @@ public class AdminDashboardService {
     // A staffer on no desk has no board; the section is left out rather than zeroed.
     private AdminDashboard.Tickets tickets(AuthPrincipal caller) {
         try {
-            var open = tickets.list(caller, null, TicketStatuses.OPEN, PageRequest.of(0, 1));
-            List<AdminDashboard.TicketRow> latest = tickets.list(caller, null, null,
-                    PageRequest.of(0, ROWS)).getContent().stream().map(AdminDashboardService::row).toList();
-            return new AdminDashboard.Tickets(open.getTotalElements(),
-                    open.isEmpty() ? null : open.getContent().getFirst().team(), latest);
+            var latest = tickets.rows(caller, null, null, null, null, PageRequest.of(0, ROWS)).getContent();
+            long open = tickets.countOpen(caller, null);
+            String openTeam = open == 0 ? null : latest.stream()
+                    .filter(t -> TicketStatuses.OPEN.equals(t.status())).map(TicketRow::team).findFirst()
+                    .orElseGet(() -> tickets.rows(caller, null, TicketStatuses.OPEN, null, null,
+                            PageRequest.of(0, 1)).getContent().getFirst().team());
+            return new AdminDashboard.Tickets(open, openTeam, latest.stream().map(AdminDashboardService::row).toList());
         } catch (ForbiddenException noDesk) {
             return null;
         }
     }
 
-    private static AdminDashboard.TicketRow row(TicketDto t) {
+    private static AdminDashboard.TicketRow row(TicketRow t) {
         return new AdminDashboard.TicketRow(t.id(), t.team(), t.service(), t.customer(), t.detail(),
                 t.status());
     }

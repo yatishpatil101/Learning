@@ -1,17 +1,15 @@
-import { useState } from 'react';
 import { Home, Building2, GitMerge, Undo2 } from 'lucide-react';
 import { classNames } from '../../../lib/format.js';
 import {
-  CHIP, CHIP_TONE, ClearFilters, FactRow, PageNav, QueuePanel, RowCard, RowList, SearchBox, useClientPaging,
+  CHIP, CHIP_TONE, ClearFilters, FactRow, PageNav, QueuePanel, RowCard, RowList, SearchBox,
 } from '../../../components/admin/WorkQueue.jsx';
 import { titleCase, fmtDate, Chip, PLAIN, DUPES_FAILED } from './helpers.jsx';
 
-export default function CandidatesTab({ candidates, merges, setMerge, openMerge, undoMerge, deciding, note }) {
-  const [q, setQ] = useState('');
+/** One server page of candidates; the search runs on the server so the page and the count stay true. */
+export default function CandidatesTab({ candidates, total, query, onQuery, page: pageIndex, pageSize, onPage, merges, setMerge, openMerge, undoMerge, deciding, note }) {
   const busy = (key) => !!deciding?.has(key);
-  const needle = q.trim().toLowerCase();
-  const rows = candidates.filter((s) => !needle || [s.name, s.localitySlug].join(' ').toLowerCase().includes(needle));
-  const page = useClientPaging(rows, 10, q);
+  const rows = candidates;
+  const paging = { page: pageIndex + 1, pageCount: Math.max(1, Math.ceil(total / pageSize)), total, size: pageSize, onPage: (p) => onPage(p - 1) };
 
   /* Three branches, not two: rows minted before V108 have no provenance, and a confident "From a
      listing" on those would be the component guessing. A row with no recorded provenance says nothing. */
@@ -42,15 +40,15 @@ export default function CandidatesTab({ candidates, merges, setMerge, openMerge,
       note={note}
       toolbar={(
         <>
-          <SearchBox value={q} onChange={setQ} placeholder="Society or locality" label="Search candidates" />
-          {q ? <ClearFilters onClick={() => setQ('')} /> : null}
-          <div className="ml-auto"><PageNav {...page.paging} /></div>
+          <SearchBox value={query} onChange={onQuery} placeholder="Society or locality" label="Search candidates" />
+          {query ? <ClearFilters onClick={() => onQuery('')} /> : null}
+          <div className="ml-auto"><PageNav {...paging} /></div>
         </>
       )}
-      footer={page.paging.pageCount > 1 ? <PageNav {...page.paging} /> : null}
+      footer={paging.pageCount > 1 ? <PageNav {...paging} /> : null}
     >
-      <RowList isEmpty={!rows.length} empty={q ? 'No candidates match this search.' : 'No community candidates awaiting review. Auto-minted societies land here.'}>
-        {page.items.map((s) => (
+      <RowList isEmpty={!rows.length} empty={query ? 'No candidates match this search.' : 'No community candidates awaiting review. Auto-minted societies land here.'}>
+        {rows.map((s) => (
           <RowCard
             key={s.slug}
             id={s.slug}
@@ -68,7 +66,7 @@ export default function CandidatesTab({ candidates, merges, setMerge, openMerge,
           />
         ))}
       </RowList>
-      {/* Merges in force: a merged-away society is invisible elsewhere, so without this list a merge could not be found and undone. */}
+      {/* Merges in force: a merged-away society is invisible elsewhere, so a merge could not be undone. */}
       {merges && merges.length ? (
         <div className="m-3 mt-0 rounded-xl border border-white/10 bg-white/5 p-3">
           <div className="mb-2 flex items-center gap-1.5 text-xs font-semibold text-gray-300"><GitMerge className="h-3.5 w-3.5" /> <h4 className="inline">Merged duplicates</h4></div>

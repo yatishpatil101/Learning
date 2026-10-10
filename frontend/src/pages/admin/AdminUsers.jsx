@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Archive, BadgeCheck, Ban, Building2, CalendarCheck, CheckCircle2, ConciergeBell, Download, Eye, Flag, Mail, MessageSquareText, RotateCcw, ShieldCheck, ShieldAlert, UserPlus } from 'lucide-react';
 import {
   getUserTimeline,
@@ -32,10 +32,10 @@ const ROLE_CHIPS = [
   { value: 'buyer', label: 'Buyers' },
 ];
 const STATUS_TABS = [
-  { key: 'all', label: 'All users', status: '', note: 'Every owner and buyer account, whatever its status.' },
+  { key: 'all', label: 'All users', status: '', note: 'Every owner and buyer account that is not archived.' },
   { key: 'active', label: 'Active', status: 'active', note: 'Accounts that can sign in.' },
   { key: 'suspended', label: 'Suspended', status: 'suspended', note: 'Signed out and refused sign-in until reactivated.' },
-  { key: 'archived', label: 'Archived', status: 'archived', note: 'Out of the directory. They can still sign in unless suspended.' },
+  { key: 'archived', label: 'Archived', status: 'archived', note: 'Out of the directory and refused sign-in until restored.' },
 ];
 const BADGES_NOTE = 'Hand-granted Verified badges need a second admin to approve.';
 const PAGE_SIZE = 20;
@@ -44,15 +44,16 @@ const Dot = () => <span className="text-gray-600" aria-hidden="true">·</span>;
 /* `requiresReason` mirrors a server 422 and a database check constraint, so a Confirm button that
    stayed enabled would submit a request that could only fail. */
 const ACTION_COPY = {
-  verifyGrant: { title: 'Grant Verified badge', requiresReason: true, hint: 'Say what you checked. The badge is a claim the platform makes on this person\u2019s behalf.' },
-  verifyRemove: { title: 'Remove Verified badge', requiresReason: true, hint: 'Say what changed. Removing a badge is visible to everyone browsing their listings.' },
+  verifyGrant: { title: 'Grant Verified badge', requiresReason: true, minReason: 10, hint: 'Say what you checked. The badge is a claim the platform makes on this person\u2019s behalf.' },
+  verifyRemove: { title: 'Remove Verified badge', requiresReason: true, minReason: 10, hint: 'Say what changed. Removing a badge is visible to everyone browsing their listings.' },
   suspend: { title: 'Suspend user', requiresReason: false, hint: 'Ends every signed-in session and refuses new sign-ins until reactivated. The account stays in the directory.' },
   reactivate: { title: 'Reactivate user', requiresReason: false, hint: 'Lets them sign in again. Sessions are not restored; they will need to log in.' },
   flagRaise: { title: 'Flag for review', requiresReason: true, hint: 'A note between colleagues. It changes nothing the platform does \u2014 it records what you noticed so the next moderator inherits it.' },
   flagClear: { title: 'Remove flag', requiresReason: false, hint: 'The reason is forgotten. The history stays in the audit log.' },
-  archive: { title: 'Archive user', requiresReason: false, hint: 'Removes the account from the directory. It does not stop them signing in \u2014 suspend for that.' },
+  archive: { title: 'Archive user', requiresReason: false, hint: 'Removes the account from the directory, ends every signed-in session and refuses sign-in until restored.' },
   restore: { title: 'Restore user', requiresReason: false, hint: 'Returns the account to the directory as active.' },
 };
+const reasonMissing = (copy, text) => !!copy?.requiresReason && text.trim().length < (copy.minReason || 1);
 
 /** Icon, dot and text colour per timeline `kind`. */
 const TIMELINE_STYLES = {
@@ -102,13 +103,19 @@ export default function AdminUsers() {
     return () => { alive.current = false; };
   }, []);
 
-  /* One request per filter change: the status filter exists only server-side, and the tab counts ride on the same response. */
-  const load = useCallback(async () => {
-    const res = await listUsers({ role, customers: true, status, q: q.trim(), page: page - 1, size: PAGE_SIZE, counts: true });
+  /* Counts ignore status and paging, so fetch them only when role or search changed, or after an action. */
+  const countsKey = useRef(null);
+  const load = useCallback(async (recount = false) => {
+    const key = `${role}|${q.trim()}`;
+    const counts = recount === true || countsKey.current !== key;
+    const res = await listUsers({ role, customers: true, status, q: q.trim(), page: page - 1, size: PAGE_SIZE, counts });
     if (!alive.current) return;
     setRows(res.items);
     setTotal(res.total);
-    setCounts(res.counts || {});
+    if (counts) {
+      countsKey.current = key;
+      setCounts(res.counts || {});
+    }
   }, [role, status, q, page]);
 
   const loadGrants = useCallback(async () => {
@@ -121,12 +128,12 @@ export default function AdminUsers() {
     }
   }, [toast]);
 
-  // Every tab's rows read it for the "Badge pending" pill and to disable a second grant request.
+  // The pending list is the badges tab's own; the row pill and the tab count ride on the users list.
   useEffect(() => {
-    if (canManageBadges) loadGrants();
-  }, [canManageBadges, loadGrants]);
+    if (canManageBadges && tab === 'badges') loadGrants();
+  }, [canManageBadges, tab, loadGrants]);
 
-  const reloadBadges = useCallback(() => Promise.all([load(), loadGrants()]), [load, loadGrants]);
+  const reloadBadges = useCallback(() => Promise.all([load(true), loadGrants()]), [load, loadGrants]);
 
   // Debounced, because `q` changes on every keystroke and each change is a request.
   useEffect(() => {
@@ -178,7 +185,7 @@ export default function AdminUsers() {
   const confirmAction = async () => {
     if (busy || !actionModal) return;
     const { user: u, action, copy } = actionModal;
-    if (copy.requiresReason && !noteText.trim()) return;
+    if (reasonMissing(copy, noteText)) return;
     setBusy(true);
     const reason = noteText.trim();
     setActionError('');
@@ -188,7 +195,6 @@ export default function AdminUsers() {
         case 'verifyRemove': {
           const result = await setUserBadge(u.id, action === 'verifyGrant', reason);
           if (result?.pending) {
-            setPendingBadgeGrants((current) => [result.request, ...(current || []).filter((item) => item.id !== result.request.id)]);
             toast('Sent for approval by another admin');
           } else {
             toast(action === 'verifyGrant' ? 'Verified badge granted' : 'Verified badge removed');
@@ -220,7 +226,7 @@ export default function AdminUsers() {
           break;
       }
       closeAction();
-      await load();
+      await load(true);
     } catch (err) {
       const message = err?.message || 'That could not be done';
       setActionError(message);
@@ -231,11 +237,6 @@ export default function AdminUsers() {
   };
 
   const list = rows || [];
-  const pendingGrantByUser = useMemo(
-    () => new Map((pendingBadgeGrants || []).map((grant) => [String(grant.userId), grant])),
-    [pendingBadgeGrants],
-  );
-  const pendingGrantFor = useCallback((u) => pendingGrantByUser.get(String(u.id)), [pendingGrantByUser]);
 
   const doExport = async () => {
     try {
@@ -253,7 +254,7 @@ export default function AdminUsers() {
   const paging = { page, pageCount: Math.max(1, Math.ceil(total / PAGE_SIZE)), total, size: PAGE_SIZE, onPage: (p) => setPageState({ page: p, key: resetKey }) };
 
   const actionButtons = (u) => {
-    const pendingGrant = pendingGrantFor(u);
+    const pendingGrant = u.badgePending;
     const earnedBadge = u.verified && u.badgeSource === 'identity';
     const suspended = u.status === 'suspended';
     const badgeTitle = pendingGrant ? 'Badge approval pending'
@@ -293,7 +294,7 @@ export default function AdminUsers() {
           <Badge status={u.status} />
           {u.verified ? <span className={classNames(CHIP, CHIP_TONE.teal, 'gap-1')}><BadgeCheck className="h-3 w-3" />Verified</span> : null}
           {u.flagged ? <span className={classNames(CHIP, CHIP_TONE.amber, 'gap-1')}><Flag className="h-3 w-3" />Flagged</span> : null}
-          {pendingGrantFor(u) ? <span data-testid="admin-user-pending-badge-pill" className={classNames(CHIP, CHIP_TONE.amber)}>Badge pending</span> : null}
+          {u.badgePending ? <span data-testid="admin-user-pending-badge-pill" className={classNames(CHIP, CHIP_TONE.amber)}>Badge pending</span> : null}
         </>
       }
       meta={<><span>{u.mobile}</span><Dot /><span className="capitalize">{u.role}</span>{u.city ? <><Dot /><span>{u.city}</span></> : null}</>}
@@ -321,7 +322,7 @@ export default function AdminUsers() {
 
   const tabs = [
     ...STATUS_TABS.map((t) => ({ key: t.key, label: t.label, count: counts[t.key] ?? null })),
-    ...(canManageBadges ? [{ key: 'badges', label: 'Badge approvals', count: pendingBadgeGrants ? pendingBadgeGrants.length : null }] : []),
+    ...(canManageBadges ? [{ key: 'badges', label: 'Badge approvals', count: counts.badgePending ?? null }] : []),
   ];
   const note = tab === 'badges' ? BADGES_NOTE : STATUS_TABS.find((t) => t.key === tab).note;
 
@@ -339,7 +340,7 @@ export default function AdminUsers() {
         note={note}
         toolbar={tab === 'badges' ? null : (
           <>
-            <SearchBox value={q} onChange={setQ} placeholder="Search name, mobile, email…" label="Search users" />
+            <SearchBox value={q} onChange={setQ} placeholder="Search name or mobile…" label="Search users" />
             <Chips label="Role" options={ROLE_CHIPS} value={role} onChange={setRole} />
             <div className="ml-auto flex items-center gap-2">
               {optionEnabled('users.csvExport') ? (
@@ -370,7 +371,7 @@ export default function AdminUsers() {
             <button onClick={closeAction} className="dz-btn dz-btn-ghost">Cancel</button>
             <button
               onClick={confirmAction}
-              disabled={busy || (actionModal?.copy?.requiresReason && !noteText.trim())}
+              disabled={busy || reasonMissing(actionModal?.copy, noteText)}
               className="dz-btn dz-btn-primary disabled:opacity-50"
             >
               {busy ? 'Working…' : 'Confirm'}
@@ -393,12 +394,15 @@ export default function AdminUsers() {
                 value={noteText}
                 onChange={(e) => setNoteText(e.target.value)}
                 rows={2}
+                maxLength={actionModal.copy.minReason ? 300 : undefined}
                 placeholder="Add a note for the team… (visible only to admins and staff)"
                 className="mt-1 dz-input resize-none text-sm"
               />
             </label>
-            {actionModal.copy.requiresReason && !noteText.trim() && (
-              <p className="mt-1 text-xs text-amber-300">A reason is required for this action.</p>
+            {reasonMissing(actionModal.copy, noteText) && (
+              <p className="mt-1 text-xs text-amber-300">
+                {actionModal.copy.minReason ? `Write at least ${actionModal.copy.minReason} characters.` : 'A reason is required for this action.'}
+              </p>
             )}
           </>
         )}

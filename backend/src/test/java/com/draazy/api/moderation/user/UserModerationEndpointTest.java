@@ -7,6 +7,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.draazy.api.common.trust.MobileMask;
 import com.draazy.api.common.web.Routes;
 import com.draazy.api.identity.user.User;
 import com.draazy.api.identity.user.UserRepository;
@@ -17,6 +18,7 @@ import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceContext;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
+import java.util.List;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -135,9 +137,10 @@ class UserModerationEndpointTest extends AbstractApiTest {
     }
 
     @Test
-    @DisplayName("manager suspension actions notify the administrator")
+    @DisplayName("manager suspension actions notify every administrator")
     void managerSuspensionActionsNotifyAdministrator() throws Exception {
         User owner = admin("9877000050");
+        User coAdmin = admin("9877000053");
         User actor = person("9877000051", Roles.Wire.MANAGER);
         User target = person("9877000052", Roles.Wire.STAFF);
 
@@ -150,10 +153,12 @@ class UserModerationEndpointTest extends AbstractApiTest {
                         .header(HttpHeaders.AUTHORIZATION, bearer(actor)))
                 .andExpect(status().isOk());
 
-        assertThat(jdbc.queryForObject("""
-                SELECT count(*) FROM notifications
-                WHERE user_id = ?::uuid AND type = 'team.manager-action'
-                """, Integer.class, owner.getId())).isEqualTo(2);
+        for (User admin : List.of(owner, coAdmin)) {
+            assertThat(jdbc.queryForObject("""
+                    SELECT count(*) FROM notifications
+                    WHERE user_id = ?::uuid AND type = 'team.manager-action'
+                    """, Integer.class, admin.getId())).isEqualTo(2);
+        }
     }
 
     @Test
@@ -187,6 +192,28 @@ class UserModerationEndpointTest extends AbstractApiTest {
     }
 
     @Test
+    @DisplayName("the list row marks a pending grant, counts it, and carries only the row's columns")
+    void listRowCarriesPendingBadgeGrant() throws Exception {
+        User actor = admin("9877000031");
+        User target = person("9877000032", Roles.Wire.OWNER);
+        mvc.perform(patch(path(Routes.Users.BADGE, target))
+                        .header(HttpHeaders.AUTHORIZATION, bearer(actor))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"granted\":true,\"reason\":\"documents checked in person\"}"))
+                .andExpect(status().isAccepted());
+        flushSoRawSqlCanSeeIt();
+
+        mvc.perform(get(Routes.Users.BASE).param("q", "9877000032").param("counts", "true")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(actor)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content[0].badgePending").value(true))
+                .andExpect(jsonPath("$.content[0].mobile").value("98XXXXX032"))
+                .andExpect(jsonPath("$.content[0].verified").value(false))
+                .andExpect(jsonPath("$.content[0].email").doesNotExist())
+                .andExpect(jsonPath("$.content[0].lastActive").doesNotExist())
+                .andExpect(jsonPath("$.counts.badgePending").value(org.hamcrest.Matchers.greaterThanOrEqualTo(1)));
+    }
+    @Test
     @DisplayName("a badge grant creates a pending request, not a badge")
     void badgeGrantCreatesPendingRequest() throws Exception {
         User actor = admin("9877000001");
@@ -200,7 +227,7 @@ class UserModerationEndpointTest extends AbstractApiTest {
                 .andExpect(jsonPath("$.userId").value(target.getId().toString()))
                 .andExpect(jsonPath("$.requestedBy").value(actor.getId().toString()))
                 .andExpect(jsonPath("$.status").value("pending"))
-                .andExpect(jsonPath("$.userMobile").value("9877000006"));
+                .andExpect(jsonPath("$.userMobile").value("98XXXXX006"));
 
         flushSoRawSqlCanSeeIt();
         em.clear();
@@ -554,14 +581,14 @@ class UserModerationEndpointTest extends AbstractApiTest {
         flushSoRawSqlCanSeeIt();
 
         mvc.perform(get(Routes.Users.BASE).param("status", UserStatuses.SUSPENDED)
-                        .param("q", "9877000")
+                        .param("q", "V77 probe 9877000")
                         .header(HttpHeaders.AUTHORIZATION, bearer(actor)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.content.length()").value(1))
                 .andExpect(jsonPath("$.content[0].id").value(suspended.getId().toString()));
 
         mvc.perform(get(Routes.Users.BASE).param("flagged", "true")
-                        .param("q", "9877000")
+                        .param("q", "V77 probe 9877000")
                         .header(HttpHeaders.AUTHORIZATION, bearer(actor)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.content.length()").value(1))
@@ -583,7 +610,7 @@ class UserModerationEndpointTest extends AbstractApiTest {
         flushSoRawSqlCanSeeIt();
         jdbc.update("update users set archived = true where id = ?", archived.getId());
 
-        mvc.perform(get(Routes.Users.BASE).param("counts", "true").param("q", "98771000")
+        mvc.perform(get(Routes.Users.BASE).param("counts", "true").param("q", "V77 probe 98771000")
                         .param("customers", "true").param("size", "1")
                         .header(HttpHeaders.AUTHORIZATION, bearer(actor)))
                 .andExpect(status().isOk())
@@ -593,7 +620,7 @@ class UserModerationEndpointTest extends AbstractApiTest {
                 .andExpect(jsonPath("$.counts.suspended").value(1))
                 .andExpect(jsonPath("$.counts.archived").value(1));
 
-        mvc.perform(get(Routes.Users.BASE).param("q", "98771000")
+        mvc.perform(get(Routes.Users.BASE).param("q", "V77 probe 98771000")
                         .header(HttpHeaders.AUTHORIZATION, bearer(actor)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.counts").doesNotExist());
@@ -640,7 +667,9 @@ class UserModerationEndpointTest extends AbstractApiTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"name\":\"Renamed Owner\"}"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.name").value("Renamed Owner"));
+                .andExpect(jsonPath("$.name").value("Renamed Owner"))
+                .andExpect(jsonPath("$.mobile").value(MobileMask.mask(target.getMobile())))
+                .andExpect(jsonPath("$.email").doesNotExist());
 
         String metadata = jdbc.queryForObject("""
                 SELECT metadata::text FROM audit_log

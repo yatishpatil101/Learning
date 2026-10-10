@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { FileUp, Send } from 'lucide-react';
+import DateField from '../../../components/ui/DateField.jsx';
 
 const DRAFTABLE = new Set(['docs_review', 'draft_shared', 'changes_requested']);
 
@@ -110,20 +111,27 @@ export default function StaffWorkflowActions({ request, onShareDraft, onUploadFi
           {needsRecord ? (
             <fieldset className="grid gap-2 sm:grid-cols-2">
               <legend className="mb-1 text-xs text-gray-400">As printed on the Sub-Registrar's endorsement and the GRAS challan</legend>
-              {REGISTRATION_FIELDS.map(({ key, label, ...input }) => (
-                <label key={key} className="block text-xs text-gray-400">
-                  {label}
-                  <input
-                    {...input}
-                    name={key}
-                    required
-                    value={registration[key]}
-                    max={input.type === 'date' ? today : undefined}
-                    onChange={(event) => setRegistration((prev) => ({ ...prev, [key]: event.target.value }))}
-                    className="mt-1 w-full rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-sm text-white"
-                  />
-                </label>
-              ))}
+              {REGISTRATION_FIELDS.map(({ key, label, ...input }) => {
+                const set = (value) => setRegistration((prev) => ({ ...prev, [key]: value }));
+                const fieldClass = 'mt-1 w-full rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-sm text-white';
+                return (
+                  <label key={key} className="block text-xs text-gray-400">
+                    {label}
+                    {input.type === 'date' ? (
+                      <DateField value={registration[key]} max={today} onChange={set} ariaLabel={label} className={fieldClass} />
+                    ) : (
+                      <input
+                        {...input}
+                        name={key}
+                        required
+                        value={registration[key]}
+                        onChange={(event) => set(event.target.value)}
+                        className={fieldClass}
+                      />
+                    )}
+                  </label>
+                );
+              })}
             </fieldset>
           ) : null}
           <button type="submit" disabled={!finalReady || !!busy} className="dz-btn dz-btn-primary disabled:opacity-40"><FileUp className="h-4 w-4" aria-hidden="true" /> {busy === 'final' ? 'Uploading…' : 'Upload registered copy'}</button>

@@ -7,7 +7,10 @@ import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Collectors;
 import org.springframework.stereotype.Repository;
 
 @Repository
@@ -105,6 +108,90 @@ class TeamPerformanceRepository {
             group by d.team
             """;
 
+    private static final String PROPERTY_QUEUE = """
+            select 'propertyVerification', count(*), min(waiting_since)
+            from (
+              select created_at as waiting_since
+              from property_reviews
+              where status = 'pending'
+              union all
+              select ownership_requested_at
+              from properties
+              where not archived
+                and ownership_requested_at is not null
+                and ownership_verified = false
+                and ownership_declined_at is null
+            ) property_queue
+            """;
+
+    // One branch per function a staffer holds, so /my-work never scans a desk it cannot work.
+    private static final List<Map.Entry<String, String>> MY_QUEUES = List.of(
+            Map.entry("kyc", """
+                    select 'kyc', count(*) filter (where status = 'pending'),
+                           min(submitted_at) filter (where status = 'pending')
+                    from identity_verifications
+                    """),
+            Map.entry("propertyVerification", PROPERTY_QUEUE),
+            Map.entry("listingModeration", """
+                    select 'listingModeration',
+                           count(*) filter (where not archived and status = 'pending'),
+                           min(coalesce(resubmitted_at, created_at)) filter (where not archived and status = 'pending')
+                    from properties
+                    """),
+            Map.entry("support", """
+                    select 'support',
+                           count(*) filter (where staff_unread and status not in ('resolved', 'closed')),
+                           min(created_at) filter (where staff_unread and status not in ('resolved', 'closed'))
+                    from support_tickets
+                    """),
+            Map.entry("reports", """
+                    select 'reports',
+                           count(*) filter (where status in ('open', 'reviewing')),
+                           min(created_at) filter (where status in ('open', 'reviewing'))
+                    from reports
+                    """),
+            Map.entry("reviews", """
+                    select 'reviews',
+                           count(*) filter (where status = 'pending'),
+                           min(created_at) filter (where status = 'pending')
+                    from reviews
+                    """),
+            Map.entry("enquiries", """
+                    select 'enquiries',
+                           count(*) filter (where status = 'pending'),
+                           min(created_at) filter (where status = 'pending')
+                    from contact_requests
+                    """),
+            Map.entry("societies", """
+                    select 'societies', count(*), min(created_at)
+                    from societies
+                    where source = 'community' and merged_into is null and archived_at is null
+                    """),
+            Map.entry("referrals", """
+                    select 'referrals',
+                           count(*) filter (where status in ('pending', 'qualified')),
+                           min("at") filter (where status in ('pending', 'qualified'))
+                    from referrals
+                    """));
+
+    private static final List<String> DESK_TEAMS =
+            List.of("rental", "legal", "loans", "interior", "packers", "valuation");
+
+    private static final String MY_DESKS = """
+            select 'desk:' || d.team, count(q.waiting_since), min(q.waiting_since)
+            from (values %s) d(team)
+            left join (
+              select team, created_at as waiting_since
+              from service_requests
+              where status not in ('awaiting-payment', 'draft-shared', 'completed', 'cancelled')
+              union all
+              select team, created_at as waiting_since
+              from tickets
+              where status in ('open', 'in-progress', 'waiting')
+            ) q on q.team = d.team
+            group by d.team
+            """;
+
     private final EntityManager em;
 
     TeamPerformanceRepository(EntityManager em) {
@@ -156,6 +243,32 @@ class TeamPerformanceRepository {
                     text(cells[2]),
                     text(cells[3]),
                     ((Number) cells[4]).longValue()));
+        }
+        return out;
+    }
+
+    List<MyWorkResponse.Queue> myQueues(Set<String> functions) {
+        List<String> branches = new ArrayList<>();
+        for (Map.Entry<String, String> queue : MY_QUEUES) {
+            if (functions.contains(queue.getKey())) {
+                branches.add(queue.getValue());
+            }
+        }
+        // Team names come from DESK_TEAMS, never from the caller, so formatting them in is safe.
+        String teams = DESK_TEAMS.stream()
+                .filter(team -> functions.contains("desk:" + team))
+                .map(team -> "('" + team + "')")
+                .collect(Collectors.joining(", "));
+        if (!teams.isEmpty()) {
+            branches.add(MY_DESKS.formatted(teams));
+        }
+        if (branches.isEmpty()) {
+            return List.of();
+        }
+        List<MyWorkResponse.Queue> out = new ArrayList<>();
+        for (Object row : em.createNativeQuery(String.join(" union all ", branches)).getResultList()) {
+            Object[] cells = (Object[]) row;
+            out.add(new MyWorkResponse.Queue(text(cells[0]), ((Number) cells[1]).longValue(), toInstant(cells[2])));
         }
         return out;
     }

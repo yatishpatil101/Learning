@@ -11,6 +11,8 @@ import com.draazy.api.common.error.NotFoundException;
 import com.draazy.api.common.trust.Notifier;
 import com.draazy.api.common.web.Ids;
 import com.draazy.api.moderation.verification.ApprovalGate;
+import com.draazy.api.moderation.verification.PropertyOverrideRequest;
+import com.draazy.api.moderation.verification.PropertyOverrideRequestRepository;
 import com.draazy.api.moderation.verification.PropertyReview;
 import com.draazy.api.moderation.verification.PropertyReviewRepository;
 import com.draazy.api.moderation.verification.ReviewChecklistItem;
@@ -39,10 +41,12 @@ public class PropertyModerationService {
     private final VerificationCases cases;
     private final PropertyReviewRepository reviews;
     private final ListingSignalService signals;
+    private final PropertyOverrideRequestRepository overrideRequests;
 
     public PropertyModerationService(PropertyRepository properties, AuditService audit,
             Notifier notifier, PropertyLifecycle lifecycle, VerificationCases cases,
-            PropertyReviewRepository reviews, ListingSignalService signals) {
+            PropertyReviewRepository reviews, ListingSignalService signals,
+            PropertyOverrideRequestRepository overrideRequests) {
         this.properties = properties;
         this.audit = audit;
         this.notifier = notifier;
@@ -50,6 +54,7 @@ public class PropertyModerationService {
         this.cases = cases;
         this.reviews = reviews;
         this.signals = signals;
+        this.overrideRequests = overrideRequests;
     }
 
     @Transactional
@@ -86,7 +91,9 @@ public class PropertyModerationService {
             }
             PropertyReview review = cases.ensure(property.getId(), property.getDeal());
             ApprovalGate.require(review);
-            if (!clearingApprovedRecheck) {
+            if (clearingApprovedRecheck) {
+                requireSignalAlreadyOverridden(property);
+            } else {
                 requireNoSecondApproverBlock(property);
                 if (review.getDecidedAt() == null || !PropertyStatus.APPROVED.equals(review.getStatus())) {
                     review.decide(PropertyStatus.APPROVED, actor.userId().toString(), reason, null);
@@ -201,11 +208,27 @@ public class PropertyModerationService {
                 .orElseGet(Map::of);
     }
 
+    /** An approval that needed no second approver was made with no hard signal, so one standing now is new. */
+    private void requireSignalAlreadyOverridden(Property property) {
+        if (!overrideRequests.existsByPropertyIdAndActionAndStatus(property.getId(),
+                PropertyOverrideRequest.APPROVE, PropertyOverrideRequest.APPROVED)) {
+            requireNoSecondApproverBlock(property);
+        }
+    }
+
     private void requireNoSecondApproverBlock(Property property) {
         if (signals.hasHardSignal(property.getId())) {
             throw new ConflictException("second_approver_required",
                     "A hard broker signal requires a second staff approver.");
         }
+    }
+
+    /** The desk's read of one listing by id or slug, archived rows included; no lock, no write. */
+    @org.springframework.transaction.annotation.Transactional(readOnly = true)
+    public Property find(String idOrSlug) {
+        return Ids.parseUuid(idOrSlug).flatMap(properties::findById)
+            .or(() -> properties.findBySlug(idOrSlug))
+            .orElseThrow(() -> NotFoundException.of("Property"));
     }
 
     private Property load(String idOrSlug) {

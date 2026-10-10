@@ -41,14 +41,29 @@ export function toReviewViewModel(row) {
     agreementTooLarge: !!doc?.tooLarge,
     // The sub-registrar's particulars, which is what the desk can check against the IGR portal.
     // Not masked: a registration number is a public record.
-    agreementRegNo: text(row?.agreementRegNo),
-    agreementRegisteredOn: text(row?.agreementRegisteredOn),
     agreementValidTill: text(row?.agreementValidTill),
     // `pending` | `approved` | `rejected` (FlatmateVocabulary.REVIEW_STATUS).
     status: row?.status || 'pending',
     reason: text(row?.reason),
     createdAt: epoch(row?.createdAt),
     updatedAt: epoch(row?.updatedAt),
+  };
+}
+
+/** A card on the verification desk. The agreement file and the host's number come with the popup's
+ * detail read, so a row carries neither. */
+export function toReviewRowViewModel(row) {
+  return {
+    id: row?.id || '',
+    kind: row?.kind || 'room',
+    roomId: row?.roomId || null,
+    groupId: row?.groupId || null,
+    host: text(row?.host),
+    address: text(row?.address),
+    tier: row?.tier || 'identity',
+    flagForReview: !!row?.flagForReview,
+    ownerConsent: !!row?.ownerConsent,
+    createdAt: epoch(row?.createdAt),
   };
 }
 
@@ -61,19 +76,31 @@ export function toModerationRowViewModel(row) {
     kind: row?.kind || 'post',
     // `pending` | `live` | `approved` | `flagged` | `removed` | `rejected`.
     modStatus: row?.modStatus || 'pending',
-    authorId: row?.authorId || null,
     authorName: text(row?.authorName),
     headline: text(row?.headline),
     locality: text(row?.locality),
     freeText: text(row?.freeText),
-    // A room's own pictures — the half of a post that cannot be judged by reading it.
-    photos: Array.isArray(row?.photos) ? row.photos.map(httpUrl).filter(Boolean) : [],
+    // A card counts a room's pictures; the popup's `item` lists them (`toModerationItemViewModel`).
+    photoCount: Number(row?.photoCount) || 0,
     // Which fields were edited after approval, and when — null when nothing is awaiting a re-read.
     recheckReason: text(row?.recheckReason),
     recheckRequestedAt: epoch(row?.recheckRequestedAt),
     createdAt: epoch(row?.createdAt),
   };
 }
+
+/** The same row plus the pictures themselves, the half of a post that cannot be judged by reading it. */
+export const toModerationItemViewModel = (item) => ({
+  ...toModerationRowViewModel(item),
+  photos: Array.isArray(item?.photos) ? item.photos.map(httpUrl).filter(Boolean) : [],
+});
+
+/** What each tab's label shows. */
+export const toModerationSummaryViewModel = (res) => ({
+  pending: Number(res?.pending) || 0,
+  published: Number(res?.published) || 0,
+  hidden: Number(res?.hidden) || 0,
+});
 
 // **Two statuses, and only one is ours**: `status` is the owner's accept/decline and this desk may
 // never write it; `modStatus` is the admin axis `PATCH .../{id}` reaches. Both names are kept.

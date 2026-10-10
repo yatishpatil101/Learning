@@ -1,8 +1,6 @@
 package com.draazy.api.services;
 
-import static org.hamcrest.Matchers.everyItem;
 import static org.hamcrest.Matchers.hasSize;
-import static org.hamcrest.Matchers.nullValue;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -39,7 +37,7 @@ class ServiceRequestDocsTest extends ServiceFixtures {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.documents[?(@.category=='identity')]").isNotEmpty())
                 .andExpect(jsonPath("$.documents[?(@.category=='draft')]").isNotEmpty())
-                .andExpect(jsonPath("$.documents[*].propertyId", everyItem(nullValue())));
+                .andExpect(jsonPath("$.documents[*].propertyId").doesNotExist());
     }
 
     @Test
@@ -63,7 +61,8 @@ class ServiceRequestDocsTest extends ServiceFixtures {
                 .andExpect(jsonPath("$.documents", hasSize(9)))
                 .andExpect(jsonPath("$.documents[0].category").value("final-document"))
                 .andExpect(jsonPath("$.documents[1].category").value("draft"))
-                .andExpect(jsonPath("$.documents[0].propertyId").value(p.getId().toString()));
+                .andExpect(jsonPath("$.documents[0].propertyId").doesNotExist())
+                .andExpect(jsonPath("$.documents[0].url").doesNotExist());
 
         mvc.perform(get(Routes.MeDocuments.FOR_PROPERTY, p.getId().toString())
                         .header(HttpHeaders.AUTHORIZATION, bearer(buyer)))
@@ -142,14 +141,5 @@ class ServiceRequestDocsTest extends ServiceFixtures {
                         .header(HttpHeaders.AUTHORIZATION, bearer(buyer)))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.fileName").value("passwd.pdf"));
-    }
-
-    private void upload(User caller, String id, String category, int expected) throws Exception {
-        mvc.perform(multipart(Routes.ServiceRequests.DOCS, id)
-                        .file(new MockMultipartFile("file", "scan.pdf", "application/pdf",
-                                "%PDF-1.4".getBytes()))
-                        .param("category", category)
-                        .header(HttpHeaders.AUTHORIZATION, bearer(caller)))
-                .andExpect(status().is(expected));
     }
 }

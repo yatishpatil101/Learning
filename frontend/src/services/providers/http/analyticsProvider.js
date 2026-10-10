@@ -75,7 +75,7 @@ export async function reviewSla(opts = {}) {
   };
 }
 
-/* The dashboard is one read; a section the caller may not see stays absent and its tiles hidden, and `revenue30d` stays nullable so redacted revenue is not shown as zero. */
+/* An unseen section stays absent; `revenue30d` stays nullable so redacted revenue is not shown as zero. */
 export async function adminDashboard() {
   const d = (await get('/admin/dashboard')) || {};
   const k = d.kpis;
@@ -199,11 +199,6 @@ export async function surfers(opts = {}) {
     // `.toLocaleString('en-IN')` on their values, which a string does not have.
     anonSharePct: num(s?.anonSharePct),
     conversionRatePct: num(s?.conversionRatePct),
-    weeks: (Array.isArray(s?.weeks) ? s.weeks : []).map((w) => ({
-      week: String(w?.week || ''),
-      anonymous: count(w?.anonymous),
-      signedIn: count(w?.signedIn),
-    })),
     pages: (Array.isArray(s?.pages) ? s.pages : []).map(toPage),
     dropOff: (Array.isArray(s?.dropOff) ? s.dropOff : []).map((d) => ({
       path: String(d?.path || ''),

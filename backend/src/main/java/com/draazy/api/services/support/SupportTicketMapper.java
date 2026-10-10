@@ -1,7 +1,5 @@
 package com.draazy.api.services.support;
 
-import com.draazy.api.common.attachment.MessageAttachmentDto;
-import com.draazy.api.common.attachment.MessageAttachments;
 import com.draazy.api.identity.user.User;
 import com.draazy.api.identity.user.UserRepository;
 import java.util.HashMap;
@@ -15,29 +13,50 @@ import java.util.stream.Collectors;
 import org.springframework.data.domain.Page;
 import org.springframework.stereotype.Component;
 
-/**
- * Entity→wire projection for support tickets.
- *
- * <p>Batch-loaded, as {@code TicketMapper} and {@code ServiceRequestMapper} are: the contract carries
- * the thread inline, so a per-ticket load would be an N+1 across the caller's whole list.
- * {@link #toDtos} issues two queries whatever the list size.
- */
+/** Batch-loaded because the contract carries the thread inline, so a per-ticket load would be
+ * an N+1 across the caller's whole list. */
 @Component
 public class SupportTicketMapper {
 
+    private static final int PREVIEW_CHARS = 160;
+
     private final SupportTicketMessageRepository messages;
     private final UserRepository users;
-    private final MessageAttachments attachments;
 
-    public SupportTicketMapper(SupportTicketMessageRepository messages, UserRepository users,
-            MessageAttachments attachments) {
+    public SupportTicketMapper(SupportTicketMessageRepository messages, UserRepository users) {
         this.messages = messages;
         this.users = users;
-        this.attachments = attachments;
     }
 
     public SupportTicketDto toDto(SupportTicket ticket) {
         return toDtos(List.of(ticket)).getFirst();
+    }
+
+    public List<SupportTicketSummary> toSummaries(List<SupportTicket> tickets) {
+        if (tickets.isEmpty()) {
+            return List.of();
+        }
+        Map<UUID, SupportTicketMessage> latest = messages
+                .findLatestByTicketIdIn(tickets.stream().map(SupportTicket::getId).toList()).stream()
+                .collect(Collectors.toMap(SupportTicketMessage::getTicketId, m -> m, (a, b) -> b));
+        return tickets.stream()
+                .map(t -> {
+                    SupportTicketMessage m = latest.get(t.getId());
+                    return new SupportTicketSummary(
+                            t.getId().toString(),
+                            t.getSubject(),
+                            t.getCategory(),
+                            t.getStatus(),
+                            t.isUnread(),
+                            m == null ? null : new SupportTicketSummary.LastMessage(
+                                    m.getAuthorRole(), preview(m.getBody()), m.getCreatedAt()),
+                            t.getCreatedAt());
+                })
+                .toList();
+    }
+
+    private static String preview(String body) {
+        return body == null || body.length() <= PREVIEW_CHARS ? body : body.substring(0, PREVIEW_CHARS);
     }
 
     public List<SupportTicketDto> toDtos(List<SupportTicket> tickets) {
@@ -60,12 +79,6 @@ public class SupportTicketMapper {
             }
         }
 
-        // A third batched lookup, on the same principle as the two above: whatever the page size,
-        // attachments cost one query (D49). Visibility rides on the ticket — whoever got this far
-        // has already passed readable() or the ops guard.
-        Map<UUID, List<MessageAttachmentDto>> files = attachments.byMessage(
-                all.stream().map(SupportTicketMessage::getId).toList());
-
         return tickets.stream()
                 .map(t -> new SupportTicketDto(
                         t.getId().toString(),
@@ -76,31 +89,17 @@ public class SupportTicketMapper {
                         byTicket.getOrDefault(t.getId(), List.of()).stream()
                                 .map(m -> new MessageDto(
                                         m.getId().toString(),
-                                        // `author_id` is nullable, and the name lookup above already
-                                        // filters nulls out — so a message whose author is gone was
-                                        // always an anticipated state everywhere except here, where
-                                        // an unconditional toString() turned it into a 500 on the
-                                        // whole thread. The contract already declares `author` as
-                                        // nullable for exactly this row; the id is absent with it.
-                                        Objects.toString(m.getAuthorId(), null),
                                         names.get(m.getAuthorId()),
                                         m.getAuthorRole(),
                                         m.getBody(),
-                                        m.getCreatedAt(),
-                                        files.getOrDefault(m.getId(), List.of())))
+                                        m.getCreatedAt()))
                                 .toList(),
                         t.getCreatedAt()))
                 .toList();
     }
 
-    /**
-     * The ops queue projection (D51) — one page of {@link AdminSupportTicketDto}, threads omitted.
-     *
-     * <p>Names are resolved for the whole page before {@link org.springframework.data.domain.Page#map}
-     * walks it. Mapping element by element and looking each raiser up inside the lambda would be an
-     * N+1 that only shows itself under load, which is the failure mode this class was already
-     * written to avoid on the customer's list.
-     */
+    /** Names are resolved for the whole page before {@code Page#map} walks it; a per-element lookup
+     * inside the lambda would be an N+1 that only shows under load. */
     public Page<AdminSupportTicketDto> toAdminPage(Page<SupportTicket> page) {
         Map<UUID, String> names = raiserNames(page.getContent());
         return page.map(t -> new AdminSupportTicketDto(

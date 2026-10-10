@@ -29,9 +29,8 @@
 
 ## 3. Actors & roles
 - **Reporter = any signed-in user** (maker) who flags a listing/user from the consumer app.
-- **Checker = admin / manager**, or a staff member with the `reports` module
-  (`ModuleRoute moduleKey="reports"` + `FlagRoute flag="reports"`, inside
-  `RoleRoute roles={['admin','manager']}` in `src/App.jsx`).
+- **Checker = admin / manager**, or staff holding the `reports` function (Listings, Users and
+  Flatmate posts tabs) and/or the `reviews` function (Reviews tab). Either one opens `/admin/reports`.
 - Guards are UX-only (cross-cutting section 1).
 
 ## 4. Entities touched

@@ -59,6 +59,13 @@ class DuplicateClusterHintTest extends AbstractApiTest {
                         .header(HttpHeaders.AUTHORIZATION, bearer(staff)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.clusters[0].hints[0].code").value("same_society_bhk_area"))
-                .andExpect(jsonPath("$.clusters[0].hints[0].severity").value("soft"));
+                .andExpect(jsonPath("$.clusters[0].hints[0].severity").value("soft"))
+                .andExpect(jsonPath("$.clusters[0].listings[0].title").value("2BHK"))
+                .andExpect(jsonPath("$.clusters[0].listings[0].owner.mobile").isNotEmpty())
+                .andExpect(jsonPath("$.clusters[0].listings[0].address").doesNotExist())
+                .andExpect(jsonPath("$.clusters[0].listings[0].electricityMeterNo").doesNotExist())
+                .andExpect(jsonPath("$.clusters[0].listings[0].formDetails").doesNotExist())
+                .andExpect(jsonPath("$.clusters[0].listings[0].description").doesNotExist())
+                .andExpect(jsonPath("$.clusters[0].listings[0].images").doesNotExist());
     }
 }

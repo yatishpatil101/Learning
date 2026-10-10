@@ -51,12 +51,33 @@ class SupportTicketEndpointsTest extends ServiceFixtures {
                     .andExpect(jsonPath("$", hasSize(1)))
                     .andExpect(jsonPath("$[0].subject").value("Refund not received"))
                     .andExpect(jsonPath("$[0].status").value("open"))
-                    .andExpect(jsonPath("$[0].messages", hasSize(1)));
+                    .andExpect(jsonPath("$[0].lastMessage.body").value("Please help"))
+                    .andExpect(jsonPath("$[0].lastMessage.authorRole").value("buyer"))
+                    .andExpect(jsonPath("$[0].messages").doesNotExist());
 
             mvc.perform(get(Routes.SupportTickets.BASE)
                             .header(HttpHeaders.AUTHORIZATION, bearer(boss)))
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$", hasSize(0)));
+        }
+
+        @Test
+        @DisplayName("the list previews the newest message, flags unread, and carries no thread")
+        void listIsASummary() throws Exception {
+            User asha = customer("9840000131");
+            User desk = staff("9840000132", Teams.RENTAL);
+            String id = raiseTicket(asha, "Plan question");
+            replyTicket(desk, id, "x".repeat(400), 201);
+
+            mvc.perform(get(Routes.SupportTickets.BASE)
+                            .header(HttpHeaders.AUTHORIZATION, bearer(asha)))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$[0].id").value(id))
+                    .andExpect(jsonPath("$[0].unread").value(true))
+                    .andExpect(jsonPath("$[0].lastMessage.authorRole").value("staff"))
+                    .andExpect(jsonPath("$[0].lastMessage.body").value("x".repeat(160)))
+                    .andExpect(jsonPath("$[0].messages").doesNotExist())
+                    .andExpect(jsonPath("$[0].lastMessage.authorId").doesNotExist());
         }
 
         @Test
@@ -317,11 +338,22 @@ class SupportTicketEndpointsTest extends ServiceFixtures {
 
             mvc.perform(get(Routes.Admin.SUPPORT_TICKETS)
                             .header(HttpHeaders.AUTHORIZATION, bearer(desk))
-                            .param("awaitingReply", "false").param("size", "1"))
+                            .param("awaitingReply", "false").param("size", "1").param("counts", "true"))
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.counts.awaiting").value(awaiting + 1))
                     .andExpect(jsonPath("$.counts.answered").value(answered + 1))
                     .andExpect(jsonPath("$.counts.all").value(awaiting + answered + 2));
+        }
+
+        @Test
+        @DisplayName("counts are omitted unless asked for")
+        void countsOnlyOnRequest() throws Exception {
+            User desk = staff("9840000160", Teams.RENTAL);
+
+            mvc.perform(get(Routes.Admin.SUPPORT_TICKETS)
+                            .header(HttpHeaders.AUTHORIZATION, bearer(desk)))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.counts").doesNotExist());
         }
 
         private long countOf(User desk, String key) throws Exception {
@@ -352,9 +384,49 @@ class SupportTicketEndpointsTest extends ServiceFixtures {
     }
 
     @Nested
+    @DisplayName("opening a ticket on the desk")
+    class DeskRead {
+
+        @Test
+        @DisplayName("the staff GET clears the desk flag in the same round trip; the raiser's GET does not")
+        void staffGetMarksRead() throws Exception {
+            User asha = customer("9840000161");
+            User desk = staff("9840000162", Teams.RENTAL);
+            String id = raiseTicket(asha, "Open me once");
+            expectAwaitingReply(desk, id, true);
+
+            expectUnread(asha, id, false);
+            expectAwaitingReply(desk, id, true);
+
+            mvc.perform(get(Routes.SupportTickets.BY_ID, id)
+                            .header(HttpHeaders.AUTHORIZATION, bearer(desk)))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.messages", hasSize(1)))
+                    .andExpect(jsonPath("$.messages[0].authorId").doesNotExist())
+                    .andExpect(jsonPath("$.messages[0].attachments").doesNotExist());
+
+            expectAwaitingReply(desk, id, false);
+        }
+
+        @Test
+        @DisplayName("a staff read leaves the customer's own flag alone")
+        void staffGetDoesNotTouchTheCustomersFlag() throws Exception {
+            User asha = customer("9840000163");
+            User desk = staff("9840000164", Teams.RENTAL);
+            String id = raiseTicket(asha, "Customer flag");
+            replyTicket(desk, id, "on it", 201);
+
+            mvc.perform(get(Routes.SupportTickets.BY_ID, id)
+                            .header(HttpHeaders.AUTHORIZATION, bearer(desk)))
+                    .andExpect(status().isOk());
+
+            expectUnread(asha, id, true);
+        }
+    }
+
+    @Nested
     @DisplayName("the thread")
     class Thread {
-
         @Test
         @DisplayName("the reply comes back as a message, not as a bare 201 (S46)")
         void replyIsRendered() throws Exception {
@@ -370,6 +442,7 @@ class SupportTicketEndpointsTest extends ServiceFixtures {
                     .andExpect(jsonPath("$.body").value("Plans renew yearly."))
                     .andExpect(jsonPath("$.author").value("Rohit Desk"))
                     .andExpect(jsonPath("$.authorRole").value("staff"))
+                    .andExpect(jsonPath("$.authorId").doesNotExist())
                     .andExpect(jsonPath("$.id").isNotEmpty());
 
             mvc.perform(get(Routes.SupportTickets.BY_ID, id)
@@ -400,7 +473,7 @@ class SupportTicketEndpointsTest extends ServiceFixtures {
                             .header(HttpHeaders.AUTHORIZATION, bearer(asha)))
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.messages", hasSize(2)))
-                    .andExpect(jsonPath("$.messages[1].authorId", nullValue()))
+                    .andExpect(jsonPath("$.messages[1].authorId").doesNotExist())
                     .andExpect(jsonPath("$.messages[1].author", nullValue()))
                     .andExpect(jsonPath("$.messages[1].authorRole").value("staff"))
                     .andExpect(jsonPath("$.messages[1].body").value("Re-sending it now."));
@@ -460,7 +533,7 @@ class SupportTicketEndpointsTest extends ServiceFixtures {
     private ResultActions queue(User caller) throws Exception {
         return mvc.perform(get(Routes.Admin.SUPPORT_TICKETS)
                 .header(HttpHeaders.AUTHORIZATION, bearer(caller))
-                .param("size", "100"));
+                .param("size", "100").param("counts", "true"));
     }
 
     private User scopedStaff(String mobile, String functionsJson) {

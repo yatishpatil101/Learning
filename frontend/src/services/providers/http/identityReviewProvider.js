@@ -12,7 +12,6 @@ function mapReview(row) {
     livenessSource: ['challenge', 'client'].includes(row?.livenessSource) ? row.livenessSource : null,
     submittedAt: parseTime(row?.submittedAt),
     decidedAt: parseTime(row?.decidedAt),
-    claimedAt: parseTime(row?.claimedAt),
     filesPurgedAt: parseTime(row?.filesPurgedAt),
     revokedAt: parseTime(row?.revokedAt),
     qaSampledAt: parseTime(row?.qaSampledAt),
@@ -48,7 +47,8 @@ export async function getIdentityReview(id) {
 }
 
 export async function claimIdentityReview(id) {
-  return mapReview(await post(`${reviewPath(id)}/claim`, {}));
+  const claim = await post(`${reviewPath(id)}/claim`, {});
+  return { claimedByName: claim?.claimedByName || null, claimedByMe: Boolean(claim?.claimedByMe) };
 }
 
 export async function releaseIdentityReview(id, { force = false } = {}) {

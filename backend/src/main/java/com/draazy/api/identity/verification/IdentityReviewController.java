@@ -10,6 +10,7 @@ import jakarta.validation.Valid;
 import java.util.UUID;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.web.PageableDefault;
+import org.springframework.http.HttpStatus;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -17,6 +18,7 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
 // Read and decide are split into distinct identity:* atoms for maker-checker permissions.
@@ -46,7 +48,7 @@ public class IdentityReviewController {
     /** {@code GET /moderation/identity-reviews} (contract {@code listIdentityReviews}). */
     @GetMapping(Routes.Moderation.IDENTITY_REVIEWS)
     @PreAuthorize(IDENTITY_READ)
-    public PageResponse<IdentityReviewResponse> queue(
+    public PageResponse<IdentityReviewRow> queue(
             @CurrentUser AuthPrincipal principal,
             @RequestParam(required = false, defaultValue = VerificationStatuses.PENDING) String status,
             @RequestParam(required = false) String q,
@@ -97,15 +99,16 @@ public class IdentityReviewController {
 
     @PostMapping(Routes.Moderation.IDENTITY_REVIEW_BY_ID + "/claim")
     @PreAuthorize(IDENTITY_WRITE)
-    public IdentityReviewResponse claim(@CurrentUser AuthPrincipal principal, @PathVariable UUID id) {
+    public IdentityClaimState claim(@CurrentUser AuthPrincipal principal, @PathVariable UUID id) {
         return claims.claim(principal, id);
     }
 
     @DeleteMapping(Routes.Moderation.IDENTITY_REVIEW_BY_ID + "/claim")
     @PreAuthorize(IDENTITY_WRITE)
-    public IdentityReviewResponse releaseClaim(@CurrentUser AuthPrincipal principal, @PathVariable UUID id,
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void releaseClaim(@CurrentUser AuthPrincipal principal, @PathVariable UUID id,
             @RequestParam(defaultValue = "false") boolean force) {
-        return claims.releaseClaim(principal, id, force);
+        claims.releaseClaim(principal, id, force);
     }
 
     @PostMapping(Routes.Moderation.IDENTITY_REVIEW_BY_ID + "/qa")

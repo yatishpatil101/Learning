@@ -80,7 +80,8 @@ export default function OpsFlatmateReview() {
         tabs={QUEUE_TABS.map((t) => ({
           key: t.id,
           label: t.label,
-          count: t.id === tab && ready ? `${loaded.items.length}${loaded.truncated ? '+' : ''}` : null,
+          count: ready && loaded.counts ? String(loaded.counts[t.id])
+            : t.id === tab && ready ? `${loaded.items.length}${loaded.truncated ? '+' : ''}` : null,
         }))}
       />
 
@@ -98,7 +99,7 @@ export default function OpsFlatmateReview() {
             {queue.status === 'ready' ? (
               <p role="status" className="ml-auto text-xs tabular-nums text-gray-400">
                 {queue.items.length} {queue.items.length === 1 ? 'item' : 'items'}
-                {queue.truncated ? ' · first 100 of each kind — decide some to see the rest' : ''}
+                {queue.truncated ? ' · first 100 of each list — decide some to see the rest' : ''}
               </p>
             ) : null}
           </>

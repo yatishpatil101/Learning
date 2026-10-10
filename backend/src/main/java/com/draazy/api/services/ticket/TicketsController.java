@@ -25,31 +25,8 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
-/**
- * {@code /tickets} — the ops board.
- *
- * <p><strong>{@code POST} carries no role guard and the other three do</strong>, the same asymmetry
- * as {@code /reports}: a queue only privileged people can write to collects nothing, while reading
- * and working it are ops-only. Spec fix S43 recorded the omission explicitly so that a later reader
- * "finishing the job" of adding {@code x-roles} does not sweep this one in.
- *
- * <p>Team scoping is enforced in {@link TicketService}, not here — {@code @PreAuthorize} can express
- * "is staff" but not "is on the desk that owns row X", and splitting one rule across two places is
- * how half of it gets forgotten.
- *
- * <p><strong>The two write routes additionally require the {@code update_ticket} capability</strong>
- * (tech debt D67), composed onto the role guard rather than replacing it, so the map can only take
- * the two writes away from a desk and never hand them to someone the role check refused. Reading the
- * board is left alone on purpose: a desk that may no longer act on a ticket can still need to see
- * that it exists in order to hand it on, and the rows it sees are already narrowed by the team
- * scoping above.
- *
- * <p><strong>The per-account atoms do cover the read</strong> (tech debt D192/D13), and the two
- * axes are answering different questions. {@code update_ticket} is a property of a <em>desk</em>:
- * whether the rental team, as a team, works tickets. {@code tickets:read} is a property of a
- * <em>person</em>: whether this particular hire is on ticket duty at all. An account that is not
- * cannot be given the board by being on a team that is, because the two are {@code and}-ed.
- */
+/** {@code POST} is unguarded by design, as on {@code /reports}; team scoping lives in {@link TicketService}
+ * as {@code @PreAuthorize} cannot say "on the desk that owns row X". */
 @RestController
 public class TicketsController {
 
@@ -66,30 +43,37 @@ public class TicketsController {
         this.service = service;
     }
 
-    /**
-     * {@code GET /tickets} (contract {@code listTickets}, {@code x-roles: [staff, admin]}) — paged.
-     *
-     * <p>Sort is stripped by {@link Pageables#unsorted(Pageable)}: newest-first is fixed server-side
-     * and index-backed (V21), so an incoming {@code ?sort=} would otherwise be an unmapped-property
-     * 500.
-     */
+    /** Sort is stripped via {@link Pageables#unsorted(Pageable)}: newest-first is fixed and index-backed (V21),
+     * so a client {@code ?sort=} would be an unmapped-property 500. */
     @GetMapping(Routes.Tickets.BASE)
     @PreAuthorize(OPS_MAY_READ_TICKETS)
-    public PageResponse<TicketDto> list(@CurrentUser AuthPrincipal principal,
+    public PageResponse<TicketRow> list(@CurrentUser AuthPrincipal principal,
             @RequestParam(required = false) String team,
             @RequestParam(required = false) String status,
+            @RequestParam(required = false) String priority,
+            @RequestParam(required = false) String q,
             @PageableDefault(size = 20) Pageable pageable) {
         return PageResponse.of(
-                service.list(principal, team, status, Pageables.unsorted(pageable)), dto -> dto);
+                service.rows(principal, team, status, priority, q, Pageables.unsorted(pageable)), row -> row);
     }
 
-    /**
-     * {@code POST /tickets} (contract {@code createTicket}) — 201, schema {@code CustomerTicket}.
-     * Any authenticated caller; see the class Javadoc for why there is no guard here.
-     *
-     * <p>The only response on this controller that a non-staff caller ever sees, and therefore the
-     * only one that must not be the staff record — {@code Ticket} carries internal notes (debt D47).
-     */
+    /** Counts per status for the same scope as {@code GET /tickets}, so the tabs never depend on a page. */
+    @GetMapping(Routes.Tickets.SUMMARY)
+    @PreAuthorize(OPS_MAY_READ_TICKETS)
+    public TicketSummary summary(@CurrentUser AuthPrincipal principal,
+            @RequestParam(required = false) String team) {
+        return service.summary(principal, team);
+    }
+
+    /** One ticket in full, with its internal notes, value and quoted value. */
+    @GetMapping(Routes.Tickets.BY_ID)
+    @PreAuthorize(OPS_MAY_READ_TICKETS)
+    public TicketDto get(@CurrentUser AuthPrincipal principal, @PathVariable String id) {
+        return service.get(principal, id);
+    }
+
+    /** The only response a non-staff caller sees, so it must not be the staff {@code Ticket},
+     * which carries internal notes. */
     @PostMapping(Routes.Tickets.BASE)
     @ResponseStatus(HttpStatus.CREATED)
     public CustomerTicketDto create(@CurrentUser AuthPrincipal principal,
@@ -97,10 +81,6 @@ public class TicketsController {
         return service.create(principal, body);
     }
 
-    /**
-     * {@code PATCH /tickets/{id}} (contract {@code updateTicket}, spec fixes S42 and S44,
-     * {@code x-roles: [staff, admin]}).
-     */
     @PatchMapping(Routes.Tickets.BY_ID)
     @PreAuthorize(OPS_MAY_WORK_TICKETS)
     public TicketDto update(@CurrentUser AuthPrincipal principal, @PathVariable String id,
@@ -108,14 +88,8 @@ public class TicketsController {
         return service.update(principal, id, body);
     }
 
-    /**
-     * {@code POST /tickets/{id}/notes} (contract {@code addTicketNote},
-     * {@code x-roles: [staff, admin]}) — 201.
-     *
-     * <p>{@code attachments} is accepted and dropped: {@code ticket_notes} has no column for it and
-     * the {@code Ticket} schema's note object has no field to render one. Written down here rather
-     * than implied, as on the verification thread.
-     */
+    /** {@code attachments} is accepted and dropped: {@code ticket_notes} has no column for it
+     * and the note schema has no field to render one. */
     @PostMapping(Routes.Tickets.NOTES)
     @PreAuthorize(OPS_MAY_WORK_TICKETS)
     @ResponseStatus(HttpStatus.CREATED)

@@ -16,6 +16,9 @@ public interface IdentityVerificationRepository extends JpaRepository<IdentityVe
 
     Optional<IdentityVerification> findByUserId(UUID userId);
 
+    @Query("select v.userId from IdentityVerification v where v.userId in :userIds and v.status = :status")
+    List<UUID> userIdsWithStatus(java.util.Collection<UUID> userIds, String status);
+
     // The row is the attempt counter; concurrent submits must serialise on it.
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select v from IdentityVerification v where v.userId = :userId")
@@ -34,6 +37,29 @@ public interface IdentityVerificationRepository extends JpaRepository<IdentityVe
     List<IdentityVerification> findByPersonKey(String personKey);
 
     long countByClaimedByAndStatusAndClaimedAtAfter(UUID claimedBy, String status, Instant cutoff);
+
+    @Query("""
+            select count(case when v.status = 'pending' then 1 end) as pending,
+                   count(case when v.status = 'pending' and v.submittedAt < :overdueBefore then 1 end) as overdue,
+                   count(case when v.status = 'pending' and v.claimedBy = :me and v.claimedAt > :freshAfter then 1 end) as mine,
+                   count(case when v.status = 'verified' and v.qaSampledAt is not null and v.qaReviewedAt is null
+                              and (v.reviewerId is null or v.reviewerId <> :me) then 1 end) as qa,
+                   count(case when v.status in ('verified', 'rejected', 'revoked') then 1 end) as decided
+              from IdentityVerification v
+            """)
+    SummaryCounts summaryCounts(Instant overdueBefore, Instant freshAfter, UUID me);
+
+    interface SummaryCounts {
+        long getPending();
+
+        long getOverdue();
+
+        long getMine();
+
+        long getQa();
+
+        long getDecided();
+    }
 
     @Query("select v from IdentityVerification v where v.decidedAt < :cutoff and v.filesPurgedAt is null")
     List<IdentityVerification> findPurgeCandidates(Instant cutoff, Pageable pageable);

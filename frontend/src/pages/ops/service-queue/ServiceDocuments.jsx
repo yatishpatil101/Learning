@@ -1,11 +1,10 @@
 import { ExternalLink, FileText } from 'lucide-react';
-import { openDocUrl } from '../../../lib/openDoc.js';
-import { fmtAgo } from './helpers.js';
+import { fmtAgo, openRequestDoc } from './helpers.js';
 
 const CATEGORY_LABEL = { draft: 'Draft', 'final-document': 'Registered copy' };
 
 export default function ServiceDocuments({
-  documents, onUnavailable, title = 'Files on this request', labels = {}, className = 'mt-3 border-t border-white/5 pt-3',
+  requestId, documents, onUnavailable, title = 'Files on this request', labels = {}, className = 'mt-3 border-t border-white/5 pt-3',
 }) {
   if (!documents?.length) return null;
   return (
@@ -18,7 +17,7 @@ export default function ServiceDocuments({
               type="button"
               className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-sm text-sky-200 hover:bg-white/5 focus-visible:outline focus-visible:outline-2 focus-visible:outline-sky-300"
               onClick={() => {
-                if (!openDocUrl(document.url)) onUnavailable();
+                openRequestDoc(requestId, document.id).then((opened) => { if (!opened) onUnavailable(); });
               }}
             >
               <FileText className="h-4 w-4 shrink-0" aria-hidden="true" />

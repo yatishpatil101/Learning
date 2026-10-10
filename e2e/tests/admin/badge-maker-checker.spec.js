@@ -29,7 +29,7 @@ async function openBadgeApprovals(page) {
 
 async function findUser(page, name) {
   await page.getByRole('tab', { name: /^All users/ }).click();
-  await page.getByPlaceholder('Search name, mobile, email…').fill(name);
+  await page.getByPlaceholder('Search name or mobile…').fill(name);
   const row = page.getByTestId('queue-row').filter({ hasText: name }).first();
   await expect(row).toBeVisible();
   return row;

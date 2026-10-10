@@ -7,14 +7,10 @@ import com.draazy.api.catalog.property.PropertyMapper;
 import com.draazy.api.catalog.property.PropertyPhotoHash;
 import com.draazy.api.catalog.property.PropertyPhotoHashRepository;
 import com.draazy.api.catalog.property.PropertyRepository;
-import com.draazy.api.catalog.property.PropertyResponse;
 import com.draazy.api.catalog.property.PropertyStatus;
 import com.draazy.api.common.audit.AuditService;
 import com.draazy.api.common.error.BadRequestException;
-import com.draazy.api.common.trust.BackOfficeVisibility;
 import com.draazy.api.common.trust.ContactVisibility;
-import com.draazy.api.common.trust.OutreachCounts;
-import com.draazy.api.common.trust.PrivateFieldVisibility;
 import com.draazy.api.security.AuthPrincipal;
 import java.math.BigDecimal;
 import java.util.ArrayList;
@@ -165,12 +161,13 @@ public class ListingDuplicateClusterService {
     }
 
     private DuplicateCluster render(Candidate c) {
-        List<PropertyResponse> listings = c.members().stream()
+        List<DuplicateCluster.Listing> listings = c.members().stream()
 
                 // Revealed so owner contact stays in the audited platform workflow.
-                .map(p -> propertyMapper.toResponse(p, ContactVisibility.REVEALED,
-                        BackOfficeVisibility.VISIBLE, OutreachCounts.NONE,
-                        PrivateFieldVisibility.VISIBLE))
+                .map(p -> new DuplicateCluster.Listing(p.getId().toString(), p.getSlug(), p.getTitle(),
+                        p.getPrice(), p.getStatus(), propertyMapper.coverImage(p), p.getLocality(),
+                        p.getPincode(), p.isVerified(), p.getCreatedAt(),
+                        propertyMapper.toOwner(p.getOwner(), ContactVisibility.REVEALED)))
                 .toList();
         boolean sameOwner = c.members().stream()
                 .map(p -> p.getOwner() == null ? null : p.getOwner().getId())

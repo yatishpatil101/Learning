@@ -19,7 +19,10 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.UUID;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
+import java.util.Map;
 import java.util.Set;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
@@ -27,8 +30,7 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-// Team scoping, and why it fails closed.
-// A staff member sees and works only their own desk's tickets; an admin sees everything.
+// Team scoping: staff see only their desk's tickets plus team-less ones no desk owns yet; admins see all.
 @Service
 public class TicketService {
 
@@ -69,19 +71,63 @@ public class TicketService {
             throw new BadRequestException("Unknown ticket status: " + statusFilter);
         }
         BoardScope scope = boardScope(caller, team);
-        Page<Ticket> page = tickets.findForBoard(scope.allTeams(), scope.teams(), statusFilter, pageable);
+        Page<Ticket> page = tickets.findForBoard(scope.allTeams(), scope.teams(), scope.unassigned(), statusFilter, pageable);
         return new PageImpl<>(mapper.toDtos(page.getContent()), page.getPageable(),
                 page.getTotalElements());
+    }
+
+    // The board's rows: the same scope as `list`, narrowed by priority and a contains-search, with no notes read.
+    @Transactional(readOnly = true)
+    public Page<TicketRow> rows(AuthPrincipal caller, String team, String status, String priority, String q,
+            Pageable pageable) {
+        String statusFilter = blankToNull(status);
+        if (statusFilter != null && !TicketStatuses.isKnown(statusFilter)) {
+            throw new BadRequestException("Unknown ticket status: " + statusFilter);
+        }
+        String priorityFilter = blankToNull(priority);
+        if (priorityFilter != null && !TicketPriorities.isKnown(priorityFilter)) {
+            throw new BadRequestException("Unknown priority: " + priorityFilter);
+        }
+        String term = blankToNull(q);
+        BoardScope scope = boardScope(caller, team);
+        Page<Ticket> page = tickets.findRowsForBoard(scope.allTeams(), scope.teams(), scope.unassigned(), statusFilter, priorityFilter,
+                term == null ? null : containsPattern(term), pageable);
+        return new PageImpl<>(mapper.toRows(page.getContent()), page.getPageable(), page.getTotalElements());
+    }
+
+    @Transactional(readOnly = true)
+    public TicketSummary summary(AuthPrincipal caller, String team) {
+        BoardScope scope = boardScope(caller, team);
+        Map<String, Long> byStatus = new HashMap<>();
+        for (TicketRepository.StatusTotal total : tickets.countByStatusForBoard(scope.allTeams(), scope.teams(), scope.unassigned())) {
+            byStatus.put(total.getStatus(), total.getTotal());
+        }
+        long all = byStatus.values().stream().mapToLong(Long::longValue).sum();
+        return new TicketSummary(byStatus.getOrDefault(TicketStatuses.OPEN, 0L),
+                byStatus.getOrDefault(TicketStatuses.IN_PROGRESS, 0L),
+                byStatus.getOrDefault(TicketStatuses.WAITING, 0L),
+                byStatus.getOrDefault(TicketStatuses.RESOLVED, 0L),
+                byStatus.getOrDefault(TicketStatuses.CLOSED, 0L), all);
+    }
+
+    @Transactional(readOnly = true)
+    public TicketDto get(AuthPrincipal caller, String id) {
+        return mapper.toDto(accessible(caller, id));
+    }
+
+    // An unescaped % or _ would slip the caller's own wildcard into the search.
+    private static String containsPattern(String term) {
+        return "%" + term.toLowerCase(Locale.ROOT).replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%";
     }
 
     /** What {@code list(team, "open")} would total, without reading a page. */
     @Transactional(readOnly = true)
     public long countOpen(AuthPrincipal caller, String team) {
         BoardScope scope = boardScope(caller, team);
-        return tickets.countForBoard(scope.allTeams(), scope.teams(), TicketStatuses.OPEN);
+        return tickets.countForBoard(scope.allTeams(), scope.teams(), scope.unassigned(), TicketStatuses.OPEN);
     }
 
-    private record BoardScope(boolean allTeams, List<String> teams) {
+    private record BoardScope(boolean allTeams, List<String> teams, boolean unassigned) {
     }
 
     private BoardScope boardScope(AuthPrincipal caller, String team) {
@@ -90,7 +136,7 @@ public class TicketService {
             throw new BadRequestException("Unknown team: " + requested);
         }
         if (isAdmin(caller)) {
-            return new BoardScope(requested == null, requested == null ? List.of("__all__") : List.of(requested));
+            return new BoardScope(requested == null, requested == null ? List.of("__all__") : List.of(requested), false);
         }
         Set<String> desks = accountPermissions.desksFor(caller);
         if (desks.isEmpty()) {
@@ -100,7 +146,7 @@ public class TicketService {
         if (requested != null && !desks.contains(requested)) {
             throw new ForbiddenException("You can only see your assigned queues.");
         }
-        return new BoardScope(false, requested == null ? new ArrayList<>(desks) : List.of(requested));
+        return new BoardScope(false, requested == null ? new ArrayList<>(desks) : List.of(requested), requested == null);
     }
 
     // quotedValue is caller-owned at creation; ops fills platform facts later.
@@ -228,9 +274,8 @@ public class TicketService {
         if (desks.isEmpty()) {
             throw new ForbiddenException("Your account is not on an ops desk yet.");
         }
-        if (!desks.contains(ticket.getTeam())) {
-            throw new ForbiddenException("That ticket belongs to the "
-                    + (ticket.getTeam() == null ? "unassigned" : ticket.getTeam()) + " desk.");
+        if (ticket.getTeam() != null && !desks.contains(ticket.getTeam())) {
+            throw new ForbiddenException("That ticket belongs to the " + ticket.getTeam() + " desk.");
         }
         return ticket;
     }

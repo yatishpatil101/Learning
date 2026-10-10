@@ -1,23 +1,17 @@
 package com.draazy.api.admin.staff;
 
+import com.fasterxml.jackson.annotation.JsonInclude;
 import java.time.Instant;
 import java.util.Map;
 
-/** A projection of {@code audit_log} with the actor resolved to a name; {@code metadata} is empty unless the caller is an admin. */
+/** {@code audit_log} with the actor named; {@code metadata} is absent unless the caller is an admin. */
 public record StaffActivityEntry(
         String id,
-        String actor,
         String actorName,
         String actorRole,
-        String actorTeam,
         String action,
         String entity,
         String entityId,
         Instant at,
-        Map<String, Object> metadata) {
-
-    StaffActivityEntry withoutMetadata() {
-        return new StaffActivityEntry(id, actor, actorName, actorRole, actorTeam, action, entity, entityId, at,
-                Map.of());
-    }
+        @JsonInclude(JsonInclude.Include.NON_NULL) Map<String, Object> metadata) {
 }

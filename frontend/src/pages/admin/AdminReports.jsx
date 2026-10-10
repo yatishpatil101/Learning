@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router';
 import { AlertTriangle, Ban, CheckCircle2, Download, Eye, Flag, XCircle } from 'lucide-react';
 import { listReports, triageReport } from '../../services/reportService.js';
@@ -16,7 +16,7 @@ import Select from '../../components/ui/Select.jsx';
 import Modal from '../../components/ui/Modal.jsx';
 import Loading from '../../components/ui/Loading.jsx';
 import {
-  BTN, CHIP, CHIP_TONE, Cell, Chips, ClearFilters, DATE_CHIPS, FactRow, IconAction, PageNav, QueuePanel, QueueTabs, RowCard, RowList, SearchBox, useClientPaging,
+  BTN, CHIP, CHIP_TONE, Cell, Chips, ClearFilters, DATE_CHIPS, FactRow, IconAction, PageNav,   QueuePanel, QueueTabs, RowCard, RowList, SearchBox,
 } from '../../components/admin/WorkQueue.jsx';
 import ReviewsTab from './reports/ReviewsTab.jsx';
 
@@ -49,6 +49,8 @@ const TAB_KIND = {
 };
 const inTab = (r, t) => (TAB_KIND[t] || []).includes(r.kind);
 
+const TAB_TYPE = { listings: 'property', users: 'user', posts: 'post' };
+
 const TABS = [
   { key: 'listings', label: 'Properties' },
   { key: 'users', label: 'Users & owners' },
@@ -70,31 +72,65 @@ const PAGE_SIZE = 10;
 export default function AdminReports() {
   const { toast } = useToast();
   const { user } = useAuth();
-  const canSeeReviews = hasPermission(user, 'properties:read');
+  const canSeeReports = hasPermission(user, 'reports:read');
+  const canSeeReviews = hasPermission(user, 'reviews:read');
   const [searchParams] = useSearchParams();
-  const [all, setAll] = useState(null);
-  const [tab, setTab] = useTabParam(['listings', 'users', 'posts', ...(canSeeReviews ? ['reviews'] : [])], 'listings');
+  const [data, setData] = useState(null);
+  const [counts, setCounts] = useState({});
+  const [tab, setTab] = useTabParam([
+    ...(canSeeReports ? TABS.map((t) => t.key) : []),
+    ...(canSeeReviews ? ['reviews'] : []),
+  ]);
   const [statusF, setStatusF] = useState('');
   const [reasonF, setReasonF] = useState('');
   const [dateRange, setDateRange] = useState('');
   const [q, setQ] = useState('');
+  const [search, setSearch] = useState('');
+  const [pageState, setPageState] = useState({ page: 1, key: '' });
+  const [bump, setBump] = useState(0);
   const [detail, setDetail] = useState(null);
   const [selected, setSelected] = useState(new Set());
-
-  /** Reads the queue unfiltered: tabs, status filter and repeat-offender badge are computed client-side, so server filtering would make counts describe a subset. */
-  const load = () => listReports().then((res) => setAll(res.items)).catch(() => setAll([]));
-  useEffect(() => { let alive = true; load().then(() => !alive); return () => { alive = false; }; }, []); // eslint-disable-line
-
-  useEffect(() => {
-    if (!all) return;
-    const oid = searchParams.get('open');
-    if (oid) { const r = all.find((x) => x.id === oid); if (r) setDetail(r); }
-  }, [all, searchParams]); // eslint-disable-line
+  const countsFor = useRef('');
 
   /** Derived, not an effect: an effect leaves a frame with a
    * stale reason; `reasonF` is kept so returning restores it. */
   const reasonOpts = REASON_OPTS[tab] || REASON_OPTS.listings;
   const activeReason = reasonOpts.some((o) => o.value === reasonF) ? reasonF : '';
+
+  useEffect(() => {
+    const t = setTimeout(() => setSearch(q.trim()), 250);
+    return () => clearTimeout(t);
+  }, [q]);
+
+  const filterKey = `${tab}|${statusF}|${activeReason}|${dateRange}|${search}`;
+  const pageNo = pageState.key === filterKey ? pageState.page : 1;
+
+  // One page per read; the tab and status totals ride along only on first load, tab change and after a decision.
+  useEffect(() => {
+    if (tab === 'reviews') return undefined;
+    let alive = true;
+    const countKey = `${tab}|${bump}`;
+    listReports({
+      status: statusF, reason: activeReason, targetType: TAB_TYPE[tab], q: search, sinceDays: dateRange,
+      page: pageNo - 1, size: PAGE_SIZE, counts: countsFor.current !== countKey,
+    }).then((res) => {
+      if (!alive) return;
+      if (res.counts) { countsFor.current = countKey; setCounts(res.counts); }
+      setData(res);
+    }).catch(() => { if (alive) setData({ items: [], total: 0 }); });
+    return () => { alive = false; };
+  }, [tab, statusF, activeReason, dateRange, search, pageNo, bump]);
+
+  useEffect(() => {
+    const oid = searchParams.get('open');
+    if (!oid || !canSeeReports) return undefined;
+    let alive = true;
+    listReports({ q: oid, size: 5 }).then((res) => {
+      const hit = res.items.find((x) => x.id === oid);
+      if (alive && hit) setDetail(hit);
+    }).catch(() => {});
+    return () => { alive = false; };
+  }, [searchParams, canSeeReports]);
 
   /** `enforcement` is the machine verb the server executes; never infer
    * it from the human `actionTaken` label, which gets reworded. */
@@ -111,8 +147,9 @@ export default function AdminReports() {
     // (`resolved` stores as `dismissed`).
     const saved = updated?.status || status;
     const resolveAction = (existing) => (status === 'open' ? '' : (actionTaken || existing));
-    setAll((prev) => prev.map((r) => r.id === id ? { ...r, status: saved, actionTaken: resolveAction(r.actionTaken), handledAt: Date.now() } : r));
+    setData((prev) => ({ ...prev, items: prev.items.map((r) => r.id === id ? { ...r, status: saved, actionTaken: resolveAction(r.actionTaken), handledAt: Date.now() } : r) }));
     if (detail?.id === id) setDetail((d) => ({ ...d, status: saved, actionTaken: resolveAction(d.actionTaken), handledAt: Date.now() }));
+    setBump((b) => b + 1);
     toast(actionTaken || (status === 'open' ? 'Reopened' : saved));
   };
 
@@ -127,7 +164,7 @@ export default function AdminReports() {
     );
     const failed = results.filter((r) => r.status === 'rejected').length;
     setSelected(new Set());
-    await load();
+    setBump((b) => b + 1);
     if (failed) toast(`${ids.length - failed} of ${ids.length} updated — ${failed} could not be saved.`, 'error');
     else toast(doneMsg);
   };
@@ -146,43 +183,26 @@ export default function AdminReports() {
     `${selected.size} reports dismissed`,
   );
 
-  // Precompute report counts per target for escalation indicators (O(n) vs O(n^2) per-row)
-  const targetCounts = useMemo(() => {
-    const map = {};
-    for (const r of (all || [])) { if (r.targetId) map[r.targetId] = (map[r.targetId] || 0) + 1; }
-    return map;
-  }, [all]);
+  const undecided = Object.fromEntries(TABS.map((t) => [t.key, counts[`undecided.${TAB_TYPE[t.key]}`]]));
+  const statusChips = STATUS_OPTS.map((o) => {
+    const n = counts[`status.${o.value || 'all'}`];
+    return { value: o.value, label: `${o.value ? o.label : 'All'}${n == null ? '' : ` ${fmtNum(n)}`}` };
+  });
 
-  const undecided = useMemo(() => {
-    const list = (all || []).filter(canTriage);
-    return Object.fromEntries(TABS.map((t) => [t.key, list.filter((r) => inTab(r, t.key)).length]));
-  }, [all]);
-
-  const tabRows = useMemo(() => (all || []).filter((r) => inTab(r, tab)), [all, tab]);
-  const statusChips = STATUS_OPTS.map((o) => ({
-    value: o.value,
-    label: `${o.value ? o.label : 'All'} ${fmtNum(o.value ? tabRows.filter((r) => r.status === o.value).length : tabRows.length)}`,
-  }));
-
-  const rows = useMemo(() => {
-    let list = tabRows;
-    if (statusF) list = list.filter((r) => r.status === statusF);
-    if (activeReason) list = list.filter((r) => r.reason === activeReason);
-    if (dateRange) {
-      const cutoff = Date.now() - Number(dateRange) * 86400000;
-      list = list.filter((r) => r.at >= cutoff);
-    }
-    if (q) { const n = q.toLowerCase(); list = list.filter((r) => JSON.stringify(r).toLowerCase().includes(n)); }
-    return list;
-  }, [tabRows, statusF, activeReason, dateRange, q]);
-
+  const rows = data?.items || [];
   const hasFilters = statusF || activeReason || dateRange || q;
   const clearFilters = () => { setStatusF(''); setReasonF(''); setDateRange(''); setQ(''); };
-  const page = useClientPaging(rows, PAGE_SIZE, `${tab}|${statusF}|${activeReason}|${dateRange}|${q}`);
+  const paging = {
+    page: pageNo,
+    pageCount: Math.max(1, Math.ceil((data?.total || 0) / PAGE_SIZE)),
+    total: data?.total || 0,
+    size: PAGE_SIZE,
+    onPage: (p) => setPageState({ page: p, key: filterKey }),
+  };
 
-  useEffect(() => { setSelected(new Set()); }, [tab, statusF, activeReason, dateRange, q]);
+  useEffect(() => { setSelected(new Set()); }, [tab, statusF, activeReason, dateRange, search, pageNo]);
 
-  if (!all) return <Loading />;
+  if (!data && tab !== 'reviews') return <Loading />;
 
   const toggleSelect = (id) => {
     setSelected((prev) => {
@@ -205,19 +225,19 @@ export default function AdminReports() {
       {inTab(r, 'listings')
         ? <button type="button" onClick={() => act(r.id, 'actioned', 'Listing taken down', 'hide_content')} className={BTN.danger}><Ban className="h-3.5 w-3.5" />Take down</button>
         : inTab(r, 'posts')
-          /* `hide_content`, not `suspend_account`: a flatmate post is content, and suspending its author is a heavier decision. */
+          /* `hide_content`, not `suspend_account`: a post is content, and suspending its author is heavier. */
           ? <button type="button" onClick={() => act(r.id, 'actioned', 'Post taken down', 'hide_content')} className={BTN.danger}><Ban className="h-3.5 w-3.5" />Take down</button>
           : <button type="button" onClick={() => act(r.id, 'actioned', 'User suspended', 'suspend_account')} className={BTN.danger}><Ban className="h-3.5 w-3.5" />Suspend</button>}
       <button type="button" onClick={() => act(r.id, 'resolved', 'Reviewed, no action needed')} className="dz-btn dz-btn-primary dz-btn-sm"><CheckCircle2 className="h-3.5 w-3.5" />Resolve</button>
       <button type="button" onClick={() => act(r.id, 'dismissed')} className="dz-btn dz-btn-ghost dz-btn-sm"><XCircle className="h-3.5 w-3.5" />Dismiss</button>
     </>
   ) : (
-    /* No Reopen: a decided report is terminal server-side, and reopening would let a moderator quietly undo a colleague's decision. */
+    /* No Reopen: a decided report is terminal server-side; reopening would let a moderator undo a colleague. */
     <span className="py-1 text-xs text-gray-500" title="A decided report cannot be reopened — file a new one if it recurs">Decided</span>
   ));
 
   const reportRow = (r) => {
-    const repeatCount = targetCounts[r.targetId] || 1;
+    const repeatCount = r.targetReportCount || 1;
     const titled = r.targetTitle && r.targetTitle !== r.targetId;
     return (
       <RowCard
@@ -278,8 +298,8 @@ export default function AdminReports() {
   );
 
   const tabs = [
-    ...TABS.map((t) => ({ key: t.key, label: t.label, count: undecided[t.key] })),
-    ...(canSeeReviews ?  [{ key: 'reviews', label: 'Reviews', count: null }] : []),
+    ...(canSeeReports ? TABS.map((t) => ({ key: t.key, label: t.label, count: undecided[t.key] })) : []),
+    ...(canSeeReviews ? [{ key: 'reviews', label: 'Reviews', count: null }] : []),
   ];
   const openInView = rows.filter((r) => r.status === 'open');
   const allOpenSelected = openInView.length > 0 && selected.size === openInView.length;
@@ -308,10 +328,10 @@ export default function AdminReports() {
               <div className="w-56"><Select value={activeReason} onChange={setReasonF} options={reasonOpts} searchable={false} ariaLabel="Filter by reason" size="sm" /></div>
               <Chips label="Reported" options={DATE_CHIPS} value={dateRange} onChange={setDateRange} />
               {hasFilters ? <ClearFilters onClick={clearFilters} /> : null}
-              <div className="ml-auto"><PageNav {...page.paging} /></div>
+              <div className="ml-auto"><PageNav {...paging} /></div>
             </>
           )}
-          footer={page.paging.pageCount > 1 ? <PageNav {...page.paging} /> : null}
+          footer={paging.pageCount > 1 ? <PageNav {...paging} /> : null}
         >
           {openInView.length ? (
             <div className="flex flex-wrap items-center gap-3 border-b border-white/10 px-4 py-2 text-xs text-gray-400">
@@ -330,7 +350,7 @@ export default function AdminReports() {
             </div>
           ) : null}
           <RowList isEmpty={!rows.length} empty={hasFilters ? 'No reports match these filters.' : 'All clear — nothing reported here.'}>
-            {page.items.map(reportRow)}
+            {rows.map(reportRow)}
           </RowList>
         </QueuePanel>
       )}
@@ -342,9 +362,9 @@ export default function AdminReports() {
             <div className="flex flex-wrap items-center gap-2">
               <Badge status={detail.status} />
               <span className="rounded-full border border-orange-400/30 bg-orange-500/10 px-2.5 py-0.5 text-xs capitalize text-orange-300"><Flag className="mr-1 inline h-3 w-3" />{detail.kind} report</span>
-              {(targetCounts[detail.targetId] || 1) >= 3 && (
+              {(detail.targetReportCount || 1) >= 3 && (
                 <span className="inline-flex items-center gap-1 rounded-full border border-red-400/30 bg-red-500/10 px-2 py-0.5 text-[11px] font-semibold text-red-300">
-                  <AlertTriangle className="h-3 w-3" /> Escalated ({(targetCounts[detail.targetId] || 1)} reports)
+                  <AlertTriangle className="h-3 w-3" /> Escalated ({detail.targetReportCount} reports)
                 </span>
               )}
             </div>

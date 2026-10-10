@@ -22,6 +22,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import tools.jackson.core.type.TypeReference;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 import tools.jackson.databind.node.ObjectNode;
@@ -39,6 +40,8 @@ public class AdminSettingsService {
      * A deny-list, not an allow-list, because the table is deliberately open. */
     private static final Set<String> UNSUPPORTED_KEYS = Set.of("customRoles");
 
+    private static final String ADMIN_FLAGS_KEY = "adminFlags";
+
     private final SettingRepository settings;
     private final SettingsCache cache;
     private final ObjectMapper objectMapper;
@@ -52,29 +55,44 @@ public class AdminSettingsService {
         this.audit = audit;
     }
 
-    // `GET /admin/settings` - every stored block folded into one document, with its tag.
+    // `GET /admin/settings` - every stored block folded into one document, with its tag, from one read.
     // An unparseable row is skipped: an admin locked out cannot fix the row that locked them out.
     @Transactional(readOnly = true)
     public SettingsDocument current() {
+        List<Setting> rows = settings.findAll(Sort.by("key"));
         Map<String, Object> document = new TreeMap<>();
-        for (Setting row : settings.findAll()) {
+        for (Setting row : rows) {
             JsonNode value = parseOrNull(row.getKey(), row.getValue());
             if (value != null) {
                 document.put(row.getKey(), objectMapper.convertValue(value, Object.class));
             }
         }
-        return new SettingsDocument(document, etag());
+        return new SettingsDocument(document, etag(rows));
     }
 
-    // A strong content hash over every stored block, computed inside the transaction that produced the body it describes.
+    // `GET /admin/settings/flags` - the console's module switches alone, one row instead of the whole table.
+    @Transactional(readOnly = true)
+    public Map<String, Object> adminFlags() {
+        return settings.findById(ADMIN_FLAGS_KEY)
+                .map(row -> parseOrNull(row.getKey(), row.getValue()))
+                .filter(JsonNode::isObject)
+                .map(node -> objectMapper.convertValue(node, new TypeReference<Map<String, Object>>() { }))
+                .orElseGet(Map::of);
+    }
+
+    // Strong hash of every stored block, taken in the transaction that produced the body it describes.
     private String etag() {
+        return etag(settings.findAll(Sort.by("key")));
+    }
+
+    private static String etag(List<Setting> rows) {
         MessageDigest digest;
         try {
             digest = MessageDigest.getInstance("SHA-256");
         } catch (NoSuchAlgorithmException impossible) {
             throw new IllegalStateException("SHA-256 is required of every JRE", impossible);
         }
-        for (Setting row : settings.findAll(Sort.by("key"))) {
+        for (Setting row : rows) {
             digest.update(row.getKey().getBytes(StandardCharsets.UTF_8));
             digest.update((byte) 0);
             digest.update(row.getValue().getBytes(StandardCharsets.UTF_8));
@@ -82,13 +100,13 @@ public class AdminSettingsService {
         }
         return "\"" + HexFormat.of().formatHex(digest.digest(), 0, 16) + "\"";
     }
-
     @Transactional
     public SettingsDocument update(AuthPrincipal caller, Map<String, Object> patch,
             String ifMatch) {
         rejectUnsupportedKeys(patch);
         requirePrecondition(ifMatch);
         List<String> touched = new ArrayList<>();
+        Map<String, Object> saved = new TreeMap<>();
         for (Map.Entry<String, Object> entry : patch.entrySet()) {
             if (entry.getValue() == null) {
 
@@ -102,11 +120,12 @@ public class AdminSettingsService {
             row.setValue(objectMapper.writeValueAsString(merged));
             settings.save(row);
             touched.add(key);
+            saved.put(key, objectMapper.convertValue(merged, Object.class));
         }
         cache.evictAfterCommit();
         audit.record(caller, "settings.update", "settings", "platform",
                 "keys", String.join(",", touched));
-        return current();
+        return new SettingsDocument(saved, etag());
     }
 
     private static void rejectUnsupportedKeys(Map<String, Object> patch) {

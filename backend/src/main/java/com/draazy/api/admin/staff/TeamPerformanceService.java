@@ -1,11 +1,14 @@
 package com.draazy.api.admin.staff;
 
+import com.draazy.api.engagement.flatmate.FlatmateModerationService;
 import com.draazy.api.security.AccountPermissions;
 import com.draazy.api.security.AuthPrincipal;
+import com.draazy.api.security.BackOfficeFunctions;
 import com.draazy.api.security.Roles;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
+import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -20,12 +23,14 @@ class TeamPerformanceService {
 
     private final TeamPerformanceRepository repository;
     private final AccountPermissions permissions;
+    private final FlatmateModerationService flatmates;
     private final Clock clock;
 
     TeamPerformanceService(TeamPerformanceRepository repository, AccountPermissions permissions,
-            Clock clock) {
+            FlatmateModerationService flatmates, Clock clock) {
         this.repository = repository;
         this.permissions = permissions;
+        this.flatmates = flatmates;
         this.clock = clock;
     }
 
@@ -55,7 +60,7 @@ class TeamPerformanceService {
     }
 
     @Transactional(readOnly = true)
-    TeamPerformanceResponse myWork(AuthPrincipal caller, int days) {
+    MyWorkResponse myWork(AuthPrincipal caller, int days) {
         Instant to = Instant.now(clock);
         Instant from = to.minus(days, ChronoUnit.DAYS);
         Set<String> functions = permissions.functionsFor(caller.role(), caller.userId());
@@ -69,10 +74,14 @@ class TeamPerformanceService {
                 stats.byFunction.merge(function, row.count(), Long::sum);
             }
         }
-        return new TeamPerformanceResponse(days, List.of(stats.toResponse()),
-                repository.queues(from).stream()
-                        .filter(queue -> functions.contains(queue.function()))
-                        .toList());
+        List<MyWorkResponse.Queue> queues = new ArrayList<>(repository.myQueues(functions));
+        if (functions.contains(BackOfficeFunctions.FLATMATES)) {
+            queues.add(new MyWorkResponse.Queue(BackOfficeFunctions.FLATMATES,
+                    flatmates.moderationSummary().pending(), null));
+        }
+        return new MyWorkResponse(days,
+                List.of(new MyWorkResponse.Me(stats.name, stats.functions, stats.handled, Map.copyOf(stats.byFunction))),
+                queues);
     }
 
     private Map<String, StaffStats> staffIndex() {

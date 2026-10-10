@@ -1,16 +1,16 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router';
 import {
   CheckCircle, ExternalLink, FileCheck2, HelpCircle, MapPin, Pencil,
   Send, XCircle, History, ArrowRight, AlertTriangle, TrendingDown, User,
 } from 'lucide-react';
 import {
-  startPropertyReview, markPropertyReviewRead,
+  startPropertyReview,
   setPropertyReviewChecklistItem, addPropertyReviewMessage, decidePropertyReview,
   requestPropertyReviewOverride, approvePropertyReviewOverride,
 } from '../../../services/propertyReviewService.js';
 import { setListingStatus } from '../../../services/propertyService.js';
-import { chaseOwner, listOutreachTemplates, listOwnerOutreach } from '../../../services/outreachService.js';
+import { chaseOwner, listOutreachTemplates, listOwnerOutreach, markOutreachSent } from '../../../services/outreachService.js';
 import { interpolateOutreachTemplate } from '../../../lib/outreachTemplate.js';
 import { fmtINR, classNames } from '../../../lib/format.js';
 import { useToast } from '../../../context/ToastContext.jsx';
@@ -56,7 +56,10 @@ export default function PropertyReviewModal({ review, setReview, onRefresh, onEd
   const [outreach, setOutreach] = useState([]);
   const [notes, setNotes] = useState([]);
   const [commsOpen, setCommsOpen] = useState(false);
+  const [commsLoadedFor, setCommsLoadedFor] = useState(null);
   const [waTemplates, setWaTemplates] = useState([]);
+  const templatesRequested = useRef(false);
+  const openCall = useRef(null);
   const [waOpen, setWaOpen] = useState(false);
   const [waPreview, setWaPreview] = useState(null);
   const [decisionMode, setDecisionMode] = useState(null);
@@ -72,22 +75,32 @@ export default function PropertyReviewModal({ review, setReview, onRefresh, onEd
   const [badgeCase, setBadgeCase] = useState(null);
   const [section, setSection] = useState('overview');
   const [sectionFor, setSectionFor] = useState(null);
+  const [badgeSeenFor, setBadgeSeenFor] = useState(null);
   const reviewKey = review ? pid(review) : null;
   if (sectionFor !== reviewKey) {
     setSectionFor(reviewKey);
     if (review) setSection(openingSection(review));
+  } else if (section === 'badge' && badgeSeenFor !== reviewKey) {
+    setBadgeSeenFor(reviewKey);
   }
 
-  // Per-run cancellation prevents StrictMode and listing-switch races. Idempotent open avoids
-  // a get-then-create race; the read receipt is bodyless, so render the opened case file.
+  // `openCall` shares one open write across StrictMode's second effect pass; per-run cancellation covers
+  // listing switches. Idempotent open avoids a get-then-create race; `markRead` folds the read receipt in.
   useEffect(() => {
-    if (!review) return undefined;
+    if (!review) {
+      openCall.current = null;
+      return undefined;
+    }
     let cancelled = false;
     const listing = review;
+    const callKey = `${reviewKey}:${threadReload}`;
+    if (openCall.current?.key !== callKey) {
+      openCall.current = { key: callKey, promise: startPropertyReview(pid(listing), { markRead: true }) };
+    }
+    const { promise } = openCall.current;
     (async () => {
       try {
-        const caseFile = await startPropertyReview(pid(listing));
-        await markPropertyReviewRead(pid(listing));
+        const caseFile = await promise;
         if (cancelled) return;
         setThreadError(null);
         setThread(caseFile);
@@ -100,24 +113,7 @@ export default function PropertyReviewModal({ review, setReview, onRefresh, onEd
     })();
     setOutreach([]);
     setNotes([]);
-    // A collapsed timeline's fetch must not block the checklist or decision buttons.
-    (async () => {
-      try {
-        const rows = await listOwnerOutreach(pid(listing));
-        if (!cancelled) setOutreach(rows);
-      } catch {
-        if (!cancelled) setOutreach([]);
-      }
-    })();
-    // Notes and chasers share a timeline but load independently so one failure cannot erase both.
-    (async () => {
-      try {
-        const rows = await listNotes('listing', listing.id);
-        if (!cancelled) setNotes(rows);
-      } catch {
-        if (!cancelled) setNotes([]);
-      }
-    })();
+    setCommsLoadedFor(null);
     setCommsOpen(false);
     setDecisionMode(null);
     setReasonCode('');
@@ -137,19 +133,32 @@ export default function PropertyReviewModal({ review, setReview, onRefresh, onEd
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [reviewKey, threadReload]);
 
-  // The shared template library is independent of the listing and renders its own empty state.
+  // The timeline fetches only once opened; notes and chasers load independently so one failure cannot erase both.
   useEffect(() => {
+    if (!reviewKey || !commsOpen || commsLoadedFor === reviewKey) return undefined;
     let cancelled = false;
+    const listing = review;
+    Promise.all([
+      listOwnerOutreach(pid(listing)).then((rows) => { if (!cancelled) setOutreach(rows); }, () => { if (!cancelled) setOutreach([]); }),
+      listNotes('listing', listing.id).then((rows) => { if (!cancelled) setNotes(rows); }, () => { if (!cancelled) setNotes([]); }),
+    ]).then(() => { if (!cancelled) setCommsLoadedFor(reviewKey); });
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [reviewKey, commsOpen, commsLoadedFor]);
+
+  // The shared template library is listing-independent; it is needed only by the template picker and the log's labels.
+  useEffect(() => {
+    if (!(waOpen || commsOpen) || templatesRequested.current) return;
+    templatesRequested.current = true;
     (async () => {
       try {
-        const templates = await listOutreachTemplates('whatsapp');
-        if (!cancelled) setWaTemplates(templates);
+        setWaTemplates(await listOutreachTemplates('whatsapp'));
       } catch {
-        if (!cancelled) setWaTemplates([]);
+        setWaTemplates([]);
+        templatesRequested.current = false;
       }
     })();
-    return () => { cancelled = true; };
-  }, []);
+  }, [waOpen, commsOpen]);
 
   useEffect(() => {
     if (!waOpen || waPreview || !reasonCode || !waTemplates.length) return;
@@ -162,16 +171,17 @@ export default function PropertyReviewModal({ review, setReview, onRefresh, onEd
     if (match) setWaPreview(match);
   }, [waOpen, waPreview, reasonCode, waTemplates]);
 
-  // Only timestamped server records belong here; click-to-chat proves "written", not "sent".
+  // Only timestamped server records belong here; a chaser reads "sent" only once staff attest it.
   // Outreach actor UUIDs stay absent: resolving them requires an admin-only audit surface.
   const commsLog = useMemo(() => {
     const chasers = outreach.map((row) => ({
       id: row.id,
       type: 'outreach',
-      action: `Chaser written \u2014 ${waTemplates.find((t) => t.id === row.templateId)?.name || row.templateId || 'WhatsApp'}`,
+      action: `${row.status === 'sent' ? 'Sent' : 'Chaser written'} \u2014 ${waTemplates.find((t) => t.id === row.templateId)?.name || row.templateId || 'WhatsApp'}`,
       detail: row.body,
       by: null,
       at: row.preparedAt,
+      markable: row.status === 'prepared',
     }));
     const written = notes.map((n) => ({
       id: n.id,
@@ -357,7 +367,7 @@ export default function PropertyReviewModal({ review, setReview, onRefresh, onEd
     price: String(listing.price ?? ''),
     listing_id: pid(listing),
     staff_name: user?.name || 'Draazy',
-    claim_link: `${window.location.origin}/signin`,
+    claim_link: `${window.location.origin}/signin?claim=${pid(listing)}`,
   });
 
   /* `window.open` runs first and synchronously so the tab stays inside the authorising gesture, then is
@@ -369,7 +379,7 @@ export default function PropertyReviewModal({ review, setReview, onRefresh, onEd
     try {
       const prepared = await chaseOwner(pid(review), waPreview.id);
       if (handoff) handoff.location = prepared.handoffLink;
-      toast('Chaser written \u2014 finish sending it in WhatsApp', 'success');
+      toast('Chaser written \u2014 send it in WhatsApp, then mark it sent in the log', 'success');
       setWaOpen(false);
       setWaPreview(null);
       // Re-read the server ledger rather than manufacturing a local history entry.
@@ -385,6 +395,16 @@ export default function PropertyReviewModal({ review, setReview, onRefresh, onEd
       toast(err?.message || 'Could not write this chaser', 'error');
     } finally {
       setBusy(false);
+    }
+  };
+
+  const markChaserSent = async (messageId) => {
+    try {
+      const entry = await markOutreachSent(pid(review), messageId);
+      setOutreach((rows) => rows.map((row) => (row.id === entry.id ? entry : row)));
+      onRefresh();
+    } catch (err) {
+      toast(err?.message || 'Could not mark this chaser as sent', 'error');
     }
   };
 
@@ -572,10 +592,12 @@ export default function PropertyReviewModal({ review, setReview, onRefresh, onEd
               </div>
             ) : null}
 
-            {/* Kept mounted so a half-filled evidence form survives a look at another section. */}
-            <div hidden={activeSection !== 'badge'}>
-              <OwnershipEvidencePanel propertyId={pid(review)} listing={review} onRefresh={onRefresh} onVerification={trackBadgeCase} />
-            </div>
+            {/* Mounted on first visit and kept, so a half-filled evidence form survives a look at another tab. */}
+            {activeSection === 'badge' || badgeSeenFor === reviewKey ? (
+              <div hidden={activeSection !== 'badge'}>
+                <OwnershipEvidencePanel propertyId={pid(review)} listing={review} onRefresh={onRefresh} onVerification={trackBadgeCase} />
+              </div>
+            ) : null}
 
             {activeSection === 'messages' ? (
               <div className="space-y-4">
@@ -622,8 +644,8 @@ export default function PropertyReviewModal({ review, setReview, onRefresh, onEd
                     />
                     <div className="mt-2 flex flex-wrap items-center justify-end gap-2">
                       <span className="mr-auto hidden text-[11px] text-gray-500 sm:inline">Ctrl + Enter to send</span>
-                      {/* The server refuses a hand-back once the listing is published, so the button only lives while it
-                          still waits on us. A staff-posted listing is refused too, but its track is not in this read. */}
+                      {/* The server refuses a hand-back once the listing is published, so the button only shows
+                          while it awaits us. A staff-posted listing is refused too, but not visible here. */}
                       <button
                         type="button"
                         onClick={() => reviewSend(true)}
@@ -660,6 +682,8 @@ export default function PropertyReviewModal({ review, setReview, onRefresh, onEd
                     commsOpen={commsOpen}
                     setCommsOpen={setCommsOpen}
                     commsLog={commsLog}
+                    loaded={commsLoadedFor === reviewKey}
+                    onMarkSent={markChaserSent}
                   />
                 </div>
               </div>

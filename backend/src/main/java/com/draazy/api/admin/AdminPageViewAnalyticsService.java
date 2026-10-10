@@ -15,64 +15,22 @@ import java.util.TreeMap;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-/**
- * The three page-view reports behind the Traffic, Engagement and Anonymous-surfers tabs.
- *
- * <p><strong>Everything here reads the daily rollup and nothing reads {@code page_views}.</strong>
- * Raw views are kept ninety days; the console's range picker offers a hundred and eighty. A report
- * served from raw data would return half a window at its widest setting and would do it silently —
- * the chart rendering, the axis still claiming 180 days, the first three months simply flat. Reading
- * the aggregates also means the retention sweep and an erasure request cannot move a figure that has
- * already been reported.
- *
- * <p><strong>Every window is cut on the Indian calendar</strong>, matching the rollup that wrote the
- * rows. A bare {@code LocalDate.now()} would open the window on the host's date while the aggregates
- * were grouped by India's, so on a UTC host the first and last buckets of every chart would each
- * hold part of a day the window's own edges disagree about — the same hazard {@code
- * AdminMetricsService} names for its own series.
- *
- * <p><strong>Null means unmeasurable and zero means measured zero.</strong> Rates are {@code Double}
- * and are null when their denominator is empty; counts are primitives and are genuinely zero. The
- * console prints an em dash for null. This is not fastidiousness — the seeded SLA generator this
- * replaces defaulted its compliance rates to a flawless {@code 100} whenever it had nothing to
- * measure, so a report with no data read as a perfect week.
- *
- * <p>Its own service rather than four more methods on {@code AdminMetricsService}, whose docblock
- * opens "the three back-office read surfaces" — a claim worth keeping true, and the same reason
- * {@code AdminPricingService} and {@code AdminSupplyGapService} stand alone.
- */
+/** Reads only the daily rollup, never {@code page_views}: raw views are kept 90 days but the picker offers 180,
+ * so a raw read would silently return half a window. Windows are cut on the Indian calendar like the rollup. */
 @Service
 public class AdminPageViewAnalyticsService {
 
-    /**
-     * Ceiling on the window, in days.
-     *
-     * <p>The picker offers 30, 90 and 180, but {@code ?days=} is an integer a caller types. Without
-     * a cap, {@code ?days=100000} is a grouped scan of every aggregate row the platform owns,
-     * available to any staff account. A little over a year is past anything the console renders and
-     * far short of a scan worth worrying about.
-     */
+    /** Caps the typed {@code ?days=}: without it {@code ?days=100000} is a grouped scan of every aggregate row
+     * available to any staff account. */
     static final int MAX_DAYS = 400;
 
     /** What the caller gets when they do not say. Matches the console's default selection. */
     static final int DEFAULT_DAYS = 90;
 
-    /**
-     * How many pages the top-pages and drop-off charts return.
-     *
-     * <p>Ten, against the eight the old chart hard-coded. A horizontal bar chart stops being
-     * readable well before this, and the cap is what keeps a site that has served ten thousand
-     * distinct routes from returning ten thousand rows.
-     */
+    /** Row cap for top-pages and drop-off: a site with thousands of distinct routes must not return them all. */
     static final int TOP_PAGES = 10;
 
-    /**
-     * Channels sessions are folded into, in the order the chart shows them.
-     *
-     * <p>A closed vocabulary, defined once, here. The alternative — returning raw referring hosts —
-     * is a doughnut with a slice per site on the internet, which answers nothing and is not a
-     * decision anybody makes.
-     */
+    /** Closed channel vocabulary in chart order; raw referring hosts would make a doughnut slice per site. */
     private static final String DIRECT = "Direct";
     private static final String ORGANIC = "Organic search";
     private static final String SOCIAL = "Social";
@@ -82,15 +40,8 @@ public class AdminPageViewAnalyticsService {
     private static final List<String> CHANNEL_ORDER =
             List.of(ORGANIC, DIRECT, WHATSAPP, SOCIAL, REFERRAL);
 
-    /**
-     * Hosts that mean a search engine sent the visitor.
-     *
-     * <p>Matched on a substring of the host and not on equality, because every one of these has
-     * dozens of country domains — {@code google.co.in}, {@code google.com}, {@code google.de} — and
-     * enumerating them is a list that is wrong the moment a market is added. The cost of substring
-     * matching is that a site with "google" in its name is miscounted as organic search; the cost of
-     * equality is that most of India's search traffic is filed under "other referrals".
-     */
+    /** Matched by substring, not equality, as each engine has many country domains; the cost is that a site
+     * with "google" in its name counts as organic search. */
     private static final List<String> SEARCH_HOSTS =
             List.of("google.", "bing.", "duckduckgo.", "yahoo.", "ecosia.", "yandex.", "baidu.");
 
@@ -149,6 +100,24 @@ public class AdminPageViewAnalyticsService {
                 identityWeeks(rows, from, to));
     }
 
+    /** Dashboard tile: today's sessions and signups plus the window's sessions, no {@link #traffic} breakdowns. */
+    @Transactional(readOnly = true)
+    public AdminDashboard.Traffic glance(int days) {
+        LocalDate today = today();
+        LocalDate to = today.plusDays(1);
+        long sessionsToday = 0;
+        long sessions = 0;
+        for (Object[] row : repository.dailyTraffic(to.minusDays(days), to)) {
+            long n = num(row[1]);
+            sessions += n;
+            if (today.equals(day(row[0]))) {
+                sessionsToday = n;
+            }
+        }
+        long signupsToday = longsByDay(repository.dailySignups(today, to)).getOrDefault(today, 0L);
+        return new AdminDashboard.Traffic(signupsToday, sessionsToday, sessions);
+    }
+
     /** {@code GET /admin/analytics/engagement}. */
     @Transactional(readOnly = true)
     public AdminAnalyticsEngagement engagement(Integer daysRequested) {
@@ -156,9 +125,8 @@ public class AdminPageViewAnalyticsService {
         LocalDate to = today().plusDays(1);
         LocalDate from = to.minusDays(days);
 
-        // Accumulate per week rather than per day: a bounce rate is a ratio, so the weekly figure is
-        // the week's bounces over the week's sessions -- never the mean of seven daily rates, which
-        // would weight a Tuesday with four sessions the same as a Saturday with four thousand.
+        // Accumulate per week: a bounce rate is a ratio, so weekly is bounces over sessions, not the mean of
+        // seven daily rates, which would weight a four-session Tuesday like a four-thousand-session Saturday.
         Map<LocalDate, long[]> weekly = emptyWeeks(from, to, 3);
         for (Object[] row : repository.dailyTraffic(from, to)) {
             long[] acc = weekly.get(weekOf(day(row[0])));
@@ -217,9 +185,8 @@ public class AdminPageViewAnalyticsService {
         List<AdminAnalyticsSurfers.Exit> dropOff = new ArrayList<>();
         for (Object[] row : exitRows) {
             long exits = num(row[1]);
-            // Share of the exits shown, not of every exit in the window -- so the chart's slices add
-            // up to what the chart displays. A share of an unshown total would leave the reader
-            // subtracting to find a remainder that is not there.
+            // Share of the exits shown, not of all exits in the window,
+            // so the chart's slices add up to what it displays.
             dropOff.add(new AdminAnalyticsSurfers.Exit(
                     (String) row[0], exits, totalExits == 0 ? 0 : percent(exits, totalExits)));
         }
@@ -234,22 +201,13 @@ public class AdminPageViewAnalyticsService {
                 signups,
                 sessions == 0 ? null : percent(anon, sessions),
                 sessions == 0 ? null : percent(signups, sessions),
-                identityWeeks(rows, from, to),
                 pages,
                 dropOff);
     }
 
-    // -----------------------------------------------------------------------------------------
-    // Internals
-    // -----------------------------------------------------------------------------------------
 
-    /**
-     * Today on the Indian calendar. See the class Javadoc for why not {@code LocalDate.now()}.
-     *
-     * <p>The window runs to <em>tomorrow</em>, exclusive, so today is included and is understood to
-     * be still accumulating — the rollup runs hourly, so today's figure is correct as of the last
-     * tick rather than as of this request.
-     */
+    /** Today on the Indian calendar (see class Javadoc). The window ends at tomorrow, exclusive, so today is
+     * included though still accumulating: the rollup runs hourly. */
     private static LocalDate today() {
         return LocalDate.now(PlatformTime.IST);
     }
@@ -265,12 +223,8 @@ public class AdminPageViewAnalyticsService {
         return requested;
     }
 
-    /**
-     * Fold referring hosts into the channel vocabulary and rank them.
-     *
-     * <p>Shares are of the window's total sessions, so they sum to 100 across the returned list —
-     * every session has exactly one entry host, including the empty one that means direct.
-     */
+    /** Folds referring hosts into channels; shares are of total sessions and sum to 100 because every session
+     * has exactly one entry host, the empty one meaning direct. */
     private List<AdminAnalyticsTraffic.Source> sources(LocalDate from, LocalDate to) {
         Map<String, Long> byChannel = new LinkedHashMap<>();
         CHANNEL_ORDER.forEach(channel -> byChannel.put(channel, 0L));
@@ -289,11 +243,7 @@ public class AdminPageViewAnalyticsService {
         return sources;
     }
 
-    /**
-     * Which channel a referring host belongs to.
-     *
-     * <p>Package-private so its vocabulary is asserted directly rather than inferred from a chart.
-     */
+    /** Package-private so tests assert the channel vocabulary directly rather than through a chart. */
     static String channelOf(String host) {
         if (host == null || host.isBlank()) {
             return DIRECT;
@@ -311,15 +261,8 @@ public class AdminPageViewAnalyticsService {
         return REFERRAL;
     }
 
-    /**
-     * Roll day rows up into weeks of signed-in against anonymous sessions.
-     *
-     * <p>Weeks are real ISO weeks anchored to Monday, not the window divided into eight. The old tab
-     * chopped whatever range it had into exactly eight chunks with {@code ceil(days / 8)}, so at
-     * thirty days the eight buckets spanned thirty-two and the last one was always short — a
-     * downward slope at the right-hand edge of every chart that was an artefact of the arithmetic.
-     * Real weeks mean the first and last are partial in an obvious way instead.
-     */
+    /** Real ISO weeks anchored to Monday, not the window divided into eight: equal chunks leave a short last
+     * bucket that draws a false downward slope at the right edge. */
     private static List<AdminAnalyticsTraffic.IdentityWeek> identityWeeks(
             List<Object[]> rows, LocalDate from, LocalDate to) {
         Map<LocalDate, long[]> weekly = emptyWeeks(from, to, 2);
@@ -334,19 +277,8 @@ public class AdminPageViewAnalyticsService {
         return weeks;
     }
 
-    /**
-     * Every week the window touches, pre-created and empty, so a week nobody visited is reported
-     * rather than omitted.
-     *
-     * <p>The same reasoning as the daily zero-fill, one grain up: a sparse weekly series lets a
-     * chart draw a straight segment across the weeks it is missing, inventing a trend exactly where
-     * there is no data. A present week with zero sessions reports null rates instead, which the
-     * console renders as a gap in the line and an em dash in the table — visibly absent rather than
-     * invisibly skipped.
-     *
-     * <p>Sorted, because the console plots these in array order and a {@code HashMap} would hand it
-     * a chronology that changed between requests.
-     */
+    /** Pre-creates every week in the window so an unvisited week shows as a gap, not a line the chart draws
+     * across; sorted because a {@code HashMap} would reorder the series between requests. */
     private static Map<LocalDate, long[]> emptyWeeks(LocalDate from, LocalDate to, int slots) {
         Map<LocalDate, long[]> weeks = new TreeMap<>();
         for (LocalDate week = weekOf(from); week.isBefore(to); week = week.plusWeeks(1)) {
@@ -365,19 +297,8 @@ public class AdminPageViewAnalyticsService {
         return byDay;
     }
 
-    /**
-     * A {@code date} column as a {@link LocalDate}, whichever of the two shapes the driver chose.
-     *
-     * <p>A native query returns {@code Object[]}, so what a {@code date} column arrives as is a
-     * driver decision rather than a compiler-checked one. The modern pgjdbc path returns {@link
-     * LocalDate} directly; the legacy JDBC mapping returns {@code java.sql.Date}, which is a {@code
-     * java.util.Date} and so cannot be cast to the former at all.
-     *
-     * <p>Accepting both is not defensive padding — it is the only honest reading of a value whose
-     * type is not fixed by the signature. Assuming either one produces a {@link ClassCastException}
-     * at the top of every report the moment the driver, its version, or a Hibernate dialect setting
-     * changes underneath, and the failure is total rather than partial.
-     */
+    /** Native queries return {@code Object[]}: a {@code date} is {@link LocalDate} or {@code java.sql.Date}
+     * depending on the driver, and assuming one would throw {@link ClassCastException} on every report. */
     private static LocalDate day(Object value) {
         if (value instanceof LocalDate date) {
             return date;

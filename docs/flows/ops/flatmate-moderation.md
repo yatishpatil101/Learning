@@ -191,7 +191,7 @@ contract does not name:
 | `POST /flatmates/groups/{id}/apply` | hangs off the **group**, because the group is what is being committed |
 | `GET /me/group-applications` | the owner's inbox |
 | `PATCH /me/group-applications/{id}` | the owner's verdict, deliberately a different path from the admin one so no request is ambiguous about which column it writes |
-| `GET /me/flatmate-groups` | `FlatmateGroupFeedDto` carries no host identity, so "is this group mine?" had no answer in live mode |
+| `GET /me/flatmate-groups` | the caller's own groups as a `FlatmateGroupCard` (seats, moderation state, member count), which carries no host identity, so "is this group mine?" has an answer in live mode |
 
 This is an **intentional extension**, not drift.
 

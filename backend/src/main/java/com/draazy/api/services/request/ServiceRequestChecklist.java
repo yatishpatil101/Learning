@@ -1,6 +1,6 @@
 package com.draazy.api.services.request;
 
-import com.draazy.api.documents.vault.DocumentDto;
+import com.draazy.api.documents.vault.DocumentSummary;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -24,7 +24,7 @@ final class ServiceRequestChecklist {
         ITEMS.put("electricity-bill", "Latest electricity bill");
     }
 
-    static ServiceRequestChecklistDto of(ServiceRequest request, List<DocumentDto> documents,
+    static ServiceRequestChecklistDto of(ServiceRequest request, List<DocumentSummary> documents,
             Map<String, ServiceRequestDocumentReview> reviewsByDocument, Set<String> fileableSides) {
         Map<String, String> newestByCategory = newestByCategory(documents);
         List<ServiceRequestChecklistDto.Item> items = itemsFor(request).entrySet().stream().map(entry -> {
@@ -45,9 +45,9 @@ final class ServiceRequestChecklist {
         return new ServiceRequestChecklistDto(ready, items.size(), items);
     }
 
-    static Map<String, String> newestByCategory(List<DocumentDto> documents) {
+    static Map<String, String> newestByCategory(List<DocumentSummary> documents) {
         Map<String, String> newestByCategory = new LinkedHashMap<>();
-        for (DocumentDto document : documents) {
+        for (DocumentSummary document : documents) {
             if (document.category() == null) {
                 continue;
             }

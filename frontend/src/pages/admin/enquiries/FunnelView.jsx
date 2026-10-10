@@ -1,43 +1,11 @@
 import { ArrowDown, TrendingUp } from 'lucide-react';
 import { fmtINR, fmtNum, classNames } from '../../../lib/format.js';
 
-function FunnelView({ enquiries, visits, deals, funnelTime, funnelDeal }) {
-  const cutoff = funnelTime ? Date.now() - Number(funnelTime) * 86400000 : 0;
-  const inRange = (dateStr) => !cutoff || new Date(dateStr).getTime() >= cutoff;
-  // Only deals carry a deal type, so the filter narrows deals alone; enquiries have no `kind` to match.
-  const matchDeal = (item) => !funnelDeal || item.deal === funnelDeal;
-
-  const enqCount = enquiries.filter((e) => inRange(e.at)).length;
-  const visitCount = visits.filter((v) => inRange(v.slot || v.when)).length;
-  const dealsCompleted = deals.filter((d) => d.status === 'closed' && inRange(d.at) && matchDeal(d));
-  const dealCount = dealsCompleted.length;
-  const dealGMV = dealsCompleted.reduce((sum, d) => sum + (d.value || 0), 0);
-
+function FunnelView({ funnel }) {
+  const { enquiries: enqCount, visits: visitCount, dealsClosed: dealCount, gmv: dealGMV, localities: localityRows } = funnel;
   const enqToVisit = enqCount > 0 ? Math.round((visitCount / enqCount) * 100) : 0;
   const visitToDeal = visitCount > 0 ? Math.round((dealCount / visitCount) * 100) : 0;
   const enqToDeal = enqCount > 0 ? Math.round((dealCount / enqCount) * 100) : 0;
-
-  // The title split only parses '2 BHK in Kothrud' and yields
-  // 'Unknown' otherwise, so it is a fallback for rows with no locality.
-  const localityOf = (r) => r.locality || (r.listing || '').split(' in ')[1] || 'Unknown';
-  const localityMap = {};
-  enquiries.filter((e) => inRange(e.at)).forEach((e) => {
-    const loc = localityOf(e);
-    if (!localityMap[loc]) localityMap[loc] = { locality: loc, enquiries: 0, visits: 0, deals: 0, gmv: 0 };
-    localityMap[loc].enquiries++;
-  });
-  visits.filter((v) => inRange(v.slot || v.when)).forEach((v) => {
-    const loc = localityOf(v);
-    if (!localityMap[loc]) localityMap[loc] = { locality: loc, enquiries: 0, visits: 0, deals: 0, gmv: 0 };
-    localityMap[loc].visits++;
-  });
-  dealsCompleted.forEach((d) => {
-    const loc = localityOf(d);
-    if (!localityMap[loc]) localityMap[loc] = { locality: loc, enquiries: 0, visits: 0, deals: 0, gmv: 0 };
-    localityMap[loc].deals++;
-    localityMap[loc].gmv += d.value || 0;
-  });
-  const localityRows = Object.values(localityMap).sort((a, b) => b.enquiries - a.enquiries).slice(0, 10);
 
   const stages = [
     { label: 'Enquiries', count: enqCount, pct: 100, color: 'bg-indigo-500' },

@@ -53,21 +53,18 @@ public class IdentityReviewQueueService {
     }
 
     @Transactional(readOnly = true)
-    public Page<IdentityReviewResponse> queue(AuthPrincipal actor, Filters f, Pageable pageable) {
+    public Page<IdentityReviewRow> queue(AuthPrincipal actor, Filters f, Pageable pageable) {
         validate(f);
         Pageable ordered = PageRequest.of(pageable.getPageNumber(), pageable.getPageSize(), order(f));
-        return read.toReviewPage(actor, verifications.findAll(spec(actor, f), ordered), false);
+        return read.toRowPage(actor, verifications.findAll(spec(actor, f), ordered));
     }
 
     @Transactional(readOnly = true)
     public Summary summary(AuthPrincipal actor) {
-        Specification<IdentityVerification> pending = statusIs(VerificationStatuses.PENDING);
-        return new Summary(
-                verifications.count(pending),
-                verifications.count(pending.and(overdue())),
-                verifications.count(pending.and(claim(actor, "mine"))),
-                verifications.count(qaOpen(actor)),
-                verifications.count(decided(null)));
+        Instant now = Instant.now(clock);
+        UUID me = actor == null ? new UUID(0, 0) : actor.userId();
+        var c = verifications.summaryCounts(now.minus(OVERDUE_AFTER), now.minus(IdentityReviewClaimService.CLAIM_TTL), me);
+        return new Summary(c.getPending(), c.getOverdue(), c.getMine(), c.getQa(), c.getDecided());
     }
 
     private static void validate(Filters f) {

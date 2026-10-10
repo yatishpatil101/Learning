@@ -1,7 +1,8 @@
 package com.draazy.api.moderation.verification;
 
 import com.draazy.api.common.web.Routes;
-import com.draazy.api.documents.vault.DocumentDto;
+import com.draazy.api.documents.vault.DocumentSummary;
+import com.draazy.api.documents.vault.DocumentUrl;
 import com.draazy.api.security.AuthPrincipal;
 import com.draazy.api.security.BackOfficePermissions;
 import com.draazy.api.security.CurrentUser;
@@ -48,8 +49,15 @@ public class OwnershipVerificationController {
     // Signed URLs let reviewers cite uploads as evidence without exposing them to owners.
     @GetMapping(Routes.Moderation.VERIFICATION_OWNERSHIP_DOCUMENTS)
     @PreAuthorize(PROPERTIES_VERIFY)
-    public List<DocumentDto> listDocuments(@CurrentUser AuthPrincipal principal, @PathVariable String id) {
+    public List<DocumentSummary> listDocuments(@CurrentUser AuthPrincipal principal, @PathVariable String id) {
         return service.listDocuments(principal, id);
+    }
+
+    @GetMapping(Routes.Moderation.VERIFICATION_OWNERSHIP_DOCUMENT_URL)
+    @PreAuthorize(PROPERTIES_VERIFY)
+    public DocumentUrl documentUrl(@CurrentUser AuthPrincipal principal, @PathVariable String id,
+            @PathVariable String docId) {
+        return service.documentUrl(principal, id, docId);
     }
 
     // Staff/admin record what they sighted; the gate remains a separate judgement.

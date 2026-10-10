@@ -8,6 +8,8 @@ import com.draazy.api.common.trust.Notifier;
 import com.draazy.api.identity.user.User;
 import com.draazy.api.identity.user.UserRepository;
 import com.draazy.api.security.AuthPrincipal;
+import java.time.Instant;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -58,23 +60,16 @@ public class FlatmateModerationService {
     /** Both filters run in the query rather than being re-applied in Java, which paging would turn
      * into short pages and a wrong {@code totalElements}. */
     @Transactional(readOnly = true)
-    public Page<FlatmateReviewDto> queue(String status, Boolean flagged, Pageable pageable) {
+    public Page<FlatmateReviewRow> queue(String status, Boolean flagged, Pageable pageable) {
         String filter = FlatmateVocabulary.optional(
                 status, FlatmateVocabulary.REVIEW_STATUS, "status");
 
-        Page<FlatmateReview> page = reviews.findForQueue(filter, flagged, pageable);
+        Page<FlatmateReviewRepository.QueueRow> page = reviews.findForQueue(filter, flagged, pageable);
 
-        Map<UUID, User> hosts = users.findAllById(
-                        page.getContent().stream()
-                                .map(FlatmateReview::getHostId).distinct().toList()).stream()
-                .collect(Collectors.toMap(User::getId, u -> u));
+        Map<UUID, String> hosts = namesOf(
+                page.getContent().stream().map(FlatmateReviewRepository.QueueRow::getHostId).toList());
 
-        return page.map(r -> {
-            User host = hosts.get(r.getHostId());
-            return FlatmateReviewDto.of(r,
-                    host == null ? null : host.getName(),
-                    host == null ? null : host.getMobile());
-        });
+        return page.map(r -> FlatmateReviewRow.of(r, hosts.get(r.getHostId())));
     }
 
     /** Approving is the only path by which a tenant-tier post earns a badge, so it additionally
@@ -110,10 +105,10 @@ public class FlatmateModerationService {
                 host == null ? null : host.getMobile());
     }
 
-    /* Re-checks are live rows and the asked-for states are not, so the sets never overlap; {@code size} applies
-       to each kind and set, and {@code totalElements} is their sum. */
+    /* The page is global: each source yields its first {@code (page + 1) * size} rows in the shared order,
+       and the merge keeps the requested slice. */
     @Transactional(readOnly = true)
-    public Page<FlatmateModerationQueueDto> moderationQueue(List<String> kinds, List<String> modStatus,
+    public Page<FlatmateModerationRow> moderationQueue(List<String> kinds, List<String> modStatus,
             Pageable pageable) {
         List<String> requested = nonBlank(modStatus);
         boolean recheck = requested.contains(SELECTOR_RECHECK);
@@ -130,23 +125,70 @@ public class FlatmateModerationService {
             throw new BadRequestException("kind is required.");
         }
 
-        List<FlatmateModerationQueueDto> rows = new java.util.ArrayList<>();
+        Sort.Order byAge = pageable.getSort().getOrderFor("createdAt");
+        Sort.Direction direction = byAge == null ? Sort.Direction.ASC : byAge.getDirection();
+        int window = (int) Math.min((pageable.getPageNumber() + 1L) * pageable.getPageSize(),
+                Integer.MAX_VALUE);
+        Sort tieBreak = Sort.by(direction, "id");
+        Pageable stateWindow = PageRequest.of(0, window, pageable.getSort().and(tieBreak));
+        Pageable recheckWindow = PageRequest.of(0, window,
+                Sort.by(direction, "recheck.requestedAt").and(tieBreak));
+
+        List<Aged> candidates = new java.util.ArrayList<>();
         long total = 0;
         for (String kind : wanted) {
             if (!states.isEmpty()) {
-                Page<FlatmateModerationQueueDto> page = byStates(kind, states, pageable);
-                rows.addAll(page.getContent());
+                Page<FlatmateModerationQueueDto> page = byStates(kind, states, stateWindow);
+                page.forEach(d -> candidates.add(new Aged(d.createdAt(), d)));
                 total += page.getTotalElements();
             }
             if (recheck) {
-                Page<FlatmateModerationQueueDto> page = byRecheck(kind, byWorkItemAge(pageable));
-                rows.addAll(page.getContent());
+                Page<FlatmateModerationQueueDto> page = byRecheck(kind, recheckWindow);
+                page.forEach(d -> candidates.add(new Aged(d.recheckRequestedAt(), d)));
                 total += page.getTotalElements();
             }
         }
-        return new PageImpl<>(rows, pageable, total);
+        // Ids compare as strings: lowercase UUID text sorts like Postgres' unsigned byte order, so the merge
+        // ranks ties exactly as each DB window did.
+        Comparator<Aged> order = Comparator.comparing(Aged::at, Comparator.nullsLast(Comparator.naturalOrder()))
+                .thenComparing(a -> String.valueOf(a.item().id()));
+        candidates.sort(direction.isAscending() ? order : order.reversed());
+
+        List<FlatmateModerationRow> slice = candidates.stream()
+                .skip(pageable.getOffset()).limit(pageable.getPageSize())
+                .map(a -> FlatmateModerationRow.of(a.item())).toList();
+        return new PageImpl<>(slice, pageable, total);
     }
 
+    /** A row and the instant it is ranked by: its creation, or for a re-check the edit that raised it. */
+    private record Aged(Instant at, FlatmateModerationQueueDto item) {
+    }
+
+    private static final List<String> PUBLISHED = List.of("approved", "live");
+    private static final List<String> HIDDEN = List.of("flagged", "removed", "rejected");
+
+    /** One card per awaiting post or application, and one per badge claim whose post is not itself
+     * awaiting — the same cards the pending tab builds from its three lists. */
+    @Transactional(readOnly = true)
+    public FlatmateModerationSummary moderationSummary() {
+        List<String> pending = List.of(FlatmateVocabulary.MOD_PENDING);
+        long awaiting = posts.countByModStatusInAndArchivedFalse(pending)
+                + posts.countByRecheckRequestedAtNotNullAndArchivedFalse()
+                + rooms.countByModStatusInAndArchivedFalse(pending)
+                + rooms.countByRecheckRequestedAtNotNullAndArchivedFalse()
+                + groups.countByModStatusInAndArchivedFalse(pending)
+                + groups.countByRecheckRequestedAtNotNullAndArchivedFalse()
+                + reviews.countBadgeOnlyPending()
+                + applications.countByModStatusIn(pending);
+        return new FlatmateModerationSummary(awaiting, decided(PUBLISHED), decided(HIDDEN));
+    }
+
+    private long decided(List<String> states) {
+        return posts.countByModStatusInAndArchivedFalse(states)
+                + rooms.countByModStatusInAndArchivedFalse(states)
+                + groups.countByModStatusInAndArchivedFalse(states)
+                + applications.countByModStatusIn(states);
+    }
     private Page<FlatmateModerationQueueDto> byStates(String kind, List<String> states,
             Pageable pageable) {
         return switch (kind) {
@@ -198,13 +240,6 @@ public class FlatmateModerationService {
         return requested.stream()
                 .map(s -> FlatmateVocabulary.require(s, FlatmateVocabulary.MOD_STATUS, "modStatus"))
                 .distinct().toList();
-    }
-
-    /** Oldest work item first, overriding the caller's sort: on the re-check board the SLA is the age
-     * of the edit, not of the post, so {@code createdAt} would invert the queue. */
-    private static Pageable byWorkItemAge(Pageable pageable) {
-        return PageRequest.of(pageable.getPageNumber(), pageable.getPageSize(),
-                Sort.by(Sort.Direction.ASC, "recheck.requestedAt"));
     }
 
     /** Author names for one page, in one query rather than one per row. */

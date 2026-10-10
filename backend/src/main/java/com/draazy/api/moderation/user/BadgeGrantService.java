@@ -6,11 +6,11 @@ import com.draazy.api.common.error.ConflictException;
 import com.draazy.api.common.error.ForbiddenException;
 import com.draazy.api.common.error.NotFoundException;
 import com.draazy.api.common.error.ValidationException;
+import com.draazy.api.common.trust.MobileMask;
 import com.draazy.api.common.trust.OwnerBadgeSink;
 import com.draazy.api.common.web.Ids;
 import com.draazy.api.identity.user.User;
 import com.draazy.api.identity.user.UserRepository;
-import com.draazy.api.identity.user.UserResponse;
 import com.draazy.api.identity.verification.IdentityVerificationService;
 import com.draazy.api.security.AuthPrincipal;
 import java.util.HashSet;
@@ -64,7 +64,7 @@ class BadgeGrantService {
     }
 
     @Transactional
-    UserResponse withdraw(AuthPrincipal actor, String id, String reason) {
+    AdminUserRow withdraw(AuthPrincipal actor, String id, String reason) {
         User user = view.load(id);
         refusePending(user.getId(),
                 "This user has a pending badge grant request. Reject the pending request instead.");
@@ -76,7 +76,7 @@ class BadgeGrantService {
         applyHandGrantedBadge(user, false);
         audit.record(actor, "user.badge", "user", id,
                 "granted", "false", "reason", reason, "role", user.getRole());
-        return view.full(user);
+        return view.row(user);
     }
 
     @Transactional(readOnly = true)
@@ -207,7 +207,7 @@ class BadgeGrantService {
                 request.getId().toString(),
                 request.getUserId().toString(),
                 user == null ? null : user.getName(),
-                user == null ? null : user.getMobile(),
+                MobileMask.mask(user == null ? null : user.getMobile()),
                 request.getRequestedBy().toString(),
                 maker == null ? null : maker.getName(),
                 request.getReason(),

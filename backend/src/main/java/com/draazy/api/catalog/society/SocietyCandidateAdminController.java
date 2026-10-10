@@ -3,9 +3,7 @@ package com.draazy.api.catalog.society;
 import com.draazy.api.common.web.PageResponse;
 import com.draazy.api.common.web.Pageables;
 import com.draazy.api.common.web.Routes;
-import com.draazy.api.security.AuthPrincipal;
 import com.draazy.api.security.BackOfficePermissions;
-import com.draazy.api.security.CurrentUser;
 import com.draazy.api.security.Roles;
 import java.util.List;
 import org.springframework.data.domain.Pageable;
@@ -16,7 +14,7 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
-/** Ops reviewing member-added societies for duplicates, guarded by the {@code societies:read} atom like the merge desk. */
+/** Member-added society duplicate review, guarded by the {@code societies:read} atom like the merge desk. */
 @RestController
 public class SocietyCandidateAdminController {
 
@@ -34,10 +32,9 @@ public class SocietyCandidateAdminController {
 
     @GetMapping(Routes.SocietyCandidates.BASE)
     @PreAuthorize(SOCIETIES_READ)
-    public PageResponse<SocietyResponse> queue(@CurrentUser AuthPrincipal principal,
+    public PageResponse<SocietyCandidateResponse> queue(@RequestParam(required = false) String q,
             @PageableDefault(size = 20) Pageable pageable) {
-        return PageResponse.of(
-                minting.candidates(Pageables.unsorted(pageable), principal.userId()), s -> s);
+        return PageResponse.of(minting.candidates(q, Pageables.unsorted(pageable)), s -> s);
     }
 
     /** Separate from the queue: the scan compares a name against the whole catalogue, so per-row is wasteful.

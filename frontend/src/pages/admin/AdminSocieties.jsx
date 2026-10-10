@@ -17,8 +17,9 @@ import { titleCase, DUPES_FAILED } from './societies/helpers.jsx';
 import CandidatesTab from './societies/CandidatesTab.jsx';
 import DirectoryTab from './societies/DirectoryTab.jsx';
 
-// 20, matching `GET /societies`'s own `@PageableDefault`.
+// 20, matching `GET /admin/societies`'s own `@PageableDefault`.
 const DIR_PAGE_SIZE = 20;
+const CAND_PAGE_SIZE = 10;
 
 const NOTES = {
   candidates: 'Auto-minted societies (from listings & searcher demand). Merge duplicates into the canonical society — listings & followers redirect.',
@@ -28,7 +29,7 @@ const NOTES = {
 export default function AdminSocieties() {
   const { toast } = useToast();
   const [tab, setTab] = useTabParam(['candidates', 'directory'], 'candidates');
-  const [candidates, setCandidates] = useState([]);
+  const [candidates, setCandidates] = useState({ items: [], total: 0 });
   const [merges, setMerges] = useState([]);
   const [counts, setCounts] = useState(null);
   // A failed fetch and a drained queue are indistinguishable on an empty table without this.
@@ -39,39 +40,62 @@ export default function AdminSocieties() {
   const [merging, setMerging] = useState(false);
   useScrollLock(Boolean(edit || merge));
 
-  // Every decision bumps `bump`, so two reloads are routinely in flight; only the newest may set state.
-  const reloadSeq = useRef(0);
+  // Server-paged: `candQuery` is debounced into `candSearch`, and a new search resets to page 0.
+  const [candQuery, setCandQuery] = useState('');
+  const [candSearch, setCandSearch] = useState('');
+  const [candPage, setCandPage] = useState(0);
+  useEffect(() => {
+    const t = setTimeout(() => { setCandSearch(candQuery.trim()); setCandPage(0); }, 250);
+    return () => clearTimeout(t);
+  }, [candQuery]);
 
-  const reload = async () => {
-    const seq = reloadSeq.current + 1;
-    reloadSeq.current = seq;
-    // Only transport failures are absorbed: a mapper TypeError must not render as an empty queue.
-    const broke = [];
-    const safe = (p, label, empty) => p.catch((err) => {
-      if (!(err instanceof ApiError || err instanceof NetworkError)) throw err;
-      console.warn(`[societies] The ${label} queue could not be loaded.`, err);
-      broke.push(label);
-      return empty;
-    });
-    const open = (t) => tab === t;
-    const [counts, candidateRows, mergeRows] = await Promise.all([
-      getSocietiesSummary().catch((err) => {
+  // Only transport failures are absorbed: a mapper TypeError must not render as an empty queue.
+  const safe = (p, label, empty, broke) => p.catch((err) => {
+    if (!(err instanceof ApiError || err instanceof NetworkError)) throw err;
+    console.warn(`[societies] The ${label} queue could not be loaded.`, err);
+    broke.push(label);
+    return empty;
+  });
+
+  // Tab badges: on arrival and after a decision, not on every tab or page change.
+  useEffect(() => {
+    let alive = true;
+    getSocietiesSummary()
+      .then((c) => { if (alive) setCounts(c); })
+      .catch((err) => {
         if (!(err instanceof ApiError || err instanceof NetworkError)) throw err;
         console.warn('[societies] Tab counts could not be loaded.', err);
-        return null;
-      }),
-      open('candidates') ? safe(listSocietyCandidates(), 'society candidates', []) : null,
-      open('candidates') ? safe(listSocietyMerges(), 'merges', []) : null,
-    ]);
-    if (seq !== reloadSeq.current) return;
+        if (alive) setCounts(null);
+      });
+    return () => { alive = false; };
+  }, [bump]);
 
-    setQueueErrors(broke);
-    setCounts(counts);
-    if (candidateRows) setCandidates(candidateRows);
-    if (mergeRows) setMerges(mergeRows);
-  };
-  useEffect(() => { reload(); }, [bump, tab]); // eslint-disable-line react-hooks/exhaustive-deps -- `reload` is redeclared every render; `bump` and `tab` are the real inputs.
+  useEffect(() => {
+    if (tab !== 'candidates') return undefined;
+    let alive = true;
+    const broke = [];
+    safe(listSocietyCandidates({ q: candSearch, page: candPage, size: CAND_PAGE_SIZE }), 'society candidates', { items: [], total: 0 }, broke)
+      .then((res) => {
+        if (!alive) return;
+        setQueueErrors((prev) => [...prev.filter((l) => l !== 'society candidates'), ...broke]);
+        // A merge can drain the last row of a page; step back rather than show an empty one.
+        if (!res.items.length && candPage > 0 && !broke.length) { setCandPage(candPage - 1); return; }
+        setCandidates({ items: res.items, total: res.total });
+      });
+    return () => { alive = false; };
+  }, [tab, bump, candSearch, candPage]); // eslint-disable-line react-hooks/exhaustive-deps -- `safe` is redeclared every render and closes over nothing stateful.
 
+  useEffect(() => {
+    if (tab !== 'candidates') return undefined;
+    let alive = true;
+    const broke = [];
+    safe(listSocietyMerges(), 'merges', [], broke).then((rows) => {
+      if (!alive) return;
+      setQueueErrors((prev) => [...prev.filter((l) => l !== 'merges'), ...broke]);
+      setMerges(rows);
+    });
+    return () => { alive = false; };
+  }, [tab, bump]); // eslint-disable-line react-hooks/exhaustive-deps -- as above.
   // Server-paged: `dirQuery` is debounced into `dirSearch`, and a new search resets to page 0.
   const [dirQuery, setDirQuery] = useState('');
   const [dirSearch, setDirSearch] = useState('');
@@ -94,35 +118,41 @@ export default function AdminSocieties() {
     return () => { alive = false; };
   }, [tab, dirSearch, dirPage, bump]);
 
-  // The duplicate hint is a request per row: four at a time, and only while the candidates tab is open.
+  // The duplicate hint is a request per row: four at a time, only for the page on screen, and cached until a decision.
   const [dupes, setDupes] = useState({});
+  const dupesAsked = useRef(new Set());
+  const dupesGen = useRef(0);
 
   useEffect(() => {
-    if (tab !== 'candidates' || !candidates.length) return undefined;
-    let alive = true;
-    const queue = candidates.map((c) => c.slug).filter(Boolean);
+    dupesGen.current += 1;
+    dupesAsked.current = new Set();
+    setDupes({});
+  }, [bump]);
 
-    const wanted = new Set(queue);
-    setDupes((prev) => Object.fromEntries(
-      Object.entries(prev).filter(([slug]) => wanted.has(slug))));
+  useEffect(() => {
+    if (tab !== 'candidates') return undefined;
+    const gen = dupesGen.current;
+    const queue = candidates.items.map((c) => c.slug).filter((s) => s && !dupesAsked.current.has(s));
+    queue.forEach((s) => dupesAsked.current.add(s));
+    const keep = (slug, rows) => { if (gen === dupesGen.current) setDupes((prev) => ({ ...prev, [slug]: rows })); };
 
     const worker = async () => {
-      for (let slug = queue.shift(); slug && alive; slug = queue.shift()) {
+      for (let slug = queue.shift(); slug; slug = queue.shift()) {
         try {
-          const rows = await listSocietyCandidateDuplicates(slug);
-          if (alive) setDupes((prev) => ({ ...prev, [slug]: rows }));
+          keep(slug, await listSocietyCandidateDuplicates(slug));
         } catch (err) {
           console.warn(`[societies] Could not check ${slug} for duplicates.`, err);
-          if (alive) setDupes((prev) => ({ ...prev, [slug]: DUPES_FAILED }));
+          keep(slug, DUPES_FAILED);
         }
       }
     };
 
     Promise.all([worker(), worker(), worker(), worker()]);
-    return () => { alive = false; };
+    // Hand unstarted slugs back now so the next run (same slugs, new page) scans them.
+    return () => { queue.splice(0).forEach((s) => dupesAsked.current.delete(s)); };
   }, [tab, candidates]);
 
-  const candidateRows = candidates.map((c) => ({ ...c, dupes: dupes[c.slug] }));
+  const candidateRows = candidates.items.map((c) => ({ ...c, dupes: dupes[c.slug] }));
 
   const failed = (err, fallback) => toast(err?.message || fallback, 'error');
 
@@ -225,7 +255,23 @@ export default function AdminSocieties() {
 
       <QueueTabs label="Society queues" active={tab} onChange={setTab} tabs={tabs} />
 
-      {tab === 'candidates' ? <CandidatesTab note={NOTES.candidates} candidates={candidateRows} merges={merges} setMerge={setMerge} openMerge={openMerge} undoMerge={undoMerge} deciding={deciding} /> : null}
+      {tab === 'candidates' ? (
+        <CandidatesTab
+          note={NOTES.candidates}
+          candidates={candidateRows}
+          total={candidates.total}
+          query={candQuery}
+          onQuery={setCandQuery}
+          page={candPage}
+          pageSize={CAND_PAGE_SIZE}
+          onPage={setCandPage}
+          merges={merges}
+          setMerge={setMerge}
+          openMerge={openMerge}
+          undoMerge={undoMerge}
+          deciding={deciding}
+        />
+      ) : null}
       {tab === 'directory' ? (
         <DirectoryTab
           note={NOTES.directory}

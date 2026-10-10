@@ -8,6 +8,7 @@ import com.draazy.api.security.BackOfficePermissions;
 import com.draazy.api.security.CurrentUser;
 import com.draazy.api.security.Roles;
 import java.time.Instant;
+import java.util.function.Function;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.web.PageableDefault;
 import org.springframework.format.annotation.DateTimeFormat;
@@ -43,8 +44,8 @@ public class StaffActivityController {
         return PageResponse.of(
                 activity.feed(new StaffActivityFilter(actor, entity, action, from, to, q,
                                 actorRoleFilter(principal)),
-                        Pageables.unsorted(pageable)),
-                row -> Roles.Wire.ADMIN.equals(principal.role()) ? row : row.withoutMetadata());
+                        Pageables.unsorted(pageable), Roles.Wire.ADMIN.equals(principal.role())),
+                Function.identity());
     }
 
     /** Takes the same filters as the feed so the totals describe what the console is showing. */

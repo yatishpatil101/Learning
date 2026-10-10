@@ -51,10 +51,27 @@ export function toViewModel(t) {
   };
 }
 
-/** A wire array → view models, newest activity first. */
-export function toViewModelList(rows) {
+/** One wire `SupportTicketSummary` → a list row: the newest message stands in for the thread. */
+export function toSummary(t) {
+  if (!t) return null;
+  const created = epoch(t.createdAt);
+  const last = t.lastMessage ? { by: STAFF_ROLES.has(t.lastMessage.authorRole) ? 'staff' : 'customer', text: t.lastMessage.body || '', at: epoch(t.lastMessage.createdAt) } : null;
+  return {
+    id: t.id,
+    subject: t.subject || '',
+    category: t.category || 'other',
+    status: t.status || 'open',
+    unread: !!t.unread,
+    createdAt: created,
+    updatedAt: last ? Math.max(created, last.at) : created,
+    lastMessage: last,
+  };
+}
+
+/** A wire array → list rows, newest activity first. */
+export function toSummaryList(rows) {
   return (Array.isArray(rows) ? rows : [])
-    .map(toViewModel)
+    .map(toSummary)
     .filter(Boolean)
     .sort((a, b) => b.updatedAt - a.updatedAt);
 }

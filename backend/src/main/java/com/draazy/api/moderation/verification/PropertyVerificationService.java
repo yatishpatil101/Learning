@@ -77,9 +77,13 @@ public class PropertyVerificationService {
 
     // Idempotent because property_reviews.property_id is UNIQUE.
     @Transactional
-    public PropertyReviewResponse initiate(AuthPrincipal actor, String propertyId) {
+    public PropertyReviewResponse initiate(AuthPrincipal actor, String propertyId, boolean markRead) {
         Property property = participantPropertyForWrite(actor, propertyId);
-        return toResponse(cases.ensure(property.getId(), property.getDeal()),
+        PropertyReview review = cases.ensure(property.getId(), property.getDeal());
+        if (markRead) {
+            markOthersRead(actor, property, review);
+        }
+        return toResponse(review,
             property, mayReadNotes(actor) && !actor.userId().equals(property.getOwner().getId()));
     }
 
@@ -112,11 +116,16 @@ public class PropertyVerificationService {
     @Transactional
     public void markRead(AuthPrincipal actor, String propertyId) {
         Property property = participantPropertyForWrite(actor, propertyId);
+        reviews.findByPropertyId(property.getId())
+                .ifPresent(review -> markOthersRead(actor, property, review));
+    }
+
+    private void markOthersRead(AuthPrincipal actor, Property property, PropertyReview review) {
         boolean checker = mayReadNotes(actor) && !actor.userId().equals(property.getOwner().getId());
-        reviews.findByPropertyId(property.getId()).ifPresent(review -> review.getMessages().stream()
+        review.getMessages().stream()
                 .filter(message -> checker || !message.isInternal())
                 .filter(message -> !actor.userId().equals(message.getSenderId()))
-                .forEach(ReviewMessage::markRead));
+                .forEach(ReviewMessage::markRead);
     }
 
     // Approval also publishes in this transaction; a catalogue-missing verdict is no verdict.

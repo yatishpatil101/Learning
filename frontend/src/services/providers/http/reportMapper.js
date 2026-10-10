@@ -99,6 +99,7 @@ export function toViewModel(r) {
     at: epoch(r.createdAt),
     // No `handledAt` on the wire either — the audit entry carries when, and who.
     handledAt: 0,
+    targetReportCount: Number(r.targetReportCount) || 1,
   };
 }
 
@@ -110,6 +111,7 @@ export function toViewModelPage(res, fallback = {}) {
     total: res?.totalElements ?? rows.length,
     page: res?.page ?? res?.number ?? fallback.page ?? 0,
     size: res?.size ?? fallback.size ?? rows.length,
+    counts: res?.counts || null,
   };
 }
 

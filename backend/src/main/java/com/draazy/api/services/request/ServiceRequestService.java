@@ -10,6 +10,7 @@ import com.draazy.api.common.payments.AbandonedCheckouts;
 import com.draazy.api.common.persistence.ConstraintViolations;
 import com.draazy.api.common.web.Ids;
 import com.draazy.api.documents.vault.DocumentDto;
+import com.draazy.api.documents.vault.DocumentUrl;
 import com.draazy.api.documents.vault.DocumentService;
 import com.draazy.api.identity.user.User;
 import com.draazy.api.identity.user.UserRepository;
@@ -403,6 +404,16 @@ public class ServiceRequestService implements AbandonedCheckouts {
     @Transactional(readOnly = true)
     public ServiceRequestDto get(AuthPrincipal caller, String id) {
         return mapper.toDto(visible(caller, id), caller);
+    }
+
+    // The signed link for one file, minted when it is opened rather than with every read of the request.
+    @Transactional(readOnly = true)
+    public DocumentUrl documentUrl(AuthPrincipal caller, String id, String documentId) {
+        ServiceRequest request = visible(caller, id);
+        return Ids.parseUuid(documentId)
+                .flatMap(doc -> mapper.documentUrl(request, doc, caller))
+                .map(DocumentUrl::new)
+                .orElseThrow(() -> NotFoundException.of("Document"));
     }
 
     // The requester or ops.

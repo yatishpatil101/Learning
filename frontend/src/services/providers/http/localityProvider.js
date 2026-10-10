@@ -1,7 +1,7 @@
 /** A bare JSON array, not a PageResponse, so there is nothing to unwrap. */
 import { get, post } from '../../http.js';
 
-/** A number that may be absent: below three live listings the server sends none, and coercing that to 0 would render "₹0 per sq ft". */
+/** A number that may be absent: below three live listings the server sends none; 0 would show "₹0 per sq ft". */
 const maybeNumber = (v) => (v == null || v === '' || Number.isNaN(Number(v)) ? null : Number(v));
 
 const toLocality = (row) => {
@@ -17,6 +17,7 @@ const toLocality = (row) => {
     // Null below three live listings (each also needs 3 flats of its kind): a gap, never a zero.
     avgRent: maybeNumber(row?.avgRent),
     ratePerSqft: maybeNumber(row?.ratePerSqft),
+    fromPrice: maybeNumber(row?.fromPrice),
     lat: maybeNumber(row?.lat),
     lng: maybeNumber(row?.lng),
   };
@@ -27,6 +28,25 @@ export async function listLocalities() {
   const rows = await get('/localities');
   return (Array.isArray(rows) ? rows : []).map(toLocality);
 }
+
+const toAdminRow = (row) => ({
+  slug: String(row?.slug || ''),
+  name: String(row?.name || ''),
+  liveListings: Number(row?.liveListings) || 0,
+  archived: !!row?.archived,
+  lat: maybeNumber(row?.lat),
+  lng: maybeNumber(row?.lng),
+});
+
+/** The staff list (`GET /admin/localities`): slug, name, pin, retired flag and live count, with no market stats. */
+export async function listAdminLocalities() {
+  const rows = await get('/admin/localities');
+  return (Array.isArray(rows) ? rows : []).map(toAdminRow);
+}
+
+export const retireLocality = async (slug) => toAdminRow(await post(`/admin/localities/${encodeURIComponent(slug)}/retire`));
+
+export const restoreLocality = async (slug) => toAdminRow(await post(`/admin/localities/${encodeURIComponent(slug)}/restore`));
 
 /** One locality page's data. A 404 throws, so the page can tell "unknown" from "failed". */
 export async function getLocality(slug) {

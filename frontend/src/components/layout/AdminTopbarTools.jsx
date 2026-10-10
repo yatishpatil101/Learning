@@ -1,12 +1,16 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router';
 import { Search, Bell, Building2, User, Wrench, ShieldCheck, LayoutDashboard, BarChart3, MessageSquare, FileText, Flag, LifeBuoy, Users, Settings, IndianRupee, Gift, Compass, BookOpen } from 'lucide-react';
-import { searchForModeration } from '../../services/propertyService.js';
+import { lookupForModeration } from '../../services/propertyService.js';
 import { listUsers } from '../../services/usersService.js';
 import { adminBell } from '../../services/analyticsService.js';
 import { useAdminFlags } from '../../context/AdminFlagsContext.jsx';
 import { useAuth } from '../../context/AuthContext.jsx';
-import { SERVICE_DESKS, canOpenPath, hasPermission, portalPath, ticketPath } from '../../lib/adminModules.js';
+import { useHelpTree } from '../../lib/useHelp.js';
+import { useNotifications } from '../../context/NotificationContext.jsx';
+import { listNotifications, markAllRead, markRead } from '../../services/notificationService.js';
+import { safeNotificationLink } from '../notifications/notificationModel.js';
+import { SERVICE_DESKS, canOpenPath, hasPermission, portalPath, runbooksFor, ticketPath } from '../../lib/adminModules.js';
 /** Rows shown per data category. The chip beside it carries the size of the whole match. */
 
 const RESULT_CAP = 6;
@@ -15,6 +19,7 @@ const RESULT_CAP = 6;
 /** One request per pause in typing rather than one per keystroke. */
 
 const DEBOUNCE_MS = 200;
+const BELL_REFRESH_MS = 90_000;
 /** "a", "a and b", "a, b and c" — so the notices below read as sentences rather than lists. */
 
 const prose = (words) =>
@@ -42,8 +47,9 @@ const NAV_INDEX_FULL = [
   { label: 'Societies', keywords: 'societies society merge duplicate buildings', path: '/admin/societies', icon: Building2, flag: null },
   { label: 'Localities', keywords: 'localities locality area neighbourhood neighborhood registry community pune', path: '/admin/localities', icon: Compass, flag: null },
   { label: 'Settings', keywords: 'settings configuration preferences site general email notifications sms seo', path: '/admin/settings', icon: Settings, flag: null },
+  { label: 'Integrations', keywords: 'integrations email whatsapp otp payments cashfree zoho webhook delivery failures providers', path: '/admin/integrations', icon: Settings, flag: null },
   { label: 'Referrals', keywords: 'referrals ops refer bonus', path: '/admin/referrals', icon: Gift, flag: null },
-  { label: 'Help & Runbooks', keywords: 'help runbook runbooks docs documentation guide guides knowledge base handbook playbook ops internal how to', path: '/help/c/ops-playbook', icon: BookOpen, flag: null },
+  { label: 'Runbooks', keywords: 'help runbook runbooks docs documentation guide guides knowledge base handbook playbook ops internal how to checklist', path: '/admin/runbooks', icon: BookOpen, flag: null },
 ];
 
 const FEATURES_INDEX = [
@@ -71,9 +77,7 @@ const FEATURES_INDEX = [
   { label: 'Transactions', keywords: 'transactions ledger payments billing invoices', path: '/admin/finance', parent: 'Finance', flag: 'finance' },
   { label: 'Financial Models', keywords: 'models subscription payout calculations', path: '/admin/finance', parent: 'Finance', flag: 'finance' },
 
-  { label: 'Banners', keywords: 'banners promotional homepage carousel', path: '/admin/content?tab=banners', parent: 'Content', flag: 'content.enabled' },
-  { label: 'FAQs', keywords: 'faqs frequently asked questions help', path: '/admin/content?tab=faqs', parent: 'Content', flag: 'content.enabled' },
-  { label: 'Announcements', keywords: 'announcements notifications alerts', path: '/admin/content?tab=announcements', parent: 'Content', flag: 'content.enabled' },
+  { label: 'FAQs', keywords: 'faqs frequently asked questions help', path: '/admin/content', parent: 'Content', flag: 'content.enabled' },
 
   { label: 'General Settings', keywords: 'general site email notifications sms configuration', path: '/admin/settings?tab=general', parent: 'Settings', flag: null },
   { label: 'Fee Configuration', keywords: 'fees pricing commission brokerage charges', path: '/admin/settings?tab=fees', parent: 'Settings', flag: null },
@@ -99,19 +103,6 @@ const FEATURES_INDEX = [
   { label: 'Priority Levels', keywords: 'priority high medium low urgent tickets', path: '/admin/home-loans', parent: 'Home Loans', flag: 'services.enabled' },
   { label: 'Staff Assignment', keywords: 'staff assignment assign tickets individual', path: '/admin/home-loans', parent: 'Home Loans', flag: 'services.enabled' },
 
-  { label: 'Staff Desks at a Glance', keywords: 'desks routes access permissions which desk index map runbook internal ops', path: '/help/a/staff-desks', parent: 'Runbooks', flag: null },
-  { label: 'Verification SLAs', keywords: 'sla slas turnaround target verification listing queue recheck duplicates needs info breach runbook internal ops deadline', path: '/help/a/verification-sla', parent: 'Runbooks', flag: null },
-  { label: 'Ticket Handling & Escalation', keywords: 'ticket handling escalation priority p0 p1 p2 p3 support requests service tickets ladder runbook internal ops', path: '/help/a/ticket-escalation', parent: 'Runbooks', flag: null },
-  { label: 'Identity Review', keywords: 'kyc identity id selfie liveness qa revoke runbook internal ops', path: '/help/a/identity-review', parent: 'Runbooks', flag: null },
-  { label: 'Ownership & Badges', keywords: 'ownership evidence badge approvals verified badge maker checker runbook internal ops', path: '/help/a/ownership-and-badges', parent: 'Runbooks', flag: null },
-  { label: 'Reports & Takedowns', keywords: 'reports trust safety takedown abuse report user chat dismiss runbook internal ops', path: '/help/a/reports-and-takedowns', parent: 'Runbooks', flag: null },
-  { label: 'Society Moderation', keywords: 'society candidates merge directory runbook internal ops', path: '/help/a/society-moderation', parent: 'Runbooks', flag: null },
-  { label: 'Post on Behalf Runbook', keywords: 'post on behalf owner call whatsapp listing confirmation runbook internal ops', path: '/help/a/post-on-behalf', parent: 'Runbooks', flag: null },
-  { label: 'Drafting Desk Runbook', keywords: 'drafting desk rent agreement registration stamp duty police intimation refund runbook internal ops', path: '/help/a/drafting-desk', parent: 'Runbooks', flag: null },
-  { label: 'Service Queues', keywords: 'service queues legal interior packers movers valuation requests runbook internal ops', path: '/help/a/service-queues', parent: 'Runbooks', flag: null },
-  { label: 'Flatmate Review', keywords: 'flatmate review moderation publish hide badge group application runbook internal ops', path: '/help/a/flatmate-review', parent: 'Runbooks', flag: null },
-  { label: 'Referral Fraud Review', keywords: 'referral fraud reward clawback risk signals approve reject runbook internal ops', path: '/help/a/referral-fraud', parent: 'Runbooks', flag: null },
-  { label: 'Ops Playbook', keywords: 'ops playbook runbook internal staff procedures guide index', path: '/help/c/ops-playbook', parent: 'Runbooks', flag: null },
   { label: 'Product Changelog', keywords: 'changelog release notes shipped whats new version updates', path: '/help/changelog', parent: 'Runbooks', flag: null },
 ];
 
@@ -171,6 +162,7 @@ function toNotif(bell, canReadProperties, canReadTickets) {
 }
 export default function AdminTopbarTools() {
   const navigate = useNavigate();
+  const { unread, refresh: refreshUnread } = useNotifications();
   const { tabEnabled, optionEnabled } = useAdminFlags();
   const { user } = useAuth();
   const canReadProperties = hasPermission(user, 'properties:read');
@@ -178,6 +170,7 @@ export default function AdminTopbarTools() {
   const canReadTickets = hasPermission(user, 'tickets:read');
   const [q, setQ] = useState('');
   const [searchOpen, setSearchOpen] = useState(false);
+  const [phoneSearch, setPhoneSearch] = useState(false);
   const [notifOpen, setNotifOpen] = useState(false);
   const [filter, setFilter] = useState('all');
   const searchRef = useRef(null);
@@ -188,19 +181,23 @@ export default function AdminTopbarTools() {
     [tabEnabled, user],
   );
 
-  const FEATURES = useMemo(
-    () => FEATURES_INDEX.filter((f) => (!f.flag || optionEnabled(f.flag)) && canOpenPath(user, f.path)),
-    [optionEnabled, user],
-  );
+  const { articles } = useHelpTree();
+  const FEATURES = useMemo(() => {
+    const runbooks = runbooksFor(articles, user)
+      .map((a) => ({ label: a.title, keywords: `${a.summary} runbook internal ops`, path: `/admin/runbooks/${a.slug}`, parent: 'Runbooks', flag: null }));
+    return [...FEATURES_INDEX, ...runbooks].filter((f) => (!f.flag || optionEnabled(f.flag)) && canOpenPath(user, f.path));
+  }, [optionEnabled, user, articles]);
 
-  useOutside([searchRef], () => { setSearchOpen(false); setQ(''); setFilter('all'); }, searchOpen);
+  useOutside([searchRef], () => { setSearchOpen(false); setPhoneSearch(false); setQ(''); setFilter('all'); }, searchOpen || phoneSearch);
   useOutside([notifRef], () => setNotifOpen(false), notifOpen);
 
   const inputRef = useRef(null);
 
+  useEffect(() => { if (phoneSearch) inputRef.current?.focus(); }, [phoneSearch]);
+
   useEffect(() => {
     const onKey = (e) => {
-      if (e.key === 'Escape') { setSearchOpen(false); setNotifOpen(false); setQ(''); setFilter('all'); inputRef.current?.blur(); }
+      if (e.key === 'Escape') { setSearchOpen(false); setPhoneSearch(false); setNotifOpen(false); setQ(''); setFilter('all'); inputRef.current?.blur(); }
       if ((e.metaKey || e.ctrlKey) && e.key === 'k') { e.preventDefault(); inputRef.current?.focus(); }
     };
     document.addEventListener('keydown', onKey);
@@ -232,7 +229,7 @@ export default function AdminTopbarTools() {
     let live = true;
     const timer = setTimeout(async () => {
       const [listings, people] = await Promise.allSettled([
-        canReadProperties ? searchForModeration({ q: term }, 'newest', { page: 1, size: RESULT_CAP }) : NOTHING,
+        canReadProperties ? lookupForModeration(term, { size: RESULT_CAP }) : NOTHING,
         canReadUsers ? listUsers({ q: term, page: 0, size: RESULT_CAP }) : NOTHING,
       // Two guards, not one: `live` drops a response whose search has been superseded, and the
       // debounce above means the superseded one usually never left.
@@ -285,28 +282,45 @@ export default function AdminTopbarTools() {
 
   const [notif, setNotif] = useState({ pending: [], pendingTotal: 0, open: [], openTotal: 0, replied: [], repliedTotal: 0, blind: [], total: 0 });
 
-  // One slim read serves the badge and the list; opening the bell re-reads it, closing does not.
-  const bellLoaded = useRef(false);
-  useEffect(() => {
-    if (!canReadProperties && !canReadTickets) return undefined;
-    if (bellLoaded.current && !notifOpen) return undefined;
-    let live = true;
-    const settle = (bell) => {
-      if (!live) return;
-      bellLoaded.current = true;
-      setNotif(toNotif(bell, canReadProperties, canReadTickets));
-    };
+  // Read on mount, on open, and on a slow timer while the tab is visible; a route change does not refetch.
+  const readBell = useCallback(() => {
+    const settle = (bell) => setNotif(toNotif(bell, canReadProperties, canReadTickets));
     adminBell().then(settle, () => settle(null));
+  }, [canReadProperties, canReadTickets]);
+  const canReadBell = canReadProperties || canReadTickets;
+  useEffect(() => {
+    if (!canReadBell) return undefined;
+    readBell();
+    const timer = setInterval(() => { if (document.visibilityState === 'visible') readBell(); }, BELL_REFRESH_MS);
+    return () => clearInterval(timer);
+  }, [canReadBell, readBell]);
+  useEffect(() => { if (notifOpen && canReadBell) readBell(); }, [notifOpen, canReadBell, readBell]);
+
+  const [mine, setMine] = useState([]);
+  useEffect(() => {
+    if (!notifOpen) return undefined;
+    let live = true;
+    listNotifications({ page: 0, size: 20 })
+      .then((page) => { if (live) setMine(page.items.filter((n) => !n.read).slice(0, 5)); })
+      .catch(() => { if (live) setMine([]); });
     return () => { live = false; };
-  }, [notifOpen, canReadProperties, canReadTickets]);
-  const go = (path) => { setSearchOpen(false); setNotifOpen(false); setQ(''); navigate(portalPath(user, path)); };
+  }, [notifOpen, unread]);
+
+  // Queues are standing work, not news: only unread notifications and owner replies light the dot.
+  const unseen = unread + notif.repliedTotal;
+  const go = (path) => { setSearchOpen(false); setPhoneSearch(false); setNotifOpen(false); setQ(''); navigate(portalPath(user, path)); };
+  const openMine = (n) => {
+    markRead(n.id).catch(() => {}).finally(refreshUnread);
+    go(safeNotificationLink(n.link));
+  };
+  const readAll = () => { markAllRead().catch(() => {}).finally(refreshUnread); };
   const roleIcon = (role) => (role === 'staff' ? Wrench : role === 'owner' ? ShieldCheck : User);
 
   return (
       /* Global search */
     <div className="flex items-center gap-3 flex-1 ml-2">
       <div className="relative flex-1 max-w-md" ref={searchRef}>
-        <div className="hidden items-center gap-2.5 rounded-xl border border-white/10 bg-white/[0.06] px-3.5 py-2 sm:flex hover:border-white/20 focus-within:border-teal-500/40 focus-within:bg-white/[0.08] transition-all">
+        <div className={(phoneSearch ? 'flex' : 'hidden') + ' items-center gap-2.5 rounded-xl border border-white/10 bg-white/[0.06] px-3.5 py-2 sm:flex hover:border-white/20 focus-within:border-teal-500/40 focus-within:bg-white/[0.08] transition-all'}>
           <Search className="h-4 w-4 text-gray-400 shrink-0" />
           <input
             ref={inputRef}
@@ -319,7 +333,7 @@ export default function AdminTopbarTools() {
           />
           <kbd className="hidden lg:inline-flex items-center rounded-md border border-white/10 bg-white/5 px-1.5 py-0.5 text-[10px] font-medium text-gray-500">Ctrl+K</kbd>
         </div>
-          <button onClick={() => setSearchOpen((o) => !o)} className="grid h-11 w-11 place-items-center rounded-xl border border-white/10 bg-white/5 text-gray-300 hover:text-white sm:hidden" aria-label="Search">
+          <button onClick={() => setPhoneSearch(true)} className={(phoneSearch ? 'hidden' : 'grid') + ' h-11 w-11 place-items-center rounded-xl border border-white/10 bg-white/5 text-gray-300 hover:text-white sm:hidden'} aria-label="Search">
           <Search className="h-4 w-4" />
         </button>
 
@@ -409,16 +423,30 @@ export default function AdminTopbarTools() {
       </div>
 
       <div className="relative" ref={notifRef}>
-        <button onClick={() => setNotifOpen((o) => !o)} className="tap-extend relative grid h-9 w-9 place-items-center rounded-xl border border-white/10 bg-white/5 text-gray-300 hover:text-white" aria-label="Notifications">
+        <button onClick={() => setNotifOpen((o) => !o)} className="tap-extend relative grid h-9 w-9 place-items-center rounded-xl border border-white/10 bg-white/5 text-gray-300 hover:text-white" aria-label="Notifications" title={unseen > 0 ? `${unseen} unread` : 'Notifications'}>
           <Bell className="h-4 w-4" />
-          {notif.total > 0 && <span data-testid="notif-unread-dot" className="absolute right-1.5 top-1.5 h-2 w-2 rounded-full bg-rose-400" />}
+          {unseen > 0 && <span data-testid="notif-unread-dot" className="absolute right-1.5 top-1.5 h-2 w-2 rounded-full bg-rose-400" />}
         </button>
         {notifOpen && (
           <div data-testid="admin-notifications" className="absolute right-0 z-40 mt-2 w-80 overflow-y-auto rounded-2xl border border-white/10 bg-ink-2 p-2 shadow-2xl" style={{ maxHeight: '70vh' }}>
-            {notif.total === 0 && notif.blind.length === 0 ? (
+            {notif.total === 0 && notif.blind.length === 0 && unread === 0 ? (
               <div className="px-3 py-6 text-center text-sm text-gray-500">All caught up.</div>
             ) : (
               <>
+                {unread > 0 && (
+                  <>
+                    <div className="flex items-center justify-between px-2 pb-1 pt-2 text-[11px] font-semibold uppercase tracking-wide text-gray-500">
+                      <span>For you ({unread})</span>
+                      <button onClick={readAll} className="normal-case tracking-normal text-teal-300 hover:text-teal-200">Mark all read</button>
+                    </div>
+                    {mine.map((n) => (
+                      <button key={n.id} onClick={() => openMine(n)} className="flex w-full items-center gap-3 rounded-xl px-2 py-2 text-left hover:bg-white/5">
+                        <span className="grid h-8 w-8 place-items-center rounded-lg bg-rose-500/15 text-rose-300"><Bell className="h-4 w-4" /></span>
+                        <span className="min-w-0"><span className="block truncate text-sm text-white">{n.title}</span><span className="block truncate text-xs text-gray-400">{n.desc}</span></span>
+                      </button>
+                    ))}
+                  </>
+                )}
                 {notif.replied.length > 0 && (
                   <>
                     <div className="px-2 pb-1 pt-2 text-[11px] font-semibold uppercase tracking-wide text-gray-500">Owner replied ({notif.repliedTotal})</div>

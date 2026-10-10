@@ -337,6 +337,20 @@ test.describe('LIVE: the properties console', () => {
     await expect(page.getByText('This listing has no photos \u2014 reject or request photos.')).toBeVisible();
   });
 
+  test('opening the review modal opens the case file with one write, not one per StrictMode pass', async ({ page, login }) => {
+    const listing = await pendingListing('open-once');
+    const opens = [];
+    page.on('request', (req) => {
+      if (req.method() === 'POST' && new URL(req.url()).pathname.endsWith(`/properties/${listing.id}/verification`)) opens.push(req.url());
+    });
+
+    await login.asAdmin();
+    await page.goto(`/admin/properties?review=${listing.id}`);
+
+    await expect(page.getByRole('dialog', { name: 'Verify property' }).getByTestId('review-summary')).toBeVisible({ timeout: 20000 });
+    expect(opens).toHaveLength(1);
+  });
+
   test('owner edits open on Changes, while badge requests open on Verified badge and stay out of Re-checks', async ({ page, login, request }) => {
     const edited = await recheckListing(request, 'changes');
     const badge = await badgeRequestListing(request, 'only');

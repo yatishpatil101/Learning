@@ -144,12 +144,9 @@ public class IdentityReviewService {
                 reviewer == null ? null : reviewer.userId(), listings);
 
         UUID userId = user.getId();
-        String mobile = user.getMobile();
         notifier.notify(userId, "identity.approved", "You're verified",
                 "Your identity has been confirmed. Your profile name now matches your ID: " + legalName,
                 VERIFIED_BADGE_LINK);
-        afterCommit(() -> decisionMessenger.sendIdentityDecision(mobile,
-                "Your Draazy identity verification is approved. Your profile now shows the verified badge."));
         recordUserNameAudit(reviewer, userId, oldName, legalName, v.getId());
         recordAudit(reviewer, "identity.verification.approved", v,
                 "docType", v.getDocType(), "userId", v.getUserId().toString(),
@@ -189,9 +186,9 @@ public class IdentityReviewService {
         notifier.notify(userId, "identity.rejected", "Verification needs another try",
                 "We couldn't verify your ID this time. Open the verification page to see why and retake.",
                 "/verify-identity");
-        if (mobile != null) {
-            afterCommit(() -> decisionMessenger.sendIdentityDecision(mobile,
-                    "Your Draazy identity verification could not be completed. Open the app to see the reason and retake your photos."));
+        if (mobile != null && !systemActor) {
+            sendWhatsapp(userId, mobile,
+                    "Your Draazy identity verification could not be completed. Open the app to see the reason and retake your photos.");
         }
         recordAudit(reviewer, "identity.verification.rejected", v,
                 "reason", body.reason(), "userId", v.getUserId().toString());
@@ -232,8 +229,8 @@ public class IdentityReviewService {
         UUID userId = user.getId();
         String mobile = user.getMobile();
         notifier.notify(userId, "identity.revoked", "Verified badge withdrawn", reason, "/verify-identity");
-        afterCommit(() -> decisionMessenger.sendIdentityDecision(mobile,
-                "Your Draazy verified badge was withdrawn. Open the app to see the reason and submit again."));
+        sendWhatsapp(userId, mobile,
+                "Your Draazy verified badge was withdrawn. Open the app to see the reason and submit again.");
         recordAudit(reviewer, "identity.verification.revoked", v,
                 "reason", reason, "userId", v.getUserId().toString());
     }
@@ -334,6 +331,12 @@ public class IdentityReviewService {
                         "This document is already verified on another account");
             }
             throw violation;
+        }
+    }
+
+    private void sendWhatsapp(UUID userId, String mobile, String line) {
+        if (notifier.allowsWhatsapp(userId)) {
+            afterCommit(() -> decisionMessenger.sendIdentityDecision(mobile, line));
         }
     }
 

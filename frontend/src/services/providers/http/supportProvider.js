@@ -1,42 +1,18 @@
-/**
- * HTTP support provider.
- *
- * Shape translation lives in `supportMapper.js`.
- *
- * Thin by design: six requests and no client-side state. The caller's own list is a **bare array**,
- * not a `PageResponse` — the contract keeps it unpaged because it grows with one person's own
- * support history, and it carries the full thread inline for the same reason (contrast the
- * conversations inbox, which omits transcripts because a chat can run to hundreds of messages). The
- * desk's queue is the opposite on both counts, and is a separate operation because of it.
- */
+/** The caller's own list is a bare array, not a `PageResponse`: it grows with one person's history, and each row
+ * carries only the newest message. The desk's queue is paged and thread-less, hence a separate operation. */
 import { get, post } from '../../http.js';
-import { toMessage, toQueuePage, toTicketCreate, toViewModel, toViewModelList } from './supportMapper.js';
+import { toMessage, toQueuePage, toSummaryList, toTicketCreate, toViewModel } from './supportMapper.js';
 
 export async function listTickets() {
-  return toViewModelList(await get('/support/tickets'));
+  return toSummaryList(await get('/support/tickets'));
 }
 
-/**
- * The platform-wide support queue — staff/admin.
- *
- * `GET /admin/support-tickets`, a genuinely different operation from `listTickets` rather than a
- * role-widened version of it: a paged envelope of thread-less summaries, where the caller's own
- * list is a bare array carrying every message inline. One operation cannot be both.
- *
- * **Really paged, not "one big page".** The reports queue asks for 100 rows and computes its tabs
- * and counts over what came back, because those numbers would be wrong over a page. Nothing here
- * is computed across rows — the desk reads a window of a server-fixed order, and the filter that
- * matters (`awaitingReply`) is applied server-side against the V53 partial index. So this pages
- * properly and the totals come from the envelope, which is the only way "412 waiting" can be true
- * on page 1 of 21.
- *
- * `awaitingReply` is tri-state and `undefined` is not `false`: omitted means "everything", `false`
- * means the answered complement. Sending `false` for "no filter" would hide exactly the tickets
- * the desk has not answered.
- */
-export async function listSupportQueue({ awaitingReply, page = 0, size = 20 } = {}) {
+/** Not a role-widened `listTickets`: this is a paged envelope of thread-less summaries.
+ * `awaitingReply` is tri-state: omitted means everything, and `false` for "no filter" hides unanswered tickets. */
+export async function listSupportQueue({ awaitingReply, page = 0, size = 20, counts = false } = {}) {
   const query = { page, size };
   if (awaitingReply === true || awaitingReply === false) query.awaitingReply = awaitingReply;
+  if (counts) query.counts = true;
   return toQueuePage(await get('/admin/support-tickets', query), { page, size });
 }
 

@@ -56,7 +56,8 @@ export default function useKycCase(openId, { canWrite, userId, onChanged }) {
     setClaimNotice(next?.status === 'pending' && next?.claimedByName && !next?.claimedByMe ? claimedMessage(next) : '');
   }, []);
 
-  /* Shared by open, refresh and decide: claim if allowed, and on a lost race show who holds it. */
+  /* Shared by open, refresh and decide: claim if allowed, and on a lost race show who holds it. The claim
+     answers only who holds the case, so it is laid over the record already read. */
   const claimOrShowHolder = useCallback(async (id, gen, fallback, isCurrent) => {
     try {
       const claimed = await claimForRun(id, gen);
@@ -64,7 +65,7 @@ export default function useKycCase(openId, { canWrite, userId, onChanged }) {
         queueRelease(id, gen);
         return false;
       }
-      applyDetail(claimed);
+      applyDetail({ ...fallback, ...claimed });
       return true;
     } catch (nextError) {
       if (!isCurrent()) return false;
@@ -145,7 +146,7 @@ export default function useKycCase(openId, { canWrite, userId, onChanged }) {
     setError('');
     try {
       if (requireClaim && activeClaimRef.current?.id !== id) {
-        if (!await claimOrShowHolder(id, runRef.current, null, stillOpen(id))) return null;
+        if (!await claimOrShowHolder(id, runRef.current, detail, stillOpen(id))) return null;
       }
       const next = await submit();
       if (!stillOpen(id)()) return null;

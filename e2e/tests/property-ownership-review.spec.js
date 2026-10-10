@@ -2,6 +2,7 @@ import { createRequire } from 'node:module';
 import { test, expect, ACTORS } from '../fixtures/live.js';
 import { API, authHeaders, seedConsent, uniqueMobile } from '../helpers/liveAuth.js';
 import { approveListing, rejectListing } from '../helpers/moderation.js';
+import { pickDate } from '../helpers/datePicker.helper.js';
 
 const requireFrontend = createRequire(new URL('../../frontend/package.json', import.meta.url));
 const { PDFDocument } = requireFrontend('pdf-lib');
@@ -85,9 +86,9 @@ async function recordDocument(page, listing, document, suggestedLabel) {
   await panel.getByRole('button', { name: 'Uploaded document', exact: true }).click();
   await page.getByRole('option', { name: `${document.fileName} — ${document.category}`, exact: true }).click();
   await expect(panel.getByRole('button', { name: 'Evidence document type', exact: true })).toContainText(suggestedLabel);
-  await expect(panel.getByLabel('Document issue date', { exact: true })).toHaveValue('');
+  await expect(panel.locator('[aria-label="Document issue date"] .dz-datefield__text')).toHaveText('DD/MM/YYYY');
   await expect(panel.getByRole('button', { name: 'Record evidence', exact: true })).toBeDisabled();
-  await panel.getByLabel('Document issue date', { exact: true }).fill(document.issueDate);
+  await pickDate(page, '[aria-label="Document issue date"]:visible', document.issueDate);
   const recorded = ownershipResponse(page, listing, 'POST', '/evidence');
   await panel.getByRole('button', { name: 'Record evidence', exact: true }).click();
   const response = await recorded;
@@ -125,9 +126,16 @@ test('rent: retry vault read, record a real bill, explicitly grant the public ba
   await expect(panel).toContainText('not a legal title guarantee');
   const grant = panel.getByRole('button', { name: 'Grant ownership verification', exact: true });
   await expect(grant).toBeDisabled();
-  const link = panel.getByRole('link', { name: `Open original file — ${bill.fileName}`, exact: true });
-  await expect(link).toHaveAttribute('rel', 'noopener noreferrer');
-  const downloaded = await request.get(await link.getAttribute('href'));
+  const open = panel.getByRole('button', { name: `Open original file — ${bill.fileName}`, exact: true });
+  const [minted, popup] = await Promise.all([
+    page.waitForResponse((res) => res.url().includes('/ownership/documents/') && res.url().endsWith('/url')),
+    page.waitForEvent('popup'),
+    open.click(),
+  ]);
+  expect(minted.status()).toBe(200);
+  const { url: signed } = await minted.json();
+  await popup.close();
+  const downloaded = await request.get(new URL(signed, page.url()).href);
   expect(downloaded.status()).toBe(200);
   expect(downloaded.headers()['content-type']).toContain('application/pdf');
   expect(await downloaded.body()).toEqual(bill.buffer);
@@ -228,7 +236,8 @@ test('a verified rental changed to a sale needs a fresh badge decision but can s
     headers: listing.headers, data: { deal: 'buy', price: 8500000 },
   });
   expect(changed.status()).toBe(200);
-  expect(await changed.json()).toMatchObject({ ownershipVerified: false });
+  const changedStored = await request.get(`${API}/me/listings/${listing.id}`, { headers: listing.headers });
+  expect(await changedStored.json()).toMatchObject({ ownershipVerified: false });
   expect((await publish()).status()).toBe(200);
   const publicListing = await request.get(`${API}/properties/${listing.id}`);
   expect(publicListing.status()).toBe(200);

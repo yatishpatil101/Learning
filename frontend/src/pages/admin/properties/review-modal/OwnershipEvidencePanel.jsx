@@ -23,8 +23,6 @@ const maskLast4 = (value) => {
   return `•••• ${digits.slice(-4)}`;
 };
 
-const LINK_LIFETIME_MS = 10 * 60 * 1000;
-/** File links are signed and expire while a review can stay open, so the panel ages them out. */
 /** `propertyId` must be pid(listing): the UUID, not a public listing slug. */
 export default function OwnershipEvidencePanel({ propertyId, listing, onRefresh, onVerification }) {
   const { user } = useAuth();
@@ -39,7 +37,6 @@ function OwnershipCase({ propertyId, listing, actorId, onRefresh, onVerification
   const [reload, setReload] = useState(0);
   const [data, setData] = useState(null);
   const [loadError, setLoadError] = useState('');
-  const [linksExpired, setLinksExpired] = useState(false);
   const [form, setForm] = useState(EMPTY_FORM);
   const [reason, setReason] = useState('');
   const [pending, setPending] = useState('');
@@ -61,8 +58,6 @@ function OwnershipCase({ propertyId, listing, actorId, onRefresh, onVerification
     let cancelled = false;
     setData(null);
     setLoadError('');
-    setLinksExpired(false);
-    const ageOut = setTimeout(() => setLinksExpired(true), LINK_LIFETIME_MS);
     Promise.all([getOwnershipVerification(propertyId), listOwnershipDocuments(propertyId)])
       .then(([verification, documents]) => {
         if (!Array.isArray(verification?.missingKinds) || !Array.isArray(verification?.evidence)
@@ -73,7 +68,7 @@ function OwnershipCase({ propertyId, listing, actorId, onRefresh, onVerification
       .catch((cause) => {
         if (!cancelled) setLoadError(cause?.message || 'Could not load ownership evidence.');
       });
-    return () => { cancelled = true; clearTimeout(ageOut); };
+    return () => { cancelled = true; };
   }, [propertyId, reload]);
 
   const refresh = () => {
@@ -183,7 +178,7 @@ function OwnershipCase({ propertyId, listing, actorId, onRefresh, onVerification
 
             <div className="grid gap-x-6 sm:grid-cols-2">
               <Section title="Owner's documents" meta={`${documents.length} uploaded`}>
-                <UploadedDocuments documents={documents} linksExpired={linksExpired} />
+                <UploadedDocuments propertyId={propertyId} documents={documents} />
               </Section>
               <Section title="Recorded checks" meta={`${verification.evidence.filter((row) => row.current).length} current`}>
                 <RecordedEvidence evidence={verification.evidence} documents={documents} />

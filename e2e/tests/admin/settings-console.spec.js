@@ -99,8 +99,8 @@ test('saving the fee schedule changes the price the public route quotes', async 
   // the supported entry point and it removes a click that can land before the strip has mounted.
   await page.goto('/admin/settings?tab=fees');
 
-  // `featuredListing` is safe to nudge and republishes through the anonymous `/bootstrap`.
-  const fee = page.getByRole('spinbutton', { name: 'Featured Listing' });
+  // `seekerPlusTopup` is safe to nudge and republishes through the anonymous `/bootstrap`.
+  const fee = page.getByRole('spinbutton', { name: 'Seeker Plus Topup' });
   await expect(fee).toBeVisible();
   const before = Number(await fee.inputValue());
   // Relative to whatever is stored, so the test carries no opinion about the seeded price, and well
@@ -117,10 +117,10 @@ test('saving the fee schedule changes the price the public route quotes', async 
 
   await expect(page.getByRole('alert')).toContainText('Fee schedule saved');
 
-  expect(Number((await settingsDoc()).fees.featuredListing)).toBe(next);
+  expect(Number((await settingsDoc()).fees.seekerPlusTopup)).toBe(next);
 
   // Anonymous `/bootstrap` catches wrong keys and stale public settings caches.
-  expect(Number((await publicPricing()).featuredListing)).toBe(next);
+  expect(Number((await publicPricing()).seekerPlusTopup)).toBe(next);
 });
 
 test('saving the photo limit writes the listings block the public policy route answers from', async ({ page, login }) => {
@@ -196,4 +196,36 @@ test('the settings API refuses an anonymous caller and a signed-in buyer', async
   // A buyer holds a valid token: 401 says "who are you", 403 says "not you".
   const asBuyer = await fetch(`${API}/admin/settings`, { headers: await authHeaders(ACTORS.buyer) });
   expect(asBuyer.status).toBe(403);
+});
+
+test('a blank fee is refused with a message and nothing is written', async ({ page, login }) => {
+  await login.asAdmin();
+  await page.goto('/admin/settings?tab=fees');
+
+  const writes = [];
+  page.on('request', (req) => {
+    if (req.method() === 'PUT' && req.url().includes('/api/admin/settings')) writes.push(req.postDataJSON());
+  });
+
+  const fee = page.getByRole('spinbutton', { name: 'Seeker Plus Topup' });
+  await expect(fee).toBeVisible();
+  await fee.fill('');
+  await page.getByRole('button', { name: 'Save fees' }).click();
+
+  await expect(page.getByRole('alert')).toContainText('A blank field is not saved as 0.');
+  expect(writes).toEqual([]);
+});
+
+test('count fees carry no rupee sign and a stale save is told to reload', async ({ page, login }) => {
+  await login.asAdmin();
+  await page.goto('/admin/settings?tab=fees');
+
+  const count = page.getByRole('spinbutton', { name: 'Free Contact Limit' });
+  await expect(count).toBeVisible();
+  await expect(page.locator('label').filter({ has: count })).not.toContainText('₹');
+  await expect(page.locator('label').filter({ has: page.getByRole('spinbutton', { name: 'Seeker Plus Topup' }) })).toContainText('₹');
+
+  await writeSettings({ site: { tagline: `changed-elsewhere-${Date.now()}` } });
+  await page.getByRole('button', { name: 'Save fees' }).click();
+  await expect(page.getByRole('alert')).toContainText('Someone else changed these settings');
 });

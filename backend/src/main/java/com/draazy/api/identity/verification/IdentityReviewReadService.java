@@ -20,7 +20,6 @@ import org.springframework.transaction.annotation.Transactional;
 @Service
 public class IdentityReviewReadService {
 
-    private static final int HASH_PREFIX_CHARS = 12;
     private static final String SYSTEM_ACTOR_ID = "system";
     private static final String SYSTEM_ACTOR_ROLE = "admin";
 
@@ -44,21 +43,25 @@ public class IdentityReviewReadService {
 
     @Transactional(readOnly = true)
     public IdentityReviewResponse detail(AuthPrincipal actor, IdentityVerification v) {
-        recordAudit(actor, "identity.verification.viewed", v, "files",
-                String.valueOf(files.findByVerificationId(v.getId()).size()));
-        return currentReview(actor, v);
+        List<IdentityVerificationFile> stored = files.findByVerificationId(v.getId());
+        recordAudit(actor, "identity.verification.viewed", v, "files", String.valueOf(stored.size()));
+        return review(actor, v, stored);
     }
 
     IdentityReviewResponse currentReview(AuthPrincipal actor, IdentityVerification v) {
-        Map<UUID, User> byId = usersFor(List.of(v));
-        return toReview(v, byId::get, true, actor == null ? null : actor.userId());
+        return review(actor, v, files.findByVerificationId(v.getId()));
     }
 
-    Page<IdentityReviewResponse> toReviewPage(AuthPrincipal actor, Page<IdentityVerification> page,
-            boolean withDetail) {
+    private IdentityReviewResponse review(AuthPrincipal actor, IdentityVerification v,
+            List<IdentityVerificationFile> stored) {
+        Map<UUID, User> byId = usersFor(List.of(v));
+        return toReview(v, byId::get, actor == null ? null : actor.userId(), stored);
+    }
+
+    Page<IdentityReviewRow> toRowPage(AuthPrincipal actor, Page<IdentityVerification> page) {
         Map<UUID, User> byId = usersFor(page.getContent());
         UUID actorId = actor == null ? null : actor.userId();
-        return page.map(v -> toReview(v, byId::get, withDetail, actorId));
+        return page.map(v -> toRow(v, byId::get, actorId));
     }
 
     private void recordAudit(AuthPrincipal actor, String action, IdentityVerification v, Object... context) {
@@ -91,8 +94,29 @@ public class IdentityReviewReadService {
         return byId;
     }
 
-    private IdentityReviewResponse toReview(IdentityVerification v, Function<UUID, User> lookup,
-            boolean withDetail, UUID actorId) {
+    private IdentityReviewRow toRow(IdentityVerification v, Function<UUID, User> lookup, UUID actorId) {
+        User user = lookup.apply(v.getUserId());
+        User reviewer = v.getReviewerId() == null ? null : lookup.apply(v.getReviewerId());
+        boolean freshClaim = isFreshClaim(v);
+        User claimedBy = freshClaim ? lookup.apply(v.getClaimedBy()) : null;
+        boolean hideQa = actorId != null && actorId.equals(v.getReviewerId());
+        return new IdentityReviewRow(
+                v.getId(),
+                v.getStatus(),
+                user == null ? null : user.getName(),
+                user == null ? null : user.getMobile(),
+                v.getDocType(),
+                v.getSubmittedAt(),
+                v.getDecidedAt(),
+                v.getRevokedAt(),
+                reviewer == null ? null : reviewer.getName(),
+                claimedBy == null ? null : claimedBy.getName(),
+                freshClaim && actorId != null && actorId.equals(v.getClaimedBy()),
+                hideQa ? null : v.getQaSampledAt());
+    }
+
+    private IdentityReviewResponse toReview(IdentityVerification v, Function<UUID, User> lookup, UUID actorId,
+            List<IdentityVerificationFile> stored) {
         User user = lookup.apply(v.getUserId());
         User reviewer = v.getReviewerId() == null ? null : lookup.apply(v.getReviewerId());
         User revokedBy = v.getRevokedBy() == null ? null : lookup.apply(v.getRevokedBy());
@@ -101,8 +125,6 @@ public class IdentityReviewReadService {
         User qaReviewedBy = v.getQaReviewedBy() == null ? null : lookup.apply(v.getQaReviewedBy());
         boolean claimedByMe = freshClaim && actorId != null && actorId.equals(v.getClaimedBy());
         boolean hideQa = actorId != null && actorId.equals(v.getReviewerId());
-        String hashPrefix = v.getClaimedHash() == null ? null
-                : v.getClaimedHash().substring(0, HASH_PREFIX_CHARS);
         return new IdentityReviewResponse(
                 v.getId(),
                 v.getUserId(),
@@ -114,8 +136,6 @@ public class IdentityReviewReadService {
                 v.getStatus(),
                 v.getDocType(),
                 new IdentityReviewResponse.Claims(v.getClaimedNumberLast4(), v.getClaimedName(), v.getClaimedDob()),
-                hashPrefix,
-                v.getDocLast4(),
                 v.getHolderName(),
                 v.getHolderDob(),
                 v.isHolderDobYearOnly(),
@@ -134,7 +154,6 @@ public class IdentityReviewReadService {
                 revokedBy == null ? null : revokedBy.getName(),
                 v.getRevocationReason(),
                 claimedBy == null ? null : claimedBy.getName(),
-                freshClaim ? v.getClaimedAt() : null,
                 claimedByMe,
                 hideQa ? null : v.getQaSampledAt(),
                 hideQa ? null : v.getQaReviewedAt(),
@@ -143,8 +162,8 @@ public class IdentityReviewReadService {
 
                 v.getQaSampledAt() != null && v.getQaReviewedAt() == null,
                 v.getFilesPurgedAt(),
-                withDetail ? images(v) : null,
-                withDetail ? warnings(v) : List.of());
+                images(stored),
+                warnings(v));
     }
 
     private boolean isFreshClaim(IdentityVerification v) {
@@ -153,11 +172,11 @@ public class IdentityReviewReadService {
                 && v.getClaimedAt().isAfter(Instant.now(clock).minus(IdentityReviewClaimService.CLAIM_TTL));
     }
 
-    private IdentityReviewResponse.Images images(IdentityVerification v) {
+    private IdentityReviewResponse.Images images(List<IdentityVerificationFile> stored) {
         String front = null;
         String back = null;
         String selfie = null;
-        for (IdentityVerificationFile f : files.findByVerificationId(v.getId())) {
+        for (IdentityVerificationFile f : stored) {
             String url = storage.signedDownloadUrl(f.getStorageKey());
             switch (f.getKind()) {
                 case IdentityVerificationFile.FRONT -> front = url;
@@ -171,29 +190,36 @@ public class IdentityReviewReadService {
     }
 
     private List<IdentityReviewResponse.Warning> warnings(IdentityVerification v) {
-        List<IdentityReviewResponse.Warning> out = new ArrayList<>();
+        List<Hit> hits = new ArrayList<>();
         if (v.getClaimedHash() != null) {
             verifications.findByIdentityHash(v.getClaimedHash())
                     .filter(o -> !o.getId().equals(v.getId()))
-                    .ifPresent(o -> out.add(warning("same_document_verified", o)));
+                    .ifPresent(o -> hits.add(new Hit("same_document_verified", o)));
             for (IdentityVerification o : verifications.findByClaimedHash(v.getClaimedHash())) {
                 if (!o.getId().equals(v.getId()) && !VerificationStatuses.VERIFIED.equals(o.getStatus())) {
-                    out.add(warning("same_document_claimed", o));
+                    hits.add(new Hit("same_document_claimed", o));
                 }
             }
         }
         if (v.getPersonKey() != null) {
             for (IdentityVerification o : verifications.findByPersonKey(v.getPersonKey())) {
                 if (!o.getId().equals(v.getId())) {
-                    out.add(warning("same_person_key", o));
+                    hits.add(new Hit("same_person_key", o));
                 }
             }
         }
-        return out;
+        if (hits.isEmpty()) {
+            return List.of();
+        }
+        Map<UUID, String> names = new HashMap<>();
+        users.findAllById(hits.stream().map(h -> h.other().getUserId()).distinct().toList())
+                .forEach(u -> names.put(u.getId(), u.getName()));
+        return hits.stream()
+                .map(h -> new IdentityReviewResponse.Warning(h.kind(), h.other().getUserId(),
+                        names.get(h.other().getUserId()), h.other().getId()))
+                .toList();
     }
 
-    private IdentityReviewResponse.Warning warning(String kind, IdentityVerification other) {
-        String name = users.findById(other.getUserId()).map(User::getName).orElse(null);
-        return new IdentityReviewResponse.Warning(kind, other.getUserId(), name, other.getId());
+    private record Hit(String kind, IdentityVerification other) {
     }
 }

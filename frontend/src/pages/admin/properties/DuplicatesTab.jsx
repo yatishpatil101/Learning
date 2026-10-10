@@ -13,7 +13,7 @@ const fmtDate = (ts) => {
 };
 
 function ListingColumn({ listing: l, isNewest, onKeep, disabled }) {
-  const addr = [l.flatNumber && `Flat ${l.flatNumber}`, l.society, l.pincode].filter(Boolean).join(' · ') || l.locality || '—';
+  const addr = l.pincode || l.locality || '—';
   return (
     <div className="flex flex-1 min-w-[240px] flex-col rounded-xl border border-white/10 bg-white/[0.03] overflow-hidden">
       <div className="relative h-32 bg-white/5">

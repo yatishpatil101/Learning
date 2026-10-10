@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import {
+  getFlatmateModerationSummary,
   listFlatmateModeration,
   listFlatmateReviews,
   listGroupApplications,
@@ -41,7 +42,7 @@ const fromPost = (row) => ({
   author: row.authorName,
   createdAt: row.createdAt,
   modStatus: row.modStatus,
-  photoCount: row.photos.length,
+  photoCount: row.photoCount,
   snippet: row.freeText,
 });
 
@@ -104,7 +105,7 @@ export function mergeQueue(tab, results) {
 /* One failed source fails the whole tab: a queue missing a third of its rows would read as
    "nothing to do" when the truth is "the read did not work". */
 export default function useFlatmateQueue(tab) {
-  const [state, setState] = useState({ status: 'loading', items: [], truncated: false, error: '' });
+  const [state, setState] = useState({ status: 'loading', items: [], truncated: false, counts: null, error: '' });
   const [nonce, setNonce] = useState(0);
   const reload = useCallback(() => setNonce((n) => n + 1), []);
 
@@ -112,12 +113,14 @@ export default function useFlatmateQueue(tab) {
     let alive = true;
     setState((s) => ({ ...s, status: 'loading', error: '' }));
     const sources = sourcesFor(tab);
-    Promise.all(sources.map((s) => s.load().then((page) => ({ type: s.type, page }))))
-      .then((results) => {
-        if (alive) setState({ status: 'ready', ...mergeQueue(tab, results), error: '' });
+    // The tab labels are a nicety: without them the desk still works, so their failure is not the queue's.
+    const counts = getFlatmateModerationSummary().catch(() => null);
+    Promise.all([Promise.all(sources.map((s) => s.load().then((page) => ({ type: s.type, page })))), counts])
+      .then(([results, summary]) => {
+        if (alive) setState({ status: 'ready', ...mergeQueue(tab, results), counts: summary, error: '' });
       })
       .catch((e) => {
-        if (alive) setState({ status: 'error', items: [], truncated: false, error: e.message || 'Could not read this queue.' });
+        if (alive) setState({ status: 'error', items: [], truncated: false, counts: null, error: e.message || 'Could not read this queue.' });
       });
     return () => { alive = false; };
   }, [tab, nonce]);

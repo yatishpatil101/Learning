@@ -1,5 +1,4 @@
-/** `/admin/home-loans` gaps that `admin-services.spec.js` leaves, against the live API: tab counts, queue narrowing, export, resolve, park, load failure, API-refused writes.
- * Every ticket is raised by the spec with a run-stamped subject because the board is shared and append-only. */
+/** Every ticket is raised by the spec with a run-stamped subject because the board is shared and append-only. */
 import fs from 'node:fs';
 import { test, expect, ACTORS, STAFF } from '../../fixtures/live.js';
 import { API, apiLogin, authHeaders } from '../../helpers/liveAuth.js';
@@ -27,7 +26,11 @@ const adminPatch = async (request, id, data) => {
   expect(res.status(), await res.text()).toBe(200);
 };
 
-const serverTicket = async (request, id) => (await adminBoard(request)).find((t) => t.id === id);
+const serverTicket = async (request, id) => {
+  const res = await request.get(`${API}/tickets/${id}`, { headers: await authHeaders(ACTORS.admin) });
+  expect(res.status()).toBe(200);
+  return res.json();
+};
 
 const pick = async (page, ariaLabel, option) => {
   await page.getByLabel(ariaLabel, { exact: true }).click();

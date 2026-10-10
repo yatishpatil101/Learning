@@ -3,6 +3,10 @@ package com.draazy.api.catalog.society;
 import com.draazy.api.common.audit.AuditService;
 import com.draazy.api.common.error.NotFoundException;
 import com.draazy.api.security.AuthPrincipal;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -18,6 +22,13 @@ public class SocietyAdminService {
     public SocietyAdminService(SocietyRepository societies, AuditService audit) {
         this.societies = societies;
         this.audit = audit;
+    }
+
+    /** Alphabetical, name then slug, so offset paging over repeated names neither repeats nor skips a row. */
+    @Transactional(readOnly = true)
+    public Page<SocietyDirectoryRow> directory(String q, Pageable pageable) {
+        Pageable page = PageRequest.of(pageable.getPageNumber(), pageable.getPageSize(), Sort.by("name", "slug"));
+        return societies.findAll(SocietySpecs.browse(q, null, null), page).map(SocietyDirectoryRow::of);
     }
 
     /** Read-only, so no audit entry: reading destroys no evidence, and a log of every glance goes unread. */

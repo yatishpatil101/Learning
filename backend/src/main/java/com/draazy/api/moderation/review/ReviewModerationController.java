@@ -5,10 +5,11 @@ import com.draazy.api.common.error.BadRequestException;
 import com.draazy.api.common.error.NotFoundException;
 import com.draazy.api.common.web.Ids;
 import com.draazy.api.common.web.PageResponse;
+import com.draazy.api.common.web.Pageables;
 import com.draazy.api.common.web.Routes;
 import com.draazy.api.engagement.review.Review;
+import com.draazy.api.engagement.review.ReviewModerationRow;
 import com.draazy.api.engagement.review.ReviewRepository;
-import com.draazy.api.engagement.review.ReviewResponse;
 import com.draazy.api.engagement.review.ReviewService;
 import com.draazy.api.engagement.review.ReviewStatuses;
 import com.draazy.api.security.AuthPrincipal;
@@ -29,26 +30,8 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
-/**
- * {@code PATCH /reviews/{id}/status} (contract {@code setReviewStatus}, added by spec fix S31).
- *
- * <p><strong>Why this endpoint had to be added to the contract.</strong> {@code POST /reports}
- * accepts {@code targetType: review}, so the platform invited users to report reviews — and then
- * offered no verb capable of acting on one. An abuse queue that can only accumulate is not a
- * moderation system; it is a complaints box.
- *
- * <p><strong>Why no new column was needed.</strong> {@code reviews.status} already carries
- * moderation state, and every read path filters {@code status = 'published'} —
- * <em>including {@code ReviewRepository.aggregateFor}, which computes the rating average</em>. So
- * setting {@code rejected} removes a defamatory review both from the listing page and from the score
- * it moved, in one write. Adding an {@code archived} column (as slice 8 assumed would be needed)
- * would have created a second, weaker notion of "taken down" that the aggregate did not honour —
- * the review would vanish from the page while still dragging the society's rating down.
- *
- * <p>Controller and service are one class here. The behaviour is a single guarded state transition
- * with no orchestration, and splitting it across two files would add indirection without adding a
- * seam anything could use.
- */
+/** Setting {@code rejected} on {@code reviews.status} removes a review from the page and from the rating aggregate
+ * in one write; a separate archived column would leave it dragging the score down. */
 @RestController
 public class ReviewModerationController {
 
@@ -66,30 +49,24 @@ public class ReviewModerationController {
         this.audit = audit;
     }
 
-    /**
-     * {@code GET /admin/reviews} (contract {@code listReviewsForModeration}) — the queue.
-     *
-     * <p>The read that {@link #setStatus} needed and did not have. Reviews are post-moderated, so
-     * there is no "pending" backlog by default — the useful filters are {@code rejected} (what has
-     * been taken down) and no filter at all (everything, newest first, which is how a moderator
-     * finds a review nobody has reported yet).
-     *
-     * <p>Delegates to {@link ReviewService} rather than reading the repository here: author names
-     * have to be resolved in one query for the whole page, and that batching already exists there.
-     * Reproducing it would be an N+1 waiting to be reintroduced.
-     */
+    /** Delegates to {@link ReviewService} so author names are resolved in one batched query per page,
+     * not one per row. */
     @GetMapping(Routes.Moderation.ADMIN_REVIEWS)
-    @PreAuthorize("hasAnyRole('" + Roles.STAFF + "', '" + Roles.ADMIN + "') and "
-            + BackOfficePermissions.REQUIRE_PROPERTIES_READ)
-    public PageResponse<ReviewResponse> queue(
+    @PreAuthorize("hasAnyRole('" + Roles.STAFF + "', '" + Roles.MANAGER + "', '" + Roles.ADMIN + "') and "
+            + BackOfficePermissions.REQUIRE_REVIEWS_READ)
+    public PageResponse<ReviewModerationRow> queue(
             @RequestParam(required = false) String status,
+            @RequestParam(required = false) String q,
+            @RequestParam(defaultValue = "false") boolean counts,
             @PageableDefault(size = 20) Pageable pageable) {
-        return PageResponse.of(reviewService.listForModeration(status, pageable), r -> r);
+        PageResponse<ReviewModerationRow> page = PageResponse.of(
+                reviewService.listForModeration(status, q, Pageables.unsorted(pageable)), r -> r);
+        return counts ? page.withCounts(reviewService.moderationCounts()) : page;
     }
 
     @PatchMapping(Routes.Moderation.REVIEW_STATUS)
     @PreAuthorize("hasAnyRole('" + Roles.STAFF + "', '" + Roles.ADMIN + "') and "
-            + BackOfficePermissions.REQUIRE_PROPERTIES_MODERATE)
+            + BackOfficePermissions.REQUIRE_REVIEWS_WRITE)
     @Transactional
     public void setStatus(@CurrentUser AuthPrincipal principal, @PathVariable String id,
             @Valid @RequestBody StatusRequest body) {
