@@ -7,6 +7,7 @@ import { listPropertiesByIds } from '../../../services/propertyService.js';
 import { getRecentProps } from '../../../lib/localPrefs.js';
 import { priceLabel } from '../../../lib/format.js';
 import { cityLabelFor } from '../../../lib/geoConfig.js';
+import { propertyHref } from '../../../lib/listingSeo.js';
 
 export default function RecentlyViewed() {
   const { t } = useTranslation();
@@ -36,7 +37,7 @@ export default function RecentlyViewed() {
 
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 reveal">
           {items.map((p) => (
-            <Link key={p.id} to={`/property/${p.id}`} className="property-card glass rounded-2xl overflow-hidden group flex flex-col">
+            <Link key={p.id} to={propertyHref(p)} className="property-card glass rounded-2xl overflow-hidden group flex flex-col">
               <div className="relative overflow-hidden" style={{ aspectRatio: '16/10' }}>
                 <PropertyImage src={p.image || p.img} sizes="(max-width: 1023px) 50vw, 300px" alt={p.title} width={400} height={250} className="w-full h-full object-cover" loading="lazy" />
                 <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent" />

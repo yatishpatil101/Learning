@@ -21,7 +21,7 @@ export default function BillingPanel({ isOwner }) {
     ? `Up to ${plan.listingLimit} properties · all owner services`
     : isOwner
       ? 'Free owner listing · upgrade for more reach'
-      : '15 owner contacts every month';
+      : '15 owner contacts in total';
   // No subscription row at all is still the free tier, and the free tier is genuinely active —
   // there is no payment outstanding on it. Only a real status can contradict that.
   const [badgeText, badgeClass] = STATUS_BADGE[status] ?? STATUS_BADGE.active;

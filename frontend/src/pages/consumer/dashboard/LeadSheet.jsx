@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router';
 import Icon from '../../../components/Icon.jsx';
 import Modal from '../../../components/ui/Modal.jsx';
+import DateField from '../../../components/ui/DateField.jsx';
 import { avatarFor, timeAgo } from '../../../lib/format.js';
 import { CallBtn, WhatsAppBtn } from './components.jsx';
 /* Lead detail sheet — progressive disclosure for a single request. */
@@ -126,11 +127,11 @@ export default function LeadSheet({ lead, annotation, onClose, onSaveAnnotation,
           <label htmlFor="lead-followup" className="mb-1.5 flex items-center gap-1.5 text-xs font-semibold text-gray-300">
             <Icon name="calendar-clock" className="h-3.5 w-3.5 text-gray-500" /> Follow-up date
           </label>
-          <input
+          <DateField
             id="lead-followup"
-            type="date"
             value={followUp}
-            onChange={(e) => saveFollowUp(e.target.value)}
+            onChange={saveFollowUp}
+            ariaLabel="Follow-up date"
             className="field w-full rounded-xl px-3.5 py-2.5 text-sm"
           />
         </div>

@@ -14,6 +14,7 @@ import FieldError from '../../components/ui/FieldError.jsx';
 import HScroll from '../../components/ui/HScroll.jsx';
 import { isValidMobile } from '../../lib/hooks.js';
 import { srcSetFor, CARD_SIZES } from '../../lib/imgSrcSet.js';
+import { STATS } from '../../data/homeData.js';
 
 const IMG = (id) => `https://images.unsplash.com/photo-${id}?w=800&q=80`;
 
@@ -29,25 +30,20 @@ const SPOT_CHIPS = ['govt', 'doorstep', 'fast'];
 const FEATURED_SLUG = 'rentAgreement';
 const SERVICES = [
   ['Rent Agreement', 'file-signature', 'finance', '1521791136064-7986c2920216', 'Hassle-free online Maharashtra rent agreements with doorstep biometric.', '/services/rent-agreement', 'rentAgreement'],
-  ['Buy a Home', 'home', 'discover', '1600596542815-ffad4c1539a9', 'Browse 10,000+ verified, RERA-compliant listings across Pune with genuine photos.', '/listings?deal=buy', 'buyHome'],
+  ['Buy a Home', 'home', 'discover', '1600596542815-ffad4c1539a9', 'Browse owner-direct homes for sale across Pune, with ID, ownership and RERA badges where they apply.', '/listings?deal=buy', 'buyHome'],
   ['Rent a Home', 'key-round', 'discover', '1502672260266-1c1ef2d93688', 'Owner-direct rentals with zero brokerage and instant visit scheduling.', '/listings?deal=rent', 'rentHome'],
   ['Locality Insights', 'trending-up', 'discover', '1486406146926-c627a92ad1ab', 'Price trends, livability scores and connectivity for every Pune locality.', '/locality/baner', 'localityInsights'],
-  ['Home Loans & EMI', 'badge-percent', 'finance', '1554224155-6726b3ff858f', 'Compare rates from 25+ banks, check eligibility and plan repayments with a built-in EMI calculator.', '/home-loans', 'homeLoans'],
+  ['Home Loans & EMI', 'badge-percent', 'finance', '1554224155-6726b3ff858f', 'Compare offers from partner banks, check eligibility and plan repayments with a built-in EMI calculator.', '/home-loans', 'homeLoans'],
   ['Property & Legal', 'scale', 'finance', '1589829545856-d10d557cf95f', 'Title verification, due diligence and end-to-end registration assistance.', '/services/property-legal', 'propertyLegal'],
   ['Packers & Movers', 'truck', 'move', '1600518464441-9154a4dea21b', 'Vetted relocation partners at negotiated, transparent, all-inclusive rates.', '/services/packers-movers', 'packersMovers'],
-  ['Interior & Renovation', 'paint-roller', 'move', '1618221195710-dd6b41faaea6', 'Designed-in-3D interiors by trusted partners with a 10-year warranty.', '/services/interior-renovation', 'interior'],
-  ['Property Valuation', 'calculator', 'discover', '1460925895917-afdab827c52f', 'Get a fair, data-backed estimate and a certified valuation report in 48 hours.', '/services/property-valuation', 'valuation'],
+  ['Interior & Renovation', 'paint-roller', 'move', '1618221195710-dd6b41faaea6', 'Interiors designed in 3D by partner designers, with an itemised quote upfront.', '/services/interior-renovation', 'interior'],
+  ['Property Valuation', 'calculator', 'discover', '1460925895917-afdab827c52f', 'Get a free instant estimate, then a certified valuation report from a registered valuer.', '/services/property-valuation', 'valuation'],
 ];
 const STEPS = [
   ['Search', 'search', 'Filter by locality, budget, BHK, age, floor and amenities.', 'search'],
   ['Shortlist', 'heart', 'Save favourites, compare side by side and view on the map.', 'shortlist'],
-  ['Visit & Decide', 'calendar-check', 'Book site visits and chat directly with verified owners.', 'visit'],
+  ['Visit & Decide', 'calendar-check', 'Book site visits and chat directly with owners.', 'visit'],
   ['Move In', 'key-round', 'Close with loans, legal, movers & interiors — all sorted.', 'moveIn'],
-];
-const TESTI = [
-  ['Aarti & Rohan', 'Bought a 3 BHK in Baner', 'AR', 'We found our flat, got the loan and even the movers — all through Draazy. Zero brokerage, zero stress.', 'rgb(var(--dz-c-orange-400))'],
-  ['Sandeep Kulkarni', 'Rented in Wakad', 'SK', 'Chatted directly with the owner, signed the rent agreement online. The whole thing took two days.', 'rgb(var(--dz-c-teal-500))'],
-  ['Meera Joshi', 'Sold & relocated', 'MJ', 'The valuation report and legal help made selling effortless. Interiors team set up our new home beautifully.', 'rgb(var(--dz-c-indigo-500))'],
 ];
 const PACK = [
   { id: 'movers', icon: 'truck' },
@@ -59,10 +55,10 @@ const PACK = [
 ];
 /* Prices come from the server-controlled `movePack` block; never render a client fallback. */
 const STAT_BAND = [
-  { to: 10000, suffix: '+', label: 'Verified Properties', slug: 'verifiedProperties' },
-  { to: 5000, suffix: '+', label: 'Happy Families', slug: 'happyFamilies' },
-  { to: 10, suffix: '+ Services', label: 'Under One Roof', slug: 'underOneRoof' },
-  { to: 0, prefix: '₹', label: 'Brokerage Charged', slug: 'brokerageCharged' },
+  { to: Number(STATS.localityGuides), slug: 'localityGuides' },
+  { to: parseInt(STATS.otpVerified, 10), suffix: '%', slug: 'otpVerified' },
+  { to: SERVICES.length, slug: 'underOneRoof' },
+  { to: 0, prefix: '₹', slug: 'brokerageCharged' },
 ];
 
 const fmtCount = (v) => {
@@ -370,25 +366,9 @@ export default function Services() {
         <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 section-pb">
           <div ref={statRef} className="glass-card rounded-2xl p-4 sm:p-6 grid grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6 reveal">
             {STAT_BAND.map((s) => (
-              <div key={s.label} className="text-center"><Counter to={s.to} prefix={s.prefix} suffix={s.suffix === '+ Services' ? tr('services.hub.stat.servicesSuffix') : s.suffix} run={countRun} /><p className="text-gray-500 text-[11px] sm:text-xs mt-1">{tr('services.hub.stat.' + s.slug)}</p></div>
+              <div key={s.slug} className="text-center"><Counter to={s.to} prefix={s.prefix} suffix={s.suffix} run={countRun} /><p className="text-gray-500 text-[11px] sm:text-xs mt-1">{tr('services.hub.stat.' + s.slug)}</p></div>
             ))}
           </div>
-        </section>
-
-        <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 section-pb">
-          <div className="text-center mb-6 sm:mb-10 reveal"><h2 className="text-2xl sm:text-3xl font-bold">{tr('services.hub.testimonialsTitle')}</h2></div>
-          <HScroll wrapClassName="-mx-4 sm:mx-0 reveal" className="testi-rail flex md:grid md:grid-cols-3 gap-4 sm:gap-5 px-4 sm:px-0 md:overflow-visible" fadeWidth="1.5rem">
-            {TESTI.map(([n, _r, av, _q, col], i) => (
-              <div key={n} className="glass-card rounded-2xl p-5 sm:p-6 shrink-0 w-[82%] sm:w-auto md:w-full">
-                <div className="flex gap-0.5 mb-3">{Array.from({ length: 5 }).map((_, si) => <Icon key={si} name="star" className="w-4 h-4" style={{ color: 'rgb(var(--dz-c-amber-400))', fill: 'rgb(var(--dz-c-amber-400))' }} />)}</div>
-                <p className="text-gray-300 text-sm leading-relaxed">&ldquo;{tr('services.hub.testi.' + i + '.quote')}&rdquo;</p>
-                <div className="flex items-center gap-3 mt-5">
-                  <div className="w-10 h-10 rounded-full flex items-center justify-center text-pure-white font-bold text-sm" style={{ background: col }}>{av}</div>
-                  <div><p className="text-white font-semibold text-sm">{n}</p><p className="text-gray-500 text-xs">{tr('services.hub.testi.' + i + '.role')}</p></div>
-                </div>
-              </div>
-            ))}
-          </HScroll>
         </section>
 
         <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 section-pb">

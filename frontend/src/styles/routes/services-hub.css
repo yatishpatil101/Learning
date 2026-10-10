@@ -187,13 +187,4 @@
     font-size: .8125rem;
     border-radius: .625rem;
   }
-
-  /* Testimonial rail: snap each card so swiping lands cleanly. */
-  .testi-rail {
-    scroll-snap-type: x mandatory;
-  }
-
-  .testi-rail>* {
-    scroll-snap-align: center;
-  }
 }

@@ -1,5 +1,6 @@
 import { useTranslation } from 'react-i18next';
 import ServiceLanding from '../../../components/ServiceLanding.jsx';
+import { SUPPORT_PHONE } from '../../../lib/supportContact.js';
 import LegalCostCalc from './LegalCostCalc.jsx';
 import Icon from '../../../components/Icon.jsx';
 
@@ -72,7 +73,7 @@ export default function PropertyLegal() {
           { name: 'note', label: t('services.legal.fNote'), type: 'textarea', full: true, placeholder: t('services.legal.fNotePlaceholder') },
         ],
       }}
-      stats={[['8K+', t('services.legal.stat.deedsRegistered')], ['30-yr', t('services.legal.stat.titleSearch')], ['100%', t('services.legal.stat.verifiedAdvocates')], [t('services.legal.stat.fixedValue'), t('services.legal.stat.transparentFees')]]}
+      stats={[['7%', t('services.legal.stat.stampDuty')], ['30-yr', t('services.legal.stat.titleSearch')], ['24 hrs', t('services.legal.stat.callback')], [t('services.legal.stat.fixedValue'), t('services.legal.stat.fees')]]}
       services={[
         [t('services.legal.service.0.name'), 'file-signature', t('services.legal.service.0.desc')],
         [t('services.legal.service.1.name'), 'search-check', t('services.legal.service.1.desc')],
@@ -95,7 +96,7 @@ export default function PropertyLegal() {
         [t('services.legal.faq.3.q'), t('services.legal.faq.3.a')],
         [t('services.legal.faq.4.q'), t('services.legal.faq.4.a')],
       ]}
-      cta={{ title: t('services.legal.ctaTitle'), sub: t('services.legal.ctaSub'), primary: t('services.legal.ctaPrimary'), icon: 'scale', phone: '1800 200 0000' }}
+      cta={{ title: t('services.legal.ctaTitle'), sub: t('services.legal.ctaSub'), primary: t('services.legal.ctaPrimary'), icon: 'scale', phone: SUPPORT_PHONE }}
     />
   );
 }

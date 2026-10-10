@@ -15,16 +15,15 @@
         "chip": {
           "govt": "Govt-registered",
           "doorstep": "Doorstep biometric",
-          "fast": "Ready in 48 hrs"
+          "fast": "Track every step online"
         },
         "cta": "Start rent agreement"
       },
       "stat": {
-        "verifiedProperties": "Verified Properties",
-        "happyFamilies": "Happy Families",
-        "underOneRoof": "Under One Roof",
-        "brokerageCharged": "Brokerage Charged",
-        "servicesSuffix": "+ Services"
+        "localityGuides": "Pune locality guides",
+        "otpVerified": "OTP-verified members",
+        "underOneRoof": "Services under one roof",
+        "brokerageCharged": "Brokerage Charged"
       },
       "cat": {
         "all": "All Services",
@@ -40,7 +39,7 @@
       "card": {
         "buyHome": {
           "name": "Buy a Home",
-          "desc": "Browse 10,000+ verified, RERA-compliant listings across Pune with genuine photos."
+          "desc": "Browse owner-direct homes for sale across Pune, with ID, ownership and RERA badges where they apply."
         },
         "rentHome": {
           "name": "Rent a Home",
@@ -56,7 +55,7 @@
         },
         "homeLoans": {
           "name": "Home Loans & EMI",
-          "desc": "Compare rates from 25+ banks, check eligibility and plan repayments with a built-in EMI calculator."
+          "desc": "Compare offers from partner banks, check eligibility and plan repayments with a built-in EMI calculator."
         },
         "propertyLegal": {
           "name": "Property & Legal",
@@ -68,11 +67,11 @@
         },
         "interior": {
           "name": "Interior & Renovation",
-          "desc": "Designed-in-3D interiors by trusted partners with a 10-year warranty."
+          "desc": "Interiors designed in 3D by partner designers, with an itemised quote upfront."
         },
         "valuation": {
           "name": "Property Valuation",
-          "desc": "Get a fair, data-backed estimate and a certified valuation report in 48 hours."
+          "desc": "Get a free instant estimate, then a certified valuation report from a registered valuer."
         }
       },
       "step": {
@@ -86,27 +85,13 @@
         },
         "visit": {
           "t": "Visit & Decide",
-          "d": "Book site visits and chat directly with verified owners."
+          "d": "Book site visits and chat directly with owners."
         },
         "moveIn": {
           "t": "Move In",
           "d": "Close with loans, legal, movers & interiors — all sorted."
         }
       },
-      "testi": [
-        {
-          "role": "Bought a 3 BHK in Baner",
-          "quote": "We found our flat, got the loan and even the movers — all through Draazy. Zero brokerage, zero stress."
-        },
-        {
-          "role": "Rented in Wakad",
-          "quote": "Chatted directly with the owner, signed the rent agreement online. The whole thing took two days."
-        },
-        {
-          "role": "Sold & relocated",
-          "quote": "The valuation report and legal help made selling effortless. Interiors team set up our new home beautifully."
-        }
-      ],
       "pack": {
         "movers": "Packers & Movers",
         "clean": "Deep Cleaning",
@@ -134,7 +119,6 @@
       "signInRequiredAria": "{{name}} — sign in required",
       "howItWorksTitle": "How Draazy works",
       "howItWorksSub": "Four simple steps from search to settled in.",
-      "testimonialsTitle": "Loved by Pune homeowners",
       "packBadge": "Bundle & save",
       "packTitle": "Draazy Move-in Pack",
       "packDesc": "Closing a deal? Bundle everything for move-in and save. Pick what you need:",
@@ -170,6 +154,8 @@
       "back": "Back",
       "next": "Next",
       "validationRequired": "Please complete the highlighted required fields.",
+      "errorCount_one": "{{count}} field needs attention.",
+      "errorCount_other": "{{count}} fields need attention.",
       "declarationRequired": "Please confirm the declaration to proceed.",
       "detailsTooLong": "This form is {{over}} characters longer than we can save. Please shorten \u201c{{field}}\u201d and try again.",
       "saveError": "We couldn't save your request — your device storage may be full. Remove large uploads and try again.",
@@ -938,17 +924,17 @@
       "doneInviteDesc_owner": "We've asked the owner to fill in their details & ownership papers. Once they're done, you pay and our team prepares the draft for approval."
     },
     "interior": {
-      "heroBadge": "10-year warranty · 45-day move-in",
+      "heroBadge": "Free 3D design · Itemised quote",
       "heroTitle1": "Interiors that",
       "heroTitleAccent": "feel like home",
-      "heroSubtitle": "Full home interiors, modular kitchens and renovations in Pune — designed in 3D, built by vetted partners, delivered on time at a transparent price.",
+      "heroSubtitle": "Full home interiors, modular kitchens and renovations in Pune ? designed in 3D, built by our partner teams, at a transparent price with the handover date written into your quote.",
       "bookConsult": "Book Free Consultation",
       "viewWork": "View Our Work",
       "stat": {
-        "homesDesigned": "Homes Designed",
-        "daysToMoveIn": "Days to Move-in",
-        "warranty": "Warranty",
-        "customerRating": "Customer Rating"
+        "design": "3D design",
+        "quote": "Quote",
+        "handover": "Handover date",
+        "warranty": "Warranty terms"
       },
       "servicesTitle": "What We Design & Build",
       "servicesSub": "From a single modular kitchen to a turnkey home — end to end.",
@@ -1030,7 +1016,7 @@
             "Acrylic / membrane finishes",
             "Designer ceilings & lighting",
             "Custom storage solutions",
-            "10-year warranty"
+            "Itemised quote before work starts"
           ]
         },
         {
@@ -1041,7 +1027,7 @@
             "Premium veneer / lacquered glass",
             "Imported hardware & appliances",
             "Dedicated design lead",
-            "10-year warranty"
+            "Itemised quote before work starts"
           ]
         }
       ],
@@ -1061,14 +1047,14 @@
         },
         {
           "t": "Move In",
-          "d": "On-time handover with a 10-year warranty. Welcome home!"
+          "d": "Handover after a final quality check. Welcome home!"
         }
       ],
       "trackerTitle": "Your interior & renovation requests",
       "consultBadge1": "10-yr warranty",
       "consultBadge2": "No hidden costs",
       "consultImgAlt": "Designed living room",
-      "consultPromo": "Free 3D design + quote in 48 hours",
+      "consultPromo": "Free 3D design and an itemised quote",
       "bookConsultTitle": "Book a Free Design Consultation",
       "bookConsultSub": "Share your details — our designer calls you back within 24 hours.",
       "fullName": "Full Name",
@@ -1092,12 +1078,12 @@
       "whyTitle": "Why design with Draazy",
       "trust": [
         {
-          "t": "10-Year Warranty",
-          "d": "Comprehensive warranty on modular work and materials, in writing."
+          "t": "Warranty in Your Quote",
+          "d": "Warranty terms for the materials and work are written into your quote before you sign."
         },
         {
-          "t": "45-Day Move-in",
-          "d": "On-time delivery guarantee for standard full-home projects."
+          "t": "Agreed Timeline",
+          "d": "Your handover date is agreed and written into the quote before work starts."
         },
         {
           "t": "Transparent Pricing",
@@ -1119,8 +1105,8 @@
           "a": "Yes — the consultation and 3D design concept are free. You only pay once you approve the design and quote and decide to proceed."
         },
         {
-          "q": "What does the 10-year warranty cover?",
-          "a": "It covers modular cabinetry, hardware and workmanship against manufacturing defects, as detailed in your written warranty card."
+          "q": "Is there a warranty?",
+          "a": "Warranty terms depend on the partner and the materials you choose, and are written into your quote before you sign. Ask your designer for them at the consultation."
         },
         {
           "q": "Can you work on an under-construction or occupied home?",
@@ -1132,20 +1118,20 @@
         }
       ],
       "ctaTitle": "Ready to reimagine your home?",
-      "ctaSub": "Book a free consultation and get a 3D design + transparent quote in 48 hours.",
+      "ctaSub": "Book a free consultation and get a 3D design and an itemised quote.",
       "ctaBook": "Book Free Consultation",
-      "ctaCall": "Call 1800 200 0000",
+      "ctaCall": "Call {{phone}}",
       "lightboxAlt": "Project preview"
     },
     "valuation": {
       "rateBasedComparables": "≈ ₹{{rate}} / sq.ft · based on {{comps}} comparables in {{loc}}",
       "rateBasedCityAvg": "≈ ₹{{rate}} / sq.ft · based on Pune city-average rates for {{loc}}",
-      "heroBadge": "Data-backed · IBBI-certified valuers",
+      "heroBadge": "Data-backed ? Qualified valuers",
       "heroTitle1": "Know what your",
       "heroTitleAccent": "property is really worth",
       "heroSubtitle": "Get an instant ballpark estimate for free, then request a certified valuation report — accepted by banks, courts and tax authorities. Our valuers analyse real Pune comparables, not guesswork.",
       "heroChip1": "Instant estimate",
-      "heroChip2": "Bank-accepted report",
+      "heroChip2": "Signed valuer report",
       "heroChip3": "Real local comparables",
       "widgetTitle": "Instant Valuation Estimate",
       "widgetSub": "A free, indicative range based on current Pune market rates.",
@@ -1173,10 +1159,10 @@
       "getCertified": "Get a Certified Report",
       "indicativeOnly": "Indicative only. A certified valuation requires a physical inspection.",
       "stat": {
-        "valuationsDone": "Valuations Done",
-        "puneLocalities": "Pune Localities",
-        "reportTurnaround": "Report Turnaround",
-        "certifiedValuers": "Certified Valuers"
+        "estimate": "Instant estimate",
+        "comparables": "Local comparables",
+        "callback": "Callback",
+        "fees": "Fee shared upfront"
       },
       "servicesTitle": "Valuation Reports We Provide",
       "servicesSub": "A certified, purpose-specific valuation for whatever you need it for.",
@@ -1251,7 +1237,7 @@
         },
         {
           "t": "Site Inspection",
-          "d": "An IBBI valuer visits to verify area, condition, amenities and surroundings."
+          "d": "A qualified valuer visits to verify area, condition, amenities and surroundings."
         },
         {
           "t": "Data Analysis",
@@ -1259,22 +1245,22 @@
         },
         {
           "t": "Certified Report",
-          "d": "You receive a signed, bank- & court-accepted valuation report."
+          "d": "You receive a signed valuation report."
         }
       ],
       "whyTitle": "Why value with Draazy",
       "trust": [
         {
-          "t": "IBBI Certified",
-          "d": "Reports are signed by registered valuers and accepted by banks, courts & tax authorities."
+          "t": "Qualified Valuers",
+          "d": "Every report is signed by the valuer who inspected the property."
         },
         {
           "t": "Data-backed",
           "d": "Valuations use real recent comparables and ready-reckoner rates — not gut feel."
         },
         {
-          "t": "Fast Turnaround",
-          "d": "Most certified reports are ready within 48 hours of the site inspection."
+          "t": "Clear Timeline",
+          "d": "We confirm the report timeline and fee with you before the site inspection."
         },
         {
           "t": "Transparent Fees",
@@ -1289,7 +1275,7 @@
         },
         {
           "q": "What is a certified valuation report?",
-          "a": "A signed report by an IBBI-registered valuer detailing the property's fair market value with methodology and comparables — accepted by banks, courts and tax authorities."
+          "a": "A signed report by a qualified valuer detailing the property's fair market value, with the method and comparables used."
         },
         {
           "q": "How is property value calculated?",
@@ -1297,17 +1283,17 @@
         },
         {
           "q": "How long does it take and what does it cost?",
-          "a": "A certified report is typically ready within 48 hours of inspection. Fees are fixed and shared upfront — the instant online estimate is always free."
+          "a": "The report timeline depends on the property and is confirmed with you before the inspection. Fees are fixed and shared upfront — the instant online estimate is always free."
         },
         {
           "q": "Will banks accept this valuation?",
-          "a": "Yes — our valuers are IBBI-registered and on major bank panels, so reports are accepted for home loans and mortgages."
+          "a": "Banks often send their own panel valuer for a home loan, so ask your lender first. Our report suits resale pricing, family settlements, tax filings and insurance."
         }
       ],
       "ctaTitle": "Need an official property valuation?",
-      "ctaSub": "Get a certified, bank-accepted report from IBBI valuers — we call you back within 24 hours.",
+      "ctaSub": "Get a signed report from a qualified valuer ? we call you back within 24 hours.",
       "ctaRequest": "Request Valuation",
-      "ctaCall": "Call 1800 200 0000"
+      "ctaCall": "Call {{phone}}"
     },
     "homeLoans": {
       "compareTitle": "Compare Home Loan Rates",
@@ -1320,7 +1306,7 @@
       "badge": "Interest rates from 8.45% p.a.",
       "titleTop": "Home loans made",
       "titleAccent": "simple & affordable",
-      "subtitle": "Share a few details and our loan desk compares offers from 25+ banks & NBFCs, negotiates the lowest rate for your profile, and calls you back — paperwork handled at your doorstep.",
+      "subtitle": "Share a few details and our loan desk compares offers from partner banks & NBFCs for your profile, and calls you back — paperwork handled at your doorstep.",
       "feature1": "Free eligibility check",
       "feature2": "Zero processing-fee deals",
       "feature3": "Doorstep documentation",
@@ -1339,10 +1325,10 @@
       "fIncomePlaceholder": "e.g. 90,000",
       "fCity": "City",
       "stat": {
-        "lendingPartners": "Lending Partners",
-        "ratesStarting": "Rates Starting",
-        "loansFacilitated": "Loans Facilitated",
-        "avgApproval": "Avg. Approval Time"
+        "advisoryFee": "Advisory fee",
+        "eligibility": "Eligibility check",
+        "callback": "Callback",
+        "oneForm": "Form for all lenders"
       },
       "service": [
         {
@@ -1372,20 +1358,20 @@
       ],
       "trust": [
         {
-          "t": "25+ Lenders",
+          "t": "Many Lenders, One Place",
           "d": "Compare offers from leading banks & NBFCs in one place — no running branch to branch."
         },
         {
-          "t": "Lowest Rate Negotiated",
-          "d": "Our desk negotiates the best rate and waived processing fees for your profile."
+          "t": "Offers Side by Side",
+          "d": "See rates, fees and EMIs from different lenders together before you choose."
         },
         {
           "t": "Free Eligibility Check",
           "d": "Know how much you qualify for upfront — no cost, no impact, no obligation."
         },
         {
-          "t": "Dedicated Loan Manager",
-          "d": "One expert guides you from application to disbursal, with doorstep document pickup."
+          "t": "One Point of Contact",
+          "d": "One person from our loan desk guides you from application to disbursal, with doorstep document pickup."
         }
       ],
       "step": [
@@ -1395,7 +1381,7 @@
         },
         {
           "t": "Compare Offers",
-          "d": "We match you with the best rates and EMIs from 25+ lenders."
+          "d": "We match you with suitable rates and EMIs from our partner lenders."
         },
         {
           "t": "Submit Documents",
@@ -1417,7 +1403,7 @@
         },
         {
           "q": "Which documents are required?",
-          "a": "Typically ID & address proof, PAN, income proof (salary slips/ITR & bank statements) and property papers. Your loan manager shares an exact checklist and collects them at your doorstep."
+          "a": "Typically ID & address proof, PAN, income proof (salary slips/ITR & bank statements) and property papers. Our loan desk shares an exact checklist and collects them at your doorstep."
         },
         {
           "q": "Can I transfer my existing home loan?",
@@ -1433,7 +1419,7 @@
       "ctaPrimary": "Check Eligibility",
       "emiCalc": {
         "title": "Plan your EMI before you apply",
-        "sub": "Move the sliders to see your monthly EMI and total interest instantly — then get matched to the lowest-rate lender.",
+        "sub": "Move the sliders to see your monthly EMI and total interest instantly ? then get matched to a suitable lender.",
         "loanAmount": "Loan amount",
         "interestRate": "Interest rate (p.a.)",
         "tenure": "Tenure",
@@ -1463,7 +1449,7 @@
         },
         {
           "t": "Stamp Duty Payment",
-          "d": "Stamp duty (≈6% in Pune municipal limits) and 1% registration fee are computed and paid online; e-stamp generated."
+          "d": "Stamp duty (7% within PMC and PCMC limits) and the 1% registration fee are computed and paid online; e-stamp generated."
         },
         {
           "t": "Execution & Biometric",
@@ -1509,10 +1495,10 @@
       "fNote": "Brief Note (optional)",
       "fNotePlaceholder": "Anything specific we should know?",
       "stat": {
-        "deedsRegistered": "Deeds Registered",
-        "titleSearch": "Title Search",
-        "verifiedAdvocates": "Verified Advocates",
-        "transparentFees": "Transparent Fees",
+        "stampDuty": "Stamp duty in PMC/PCMC",
+        "titleSearch": "Title search",
+        "callback": "Callback",
+        "fees": "Professional fees",
         "fixedValue": "Fixed"
       },
       "service": [
@@ -1544,7 +1530,7 @@
       "trust": [
         {
           "t": "Verified Advocates",
-          "d": "Every deed is drafted and vetted by experienced, empanelled property advocates."
+          "d": "Every deed is drafted and checked by a property advocate."
         },
         {
           "t": "Transparent Fixed Fees",
@@ -1562,7 +1548,7 @@
       "faq": [
         {
           "q": "What are the stamp duty and registration charges in Pune?",
-          "a": "Within Pune municipal limits stamp duty is about 6% (5% state duty + 1% local cess) and the registration fee is 1% of the value, capped at ₹30,000. Charges are calculated on the higher of the agreement value or the government ready-reckoner rate."
+          "a": "Within PMC and PCMC limits stamp duty is 7% (5% stamp duty + 1% local body tax + 1% metro cess) and the registration fee is 1% of the value, capped at ₹30,000. Charges are calculated on the higher of the agreement value or the government ready-reckoner rate."
         },
         {
           "q": "Is online property registration possible?",
@@ -1586,25 +1572,23 @@
       "ctaPrimary": "Request Assistance",
       "calc": {
         "title": "Estimate your stamp duty & registration",
-        "sub": "Maharashtra government charges before you sign — adjust the value, area and buyer to see indicative stamp duty and registration fees for Pune.",
+        "sub": "Maharashtra government charges before you sign — adjust the value to see indicative stamp duty and registration fees for Pune Municipal Corporation and PCMC limits.",
         "propertyValue": "Agreement / property value",
-        "areaType": "Property location",
-        "buyer": "Buyer",
         "govtCharges": "Total government charges",
         "stampDuty": "Stamp duty",
         "registration": "Registration fee",
-        "note": "Indicative only. Actual stamp duty follows ready-reckoner value and current Maharashtra rates; women buyers get a 1% concession on residential property. Our experts confirm exact figures before registration."
+        "note": "Indicative only, for PMC and PCMC limits at 7%. Actual stamp duty follows ready-reckoner value and current Maharashtra rates. Our experts confirm exact figures before registration."
       }
     },
     "packers": {
-      "badge": "Vetted & background-verified partners",
+      "badge": "GST-registered moving partners",
       "titleTop": "Stress-free home shifting",
       "titleAccent": "in & from Pune",
       "subtitle": "Share your moving details and our relocation desk negotiates transparent, all-inclusive rates with trusted movers — then calls you back with the best quote. No haggling, no hidden charges.",
       "trackerTitle": "Your packers & movers requests",
       "feature1": "Transit insurance",
       "feature2": "Transparent pricing",
-      "feature3": "Dedicated move manager",
+      "feature3": "One point of contact",
       "quoteTitle": "Get a Free Quote",
       "quoteSub": "Fill in a few details — we'll call you back within 24 hours.",
       "submitLabel": "Request Free Quote",
@@ -1619,12 +1603,12 @@
       "fToPlaceholder": "Search area / city",
       "fSize": "Home Size",
       "fDate": "Preferred Move Date",
-      "successMessage": "Our relocation desk will call you back within 24 hours with the best quote from a verified partner.",
+      "successMessage": "Our relocation desk will call you back within 24 hours with a quote from a moving partner.",
       "stat": {
-        "verifiedPartners": "Verified Moving Partners",
-        "homesRelocated": "Homes Relocated",
-        "averageRating": "Average Rating",
-        "platformFee": "Platform Fee"
+        "survey": "Survey & quote",
+        "callback": "Callback",
+        "allIn": "Quotes, no hidden charges",
+        "platformFee": "Platform fee"
       },
       "service": [
         {
@@ -1654,8 +1638,8 @@
       ],
       "trust": [
         {
-          "t": "Vetted Partners",
-          "d": "Every mover is background-checked, GST-registered and rated by real Draazy customers."
+          "t": "GST-registered Partners",
+          "d": "We only recommend GST-registered movers, and we go through every quote with you before you confirm."
         },
         {
           "t": "Transparent Rates",
@@ -1666,7 +1650,7 @@
           "d": "Optional all-risk insurance covers your belongings end to end during the move."
         },
         {
-          "t": "Dedicated Manager",
+          "t": "One Point of Contact",
           "d": "A single point of contact coordinates your move and is reachable through move day."
         }
       ],
@@ -1681,7 +1665,7 @@
         },
         {
           "t": "Confirm Partner",
-          "d": "Approve the quote — we lock in a verified mover and assign your move manager."
+          "d": "Approve the quote ? we book the mover and give you one Draazy contact for the move."
         },
         {
           "t": "Move Day",
@@ -1695,7 +1679,7 @@
         },
         {
           "q": "How are the moving partners verified?",
-          "a": "Every partner is background-checked, GST-registered and reviewed against past Draazy customer ratings before we recommend them."
+          "a": "We only recommend GST-registered moving partners, and we go through every quote with you before you confirm."
         },
         {
           "q": "Are my belongings insured during the move?",
@@ -1711,11 +1695,11 @@
         }
       ],
       "ctaTitle": "Planning a move soon?",
-      "ctaSub": "Get a free, no-obligation quote from a verified partner — our team calls you back within 24 hours.",
+      "ctaSub": "Get a free, no-obligation quote from a moving partner ? our team calls you back within 24 hours.",
       "ctaPrimary": "Get Free Quote",
       "estimator": {
         "title": "Instant moving-cost estimate",
-        "sub": "Get a ballpark price in seconds — then request a free, exact quote from a verified partner.",
+        "sub": "Get a ballpark price in seconds ? then request a free, exact quote from a moving partner.",
         "fSize": "Home size",
         "fDistance": "Move distance",
         "fPacking": "Packing type",

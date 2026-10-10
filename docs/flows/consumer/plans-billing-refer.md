@@ -26,7 +26,7 @@
 - **Source components:** `src/pages/consumer/Plans.jsx`, `src/pages/consumer/Checkout.jsx`,
   `src/pages/consumer/Refer.jsx`, `src/pages/consumer/dashboard/BillingPanel.jsx`,
   `src/lib/store/billing.js`, `src/lib/store/referrals.js`.
-- **Data/seed:** `src/data/plans.json`, referral admin rows from `GET /referrals`,
+- **Data/seed:** the `plans` seed in `R__DML_seed_reference_data.sql`, referral admin rows from `GET /referrals`,
   `src/pages/consumer/dashboard/constants.js` (`BILLING_HISTORY`).
 
 ## 3. Actors & roles
@@ -39,7 +39,7 @@
 
 ## 4. Entities touched
 Links go to [`../../system/data-model.md`](../../system/data-model.md).
-- `plans` (seed `plans.json`, `PL1..PL4`) - read (catalog metadata).
+- `plans` (seed `R__DML_seed_reference_data.sql`) - read (catalog metadata).
 - User plan (runtime `dzPlan:<mobile>`, ids `free`/`owner-free`/`owner2`/`owner5`) - read + written
   by Checkout (`setPlan`).
 - Platform fees / `settings.fees` (admin DB, read via `getFees`) - read.
@@ -54,16 +54,13 @@ Links go to [`../../system/data-model.md`](../../system/data-model.md).
 The cards read the live plan catalogue (`GET /bootstrap`, `plans`); `fee()` remains only as the fallback when it has not
 resolved, which is why the two tables must agree and are pinned together by
 `PlanPriceMatchesFeeScheduleTest`:
-- **Seeker:** `seeker-free` (Rs 0) and `seeker-plus` (Rs 199/mo; "Unlock 15 owner contacts",
-  priority visits, no-spam).
-- **Owner:** `owner-free` (Rs 0, 1 listing), `owner2` (Rs 999/yr, 5
-  listings + unlimited contacts), `owner5` (Rs 2499/yr,
-  unlimited listings + dedicated manager + free rent agreement).
+- **Seeker:** `seeker-free` (Rs 0, the free contact allowance: 15 in total) and `seeker-plus` (Rs 199/mo; unlimited owner
+  contacts, instant alerts, saved-search priority).
+- **Owner:** `owner-free` (Rs 0, 1 listing, Verified owner badge), `owner2` (Rs 999/yr, 2 listings, featured placement),
+  `owner5` (Rs 2499/yr, 5 listings, featured placement, dedicated manager, rent agreement included). Listing counts
+  render from the catalogue's `listingLimit`; the seed is the source of truth for every claim on the cards.
 - The active plan (`getPlan().id`) is marked "Current plan"; a **paid** current plan locks its CTA
   against re-purchase; a free current plan keeps the CTA actionable (default id is `free` for all).
-- `plans.json` (`PL1 Owner Basic`, `PL2 Owner Plus`, `PL3 Owner Pro`, `PL4 Seeker Plus`) is a
-  leftover mock seed with no importers since the catalogue moved server-side. Its prices
-  (999/2499/199) match, but `PL1` is named "Owner Basic" where the live catalogue says "Owner Free".
 
 ### Platform fees (`store/billing.js`)
 - Single source of truth = admin DB `settings.fees` (read via `rawDb()`), with a legacy

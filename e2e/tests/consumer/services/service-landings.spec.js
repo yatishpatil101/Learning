@@ -320,11 +320,6 @@ test.describe('LIVE: Property Legal', () => {
   const calculatorOf = (page) =>
     page.locator('section').filter({ has: page.getByRole('heading', { name: 'Estimate your stamp duty & registration' }) });
 
-  const chooseCalculator = async (page, calculator, index, option) => {
-    await calculator.locator('.dz-dropdown__trigger').nth(index).click();
-    await page.getByRole('option', { name: option }).click();
-  };
-
   const ticketIds = async (page, headers) => {
     const response = await page.request.get(`${API}/tickets?team=legal&size=100`, { headers });
     expect(response.status()).toBe(200);
@@ -332,33 +327,19 @@ test.describe('LIVE: Property Legal', () => {
     return new Set((body.content || []).map((ticket) => ticket.id));
   };
 
-  test('the calculator prices a Pune municipal sale, the female-owner concession and a rural location', async ({ page, consoleErrors }) => {
+  test('the calculator prices a Pune municipal sale at the single PMC/PCMC 7% rate', async ({ page, consoleErrors }) => {
     await page.goto(PAGE);
     await appReady(page);
 
     const calculator = calculatorOf(page);
     const total = calculator.locator('.gradient-text');
 
-    await test.step('Pune municipal default, then the female-owner concession', async () => {
-      await expect(total).toHaveText('₹4,80,000');
-      await expect(calculator.getByText('Stamp duty (6%)')).toBeVisible();
-      await expect(calculator.getByText('₹4.5 L')).toBeVisible();
-      await expect(calculator.getByText('₹30,000')).toBeVisible();
-
-      await chooseCalculator(page, calculator, 1, 'Female (sole owner)');
-      await expect(total).toHaveText('₹4,05,000');
-      await expect(calculator.getByText('Stamp duty (5%)')).toBeVisible();
-    });
-
-    await test.step('changing location changes the rate without changing the capped registration fee', async () => {
-      await page.reload();
-      await appReady(page);
-
-      await chooseCalculator(page, calculator, 0, 'Gram Panchayat (rural)');
-      await expect(total).toHaveText('₹3,30,000');
-      await expect(calculator.getByText('Stamp duty (4%)')).toBeVisible();
-      await expect(calculator.getByText('₹30,000')).toBeVisible();
-    });
+    await expect(total).toHaveText('₹5,55,000');
+    await expect(calculator.getByText('Stamp duty (7%)')).toBeVisible();
+    await expect(calculator.getByText('₹5.3 L')).toBeVisible();
+    await expect(calculator.getByText('₹30,000')).toBeVisible();
+    await expect(calculator.locator('.dz-dropdown__trigger')).toHaveCount(0);
+    await expect(calculator.getByText(/women|female/i)).toHaveCount(0);
 
     expect(consoleErrors).toEqual([]);
   });
@@ -395,7 +376,7 @@ test.describe('LIVE: Property Legal', () => {
     expect(tracked.type).toBe('legal');
     expect(tracked.ticketId).toBe(lead.id);
     await expect(page.getByRole('heading', { name: 'Your legal & registration requests' })).toBeVisible();
-    await expect(page.getByText('Property & Legal', { exact: true })).toBeVisible();
+    await expect(page.getByRole('paragraph').filter({ hasText: /^Property & Legal$/ })).toBeVisible();
     await expect(page.getByText(tracked.id.slice(0, 10), { exact: false })).toBeVisible();
   });
 

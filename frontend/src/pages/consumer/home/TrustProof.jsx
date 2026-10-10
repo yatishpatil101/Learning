@@ -1,4 +1,5 @@
 import { useTranslation } from 'react-i18next';
+import { Link } from 'react-router';
 import Icon from '../../../components/Icon.jsx';
 import { STATS } from '../../../data/homeData.js';
 
@@ -6,11 +7,19 @@ import { STATS } from '../../../data/homeData.js';
    sit in the hero on desktop but below the Featured rail on mobile. Only one instance shows at any width. */
 
 const CHIPS = [
-  { icon: 'hand-coins', key: 'trustZeroBrokerage', tone: 'bg-emerald-500/10 border-emerald-500/25 text-emerald-300', ink: 'text-emerald-300', dot: 'bg-emerald-400/15 text-emerald-300' },
   { icon: 'phone-off', key: 'trustNoSpam', tone: 'bg-teal-500/10 border-teal-500/25 text-teal-300', ink: 'text-teal-300', dot: 'bg-teal-400/15 text-teal-300' },
-  { icon: 'handshake', key: 'trustEndToEnd', tone: 'bg-teal-500/10 border-teal-500/25 text-teal-300', ink: 'text-teal-300', dot: 'bg-teal-400/15 text-teal-300' },
-  { icon: 'badge-check', key: 'trustAssured', tone: 'bg-amber-500/10 border-amber-500/25 text-amber-300', ink: 'text-amber-300', dot: 'bg-amber-400/15 text-amber-300' },
+  { icon: 'user-check', key: 'trustOwners', tone: 'bg-teal-500/10 border-teal-500/25 text-teal-300', ink: 'text-teal-300', dot: 'bg-teal-400/15 text-teal-300' },
+  { icon: 'hand-coins', key: 'trustZeroBrokerage', tone: 'bg-emerald-500/10 border-emerald-500/25 text-emerald-300', ink: 'text-emerald-300', dot: 'bg-emerald-400/15 text-emerald-300' },
+  { icon: 'badge-check', key: 'trustAssured', to: '/how-verification-works', tone: 'bg-amber-500/10 border-amber-500/25 text-amber-300', ink: 'text-amber-300', dot: 'bg-amber-400/15 text-amber-300' },
 ];
+
+/* The extension keeps the link's 44px target without growing the chip row, which is budgeted to the fold. */
+function Label({ to, children }) {
+  const cls = 'text-[12px] font-semibold leading-tight text-gray-200';
+  return to
+    ? <Link to={to} className={'relative tap-extend ' + cls}>{children}</Link>
+    : <span className={cls}>{children}</span>;
+}
 
 /* `compact` is the mobile hero layout: a checklist, not boxes, because pills read as scatter and a ruled
    2x2 as a heavy table. Colour lives only in the icon discs so the four labels read as one list. */
@@ -24,7 +33,7 @@ export function TrustChips({ className = '', compact = false }) {
             <span className={'grid place-items-center w-6 h-6 rounded-full shrink-0 ' + c.dot}>
               <Icon name={c.icon} className="w-3.5 h-3.5" />
             </span>
-            <span className="text-[12px] font-semibold leading-tight text-gray-200">{t('home.hero.' + c.key + 'Short')}</span>
+            <Label to={c.to}>{t('home.hero.' + c.key + 'Short')}</Label>
           </li>
         ))}
       </ul>
@@ -32,11 +41,14 @@ export function TrustChips({ className = '', compact = false }) {
   }
   return (
     <div className={'hero-trust flex flex-wrap items-center justify-center gap-2.5 sm:gap-3 ' + className}>
-      {CHIPS.map((c) => (
-        <span key={c.key} className={'inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full border text-xs sm:text-sm font-semibold ' + c.tone}>
-          <Icon name={c.icon} className="w-4 h-4" /> {t('home.hero.' + c.key)}
-        </span>
-      ))}
+      {CHIPS.map((c) => {
+        const Tag = c.to ? Link : 'span';
+        return (
+          <Tag key={c.key} to={c.to} className={'inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full border text-xs sm:text-sm font-semibold ' + c.tone}>
+            <Icon name={c.icon} className="w-4 h-4" /> {t('home.hero.' + c.key)}
+          </Tag>
+        );
+      })}
     </div>
   );
 }
@@ -51,11 +63,11 @@ export function HeroStats({ className = '' }) {
   );
   return (
     <div className={'hero-stats flex items-center justify-center flex-wrap gap-6 sm:gap-12 ' + className}>
-      {stat(STATS.properties, t('home.hero.statProperties'))}
+      {stat(STATS.brokerage, t('home.hero.statBrokerage'))}
       <div className="w-px h-10 bg-white/10 hidden sm:block" />
-      {stat(STATS.verifiedOwners, t('home.hero.statVerifiedOwners'))}
+      {stat(STATS.otpVerified, t('home.hero.statOtpVerified'))}
       <div className="w-px h-10 bg-white/10 hidden sm:block" />
-      {stat(STATS.localities, t('home.hero.statLocalities'))}
+      {stat(STATS.localityGuides, t('home.hero.statLocalityGuides'))}
     </div>
   );
 }

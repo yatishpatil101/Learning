@@ -3,12 +3,11 @@ import LegalPage from '../../components/LegalPage.jsx';
 
 export default function Terms() {
   return (
-    <LegalPage title="Terms of Service" lastUpdated="1 July 2026" current="terms">
+    <LegalPage title="Terms of Service" lastUpdated="10 October 2026" current="terms">
       <p>
         These Terms of Service ("<strong>Terms</strong>") govern your access to and use of draazy.com and associated
-        applications (the "<strong>Platform</strong>") operated by Draazy Technologies Private Limited, a company
-        incorporated under the Companies Act, 2013, with its registered office at 201, Business Bay, Baner Road, Pune 411045
-        ("<strong>Draazy</strong>", "we", "us").
+        applications (the "<strong>Platform</strong>")         operated by Draazy Technologies
+                ("<strong>Draazy</strong>", "we", "us").
       </p>
       <p>
         By registering an account or using the Platform, you agree to be bound by these Terms. If you do not agree,
@@ -84,7 +83,7 @@ export default function Terms() {
       <ul>
         <li>Subscription plans are billed in advance as per the plan selected (monthly or annual).</li>
         <li>Prices are inclusive of applicable GST (currently 18%).</li>
-        <li>Auto-renewal can be cancelled at any time before the next billing cycle from your account settings.</li>
+        <li>Plans do not renew automatically. When the term you paid for ends, the plan ends unless you buy it again.</li>
         <li>Refunds are governed by our <Link to="/refund-policy">Refund Policy</Link>.</li>
       </ul>
 
@@ -136,7 +135,7 @@ export default function Terms() {
       <p>
         For questions about these Terms, contact us at <a href="mailto:support@draazy.com">support@draazy.com</a>.
         Complaints and grievances may be addressed to our Grievance Officer, whose details (along with our company
-        identity, CIN, and GSTIN) are published in our <Link to="/privacy">Privacy Policy</Link>. We acknowledge
+        identity) are published in our <Link to="/privacy">Privacy Policy</Link>. We acknowledge
         grievances within 24 hours and resolve them within 15 days, as required under applicable law.
       </p>
     </LegalPage>

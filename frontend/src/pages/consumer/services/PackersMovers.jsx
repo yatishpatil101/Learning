@@ -2,6 +2,7 @@ import { useSearchParams } from 'react-router';
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import ServiceLanding from '../../../components/ServiceLanding.jsx';
+import { SUPPORT_PHONE } from '../../../lib/supportContact.js';
 import PackersEstimator from './PackersEstimator.jsx';
 
 export default function PackersMovers() {
@@ -49,7 +50,7 @@ export default function PackersMovers() {
         ],
         successMessage: t('services.packers.successMessage'),
       }}
-      stats={[['50+', t('services.packers.stat.verifiedPartners')], ['12K+', t('services.packers.stat.homesRelocated')], ['4.7★', t('services.packers.stat.averageRating')], ['₹0', t('services.packers.stat.platformFee')]]}
+      stats={[['Free', t('services.packers.stat.survey')], ['24 hrs', t('services.packers.stat.callback')], ['All-in', t('services.packers.stat.allIn')], ['₹0', t('services.packers.stat.platformFee')]]}
       services={[
         [t('services.packers.service.0.name'), 'home', t('services.packers.service.0.desc')],
         [t('services.packers.service.1.name'), 'map-pinned', t('services.packers.service.1.desc')],
@@ -78,7 +79,7 @@ export default function PackersMovers() {
         [t('services.packers.faq.3.q'), t('services.packers.faq.3.a')],
         [t('services.packers.faq.4.q'), t('services.packers.faq.4.a')],
       ]}
-      cta={{ title: t('services.packers.ctaTitle'), sub: t('services.packers.ctaSub'), primary: t('services.packers.ctaPrimary'), icon: 'truck', phone: '1800 200 0000' }}
+      cta={{ title: t('services.packers.ctaTitle'), sub: t('services.packers.ctaSub'), primary: t('services.packers.ctaPrimary'), icon: 'truck', phone: SUPPORT_PHONE }}
     />
   );
 }

@@ -1,5 +1,5 @@
 import { test, expect, ACTORS, STAFF } from '../../fixtures/live.js';
-import { API, STAFF_PASSWORD, authHeaders, apiLogin, signedInAs, staffEmail, uniqueMobile } from '../../helpers/liveAuth.js';
+import { API, STAFF_PASSWORD, authHeaders, apiLogin, staffEmail, uniqueMobile } from '../../helpers/liveAuth.js';
 
 // Write flags through the admin API so UI assertions exercise the public flag read as well.
 // The fixture restores shared settings after each test to avoid cross-spec contamination.
@@ -9,7 +9,7 @@ const FREE_PLAN = 'b1000000-0000-4000-8000-000000000001';
 
 const ALL_FLAGS = [
   'mapSearch', 'scheduleVisit', 'reviewsEnabled', 'inAppMessaging', 'assistant',
-  'kycBadgeEnabled', 'subscriptionPlans', 'paidFeaturedListings', 'referralRewards',
+  'kycBadgeEnabled', 'subscriptionPlans', 'referralRewards',
   'signupsEnabled', 'staffLoginEnabled',
 ];
 // Exclude maintenanceMode so the all-off checks still exercise the consumer app.
@@ -133,9 +133,10 @@ test('listing and property pages survive every flag being off', async ({ page, f
   await expect(page.getByRole('heading', { level: 1 })).toBeVisible();
   expect(consoleErrors).toHaveLength(0);
 });
-/* Removed switches must not gate anything: a stale stored `false` in the settings document would hide the feature with no way back. */
+/* Removed switches must not gate anything: a stale stored false in the settings document
+   would hide the feature with no way back. */
 test('retired flags stored as off no longer hide compare, saved or the EMI calculator', async ({ page, flags, login }) => {
-  await flags.disable('compareProperties', 'savedListings', 'emiCalculator', 'videoListings');
+  await flags.disable('compareProperties', 'savedListings', 'emiCalculator', 'videoListings', 'paidFeaturedListings');
   await login.asBuyer();
 
   await page.goto(`/property/${BUY}`);
@@ -181,20 +182,6 @@ test('the slug-less /society route is gone, and the retired societySaaS flag is 
 
   const bootstrap = await (await fetch(`${API}/bootstrap`)).json();
   expect(bootstrap.flags, 'societySaaS left the flag document').not.toHaveProperty('societySaaS');
-});
-
-test('paidFeaturedListings flag shows and hides the feature action on an owner\'s live listing', async ({ page, flags }) => {
-  const feature = page.getByText(/Feature — upgrade|Featured · Owner plan/);
-  await page.setViewportSize({ width: 390, height: 844 });
-  await flags.enable('paidFeaturedListings');
-  await signedInAs(page, ACTORS.owner);
-  await page.goto('/dashboard#properties');
-  await expect(feature.first()).toBeVisible({ timeout: 20_000 });
-
-  await flags.disable('paidFeaturedListings');
-  await page.reload();
-  await expect(page.getByRole('button', { name: 'Take down', exact: true }).first()).toBeVisible({ timeout: 20_000 });
-  await expect(feature).toHaveCount(0);
 });
 
 test('subscriptionPlans flag pauses checkout on the page and at the server', async ({ page, flags, login }) => {

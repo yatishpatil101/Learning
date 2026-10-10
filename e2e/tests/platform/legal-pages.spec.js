@@ -20,10 +20,11 @@ test.describe('Legal pages', () => {
     await expect(toc).toBeVisible();
     expect(await toc.getByRole('button').count()).toBeGreaterThan(1);
 
-    await test.step('every contact address on the page is the single support mailbox', async () => {
+    await test.step('contact addresses are the support mailbox, plus the grievance mailbox for the officers', async () => {
       const hrefs = await page.locator('a[href^="mailto:"]').evaluateAll((as) => as.map((a) => a.getAttribute('href')));
       expect(hrefs.length).toBeGreaterThan(0);
-      expect(new Set(hrefs)).toEqual(new Set(['mailto:support@draazy.com']));
+      expect(new Set(hrefs)).toEqual(new Set(['mailto:support@draazy.com', 'mailto:grievance@draazy.com']));
+      await expect(page.locator('.legal-prose')).not.toContainText(/Rohan Deshpande|Ananya Kulkarni/);
     });
 
     await test.step('TOC jump scrolls the matching section into view', async () => {

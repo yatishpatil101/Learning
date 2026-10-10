@@ -376,7 +376,7 @@ proved against `information_schema`. `DataExportCoverageTest` fails the build if
 The principle behind that coupling: if the platform is willing to destroy a table's rows on the
 subject's say-so, it cannot claim those rows are none of the subject's business. The erasure gaps
 matter *most* — that is where personal data survives an erasure request — so `saved_searches.mobile`,
-`flatmate_group_members.name`, `society_leads`, `city_waitlist`, `deal_parties`,
+`flatmate_group_members.name`, `city_waitlist`, `deal_parties`,
 `personal_documents`, `flatmate_seeker_posts` and the referral tables all ship in the export.
 
 ### The redaction rule (applied uniformly to every shared record)

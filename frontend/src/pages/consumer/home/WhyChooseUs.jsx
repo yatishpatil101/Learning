@@ -2,7 +2,7 @@ import { useTranslation } from 'react-i18next';
 import Icon from '../../../components/Icon.jsx';
 import { STATS } from '../../../data/homeData.js';
 
-export default function WhyChooseUs({ navigate }) {
+export default function WhyChooseUs({ navigate, hasData }) {
   const { t } = useTranslation();
   return (
     <section className="relative section-pb">
@@ -31,22 +31,24 @@ export default function WhyChooseUs({ navigate }) {
               <p className="text-gray-400 text-sm leading-relaxed">{t('home.why.heroBody')}</p>
             </div>
 
-            <div className="relative mt-8 pt-6 border-t border-white/8 flex items-center gap-4">
-              <div className="text-center">
-                <p className="text-2xl font-extrabold text-white tabular-nums">{STATS.properties}</p>
-                <p className="text-[11px] text-gray-500 mt-0.5">{t('home.why.statVerifiedListings')}</p>
+            {hasData ? (
+              <div className="relative mt-8 pt-6 border-t border-white/8 flex items-center gap-4">
+                <div className="text-center">
+                  <p className="text-2xl font-extrabold text-white tabular-nums">{STATS.otpVerified}</p>
+                  <p className="text-[11px] text-gray-500 mt-0.5">{t('home.hero.statOtpVerified')}</p>
+                </div>
+                <div className="w-px h-10 bg-white/10" />
+                <div className="text-center">
+                  <p className="text-2xl font-extrabold text-white tabular-nums">{STATS.localityGuides}</p>
+                  <p className="text-[11px] text-gray-500 mt-0.5">{t('home.hero.statLocalityGuides')}</p>
+                </div>
+                <div className="w-px h-10 bg-white/10" />
+                <div className="text-center">
+                  <p className="text-2xl font-extrabold text-teal-400 tabular-nums">{STATS.brokerage}</p>
+                  <p className="text-[11px] text-gray-500 mt-0.5">{t('home.why.statBrokerage')}</p>
+                </div>
               </div>
-              <div className="w-px h-10 bg-white/10" />
-              <div className="text-center">
-                <p className="text-2xl font-extrabold text-white tabular-nums">{STATS.verifiedOwners}</p>
-                <p className="text-[11px] text-gray-500 mt-0.5">{t('home.why.statVerifiedOwners')}</p>
-              </div>
-              <div className="w-px h-10 bg-white/10" />
-              <div className="text-center">
-                <p className="text-2xl font-extrabold text-teal-400 tabular-nums">{STATS.brokerage}</p>
-                <p className="text-[11px] text-gray-500 mt-0.5">{t('home.why.statBrokerage')}</p>
-              </div>
-            </div>
+            ) : null}
           </div>
 
           {/* ── Feature rows (3/5 on desktop) ── */}

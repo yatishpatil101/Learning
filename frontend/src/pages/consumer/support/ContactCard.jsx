@@ -1,9 +1,10 @@
 import Icon from '../../../components/Icon.jsx';
 import { useTranslation } from 'react-i18next';
+import { SUPPORT_PHONE, SUPPORT_TEL, SUPPORT_WHATSAPP } from '../../../lib/supportContact.js';
 
 const CHANNELS = [
-  { key: 'ccCall', icon: 'phone', value: '+91 98765 43210', href: 'tel:+919876543210' },
-  { key: 'ccWhatsApp', icon: 'message-circle', value: 'wa.me/919876543210', href: 'https://wa.me/919876543210', ext: true },
+  { key: 'ccCall', icon: 'phone', value: SUPPORT_PHONE, href: SUPPORT_TEL },
+  { key: 'ccWhatsApp', icon: 'message-circle', value: SUPPORT_PHONE, href: SUPPORT_WHATSAPP, ext: true },
   { key: 'ccEmail', icon: 'mail', value: 'support@draazy.com', href: 'mailto:support@draazy.com' },
 ];
 

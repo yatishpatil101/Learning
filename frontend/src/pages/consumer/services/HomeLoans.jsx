@@ -2,6 +2,7 @@ import { useSearchParams } from 'react-router';
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import ServiceLanding from '../../../components/ServiceLanding.jsx';
+import { SUPPORT_PHONE } from '../../../lib/supportContact.js';
 import LoanEmiCalc from './LoanEmiCalc.jsx';
 import Icon from '../../../components/Icon.jsx';
 
@@ -70,7 +71,7 @@ export default function HomeLoans() {
           { name: 'city', label: t('services.homeLoans.fCity'), placeholder: 'Pune', value: 'Pune' },
         ],
       }}
-      stats={[['25+', t('services.homeLoans.stat.lendingPartners')], ['8.45%', t('services.homeLoans.stat.ratesStarting')], ['₹500 Cr+', t('services.homeLoans.stat.loansFacilitated')], ['48 hrs', t('services.homeLoans.stat.avgApproval')]]}
+      stats={[['₹0', t('services.homeLoans.stat.advisoryFee')], ['Free', t('services.homeLoans.stat.eligibility')], ['24 hrs', t('services.homeLoans.stat.callback')], ['1', t('services.homeLoans.stat.oneForm')]]}
       services={[
         [t('services.homeLoans.service.0.name'), 'home', t('services.homeLoans.service.0.desc')],
         [t('services.homeLoans.service.1.name'), 'map', t('services.homeLoans.service.1.desc')],
@@ -99,7 +100,7 @@ export default function HomeLoans() {
         [t('services.homeLoans.faq.3.q'), t('services.homeLoans.faq.3.a')],
         [t('services.homeLoans.faq.4.q'), t('services.homeLoans.faq.4.a')],
       ]}
-      cta={{ title: t('services.homeLoans.ctaTitle'), sub: t('services.homeLoans.ctaSub'), primary: t('services.homeLoans.ctaPrimary'), icon: 'badge-percent', phone: '1800 200 0000' }}
+      cta={{ title: t('services.homeLoans.ctaTitle'), sub: t('services.homeLoans.ctaSub'), primary: t('services.homeLoans.ctaPrimary'), icon: 'badge-percent', phone: SUPPORT_PHONE }}
     />
   );
 }

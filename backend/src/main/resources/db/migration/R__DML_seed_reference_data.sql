@@ -18,7 +18,6 @@ INSERT INTO settings (key, value) VALUES
         "ownerProYearly": 2499,
         "rentAgreementPlatform": 500,
         "seekerPlusTopup": 199,
-        "featuredListing": 999,
         "gstPercent": 18,
         "freeContactLimit": 15,
         "referralContactBonus": 15,
@@ -284,7 +283,7 @@ delete from message_template t where t.id = 'wa-aadhaar'
    and not exists (select 1 from outbound_message o where o.template_id = t.id);
 insert into message_template (id, channel, category, name, body) values
 ('wa-onboard', 'whatsapp', 'onboarding', 'Onboarding welcome',
- E'Hi {owner_name}, welcome to Draazy! \U0001F3E0\n\nYour property "{title}" in {locality} has been listed by our team. To make it live, please:\n\n1\uFE0F\u20E3 Open your claim link\n2\uFE0F\u20E3 Upload property photos\n3\uFE0F\u20E3 Complete identity verification\n\nNeed help? Reply here or call us.\n\u2014 {staff_name}, Draazy Team'),
+ E'Hi {owner_name}, welcome to Draazy! \U0001F3E0\n\nYour property "{title}" in {locality} has been listed by our team. To make it live, please:\n\n1\uFE0F\u20E3 Open your claim link: {claim_link}\n2\uFE0F\u20E3 Upload property photos\n3\uFE0F\u20E3 Complete identity verification\n\nNeed help? Reply here or call us.\n\u2014 {staff_name}, Draazy Team'),
 ('wa-photos', 'whatsapp', 'reminder', 'Photo upload reminder',
  E'Hi {owner_name},\n\nYour listing "{title}" is almost ready! We just need property photos to publish it.\n\n\U0001F4F8 Upload 4-6 clear photos showing:\n\u2022 Living room/bedrooms\n\u2022 Kitchen & bathrooms\n\u2022 Balcony/exterior\n\nListings with photos get 3x more enquiries!\n\nUpload here: {claim_link}\n\u2014 Draazy Team'),
 ('wa-identity', 'whatsapp', 'reminder', 'Identity verification',

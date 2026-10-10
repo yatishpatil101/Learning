@@ -90,16 +90,14 @@ interest = max(total - P, 0)
   Its CTA always links to the full page.
 
 ### 5.2 Legal stamp-duty & registration (`LegalCostCalc.jsx`, `computeStampDuty`)
-Maharashtra ready-reckoner-style estimate for a *purchase*:
+Maharashtra ready-reckoner-style estimate for a *purchase* in PMC/PCMC limits:
 ```
-rate = max(ratePct - (femaleConcession ? 1 : 0), 1)   // 1% women concession (residential)
-stamp = round(value * rate / 100)
+stamp = round(value * 7 / 100)                         // PUNE_STAMP_RATE_PCT; no concession or other-area rates
 reg   = min(round(value * 0.01), 30000)               // registration 1%, capped at Rs 30,000
 total = stamp + reg
 ```
-- `ratePct` by area: Municipal Corporation (Pune/PCMC) = 6, Municipal Council/Nagar Panchayat = 5,
-  Gram Panchayat (rural) = 4. Buyer: "Female (sole owner)" applies the 1% concession.
-- Default property value 75L; slider 10L..5Cr.
+- Only the PMC/PCMC 7% rate is shown; the women-buyer concession and the 5%/4% council/rural rates were removed
+  because none had an official source. Default property value 75L; slider 10L..5Cr.
 
 ### 5.3 Packers moving-cost estimator (`PackersEstimator.jsx`, `estimateMove`)
 ```

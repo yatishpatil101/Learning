@@ -10,6 +10,7 @@ import { useAuth } from '../../../context/AuthContext.jsx';
 import { useSaved } from '../../../context/SavedContext.jsx';
 import { useSignInGate } from '../../../lib/useSignInGate.js';
 import { cityLabelFor } from '../../../lib/geoConfig.js';
+import { propertyHref } from '../../../lib/listingSeo.js';
 
 const specs = (p) => {
   const out = [];
@@ -36,7 +37,7 @@ function FeaturedCard({ p, priority = false }) {
   };
 
   return (
-    <Link to={`/property/${p.id}`} className="property-card list-reveal glass rounded-2xl overflow-hidden group cursor-pointer flex flex-col">
+    <Link to={propertyHref(p)} className="property-card list-reveal glass rounded-2xl overflow-hidden group cursor-pointer flex flex-col">
       <div className="card-img-wrap relative overflow-hidden" style={{ aspectRatio: '16/10' }}>
         <PropertyImage src={image} sizes={CARD_SIZES} alt={p.title} width={600} height={400} className="w-full h-full object-cover" loading={priority ? 'eager' : 'lazy'} fetchPriority={priority ? 'high' : undefined} />
         <div className="absolute inset-0 bg-gradient-to-t from-black/65 via-black/10 to-transparent" />

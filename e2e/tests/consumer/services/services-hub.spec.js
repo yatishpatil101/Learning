@@ -1,5 +1,6 @@
 // @ts-check
 import { test, expect } from '../../../fixtures/live.js';
+import { expectHoverGated } from '../../../helpers/hoverGate.js';
 
 /* The hub's job is routing people to the nine services; a broken category filter or dead-route card surfaces only
    as "nobody reaches the paid services". `move-in-pack.spec.js` covers the Move-in Pack. */
@@ -19,6 +20,20 @@ const PROOF = {
 };
 
 test.describe('LIVE: the services hub routes people to the nine services', () => {
+  test('the service cards lift on hover only for a pointer that can leave', async ({ page }) => {
+    await page.goto('/services');
+    await expect(cards(page).first()).toBeVisible();
+    await expectHoverGated(page, ['.svc-card:hover', '.svc-card:hover .zoom img', '.svc-card:hover .lm']);
+  });
+
+  test('the stat band states launch facts, and no invented testimonials show', async ({ page }) => {
+    await page.goto('/services');
+    await expect(page.getByText('Pune locality guides')).toBeVisible();
+    await expect(page.getByText('Services under one roof')).toBeVisible();
+    await expect(page.getByText('Happy Families')).toHaveCount(0);
+    await expect(page.getByText('Loved by Pune homeowners')).toHaveCount(0);
+  });
+
   test('the Rent Agreement spotlight leads, and category tabs genuinely filter the grid', async ({ page, consoleErrors }) => {
     await page.goto('/services');
     await expect(cards(page)).toHaveCount(9);

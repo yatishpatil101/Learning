@@ -3,7 +3,8 @@
 /* Hero types mirror the browse taxonomy so a search maps 1:1 to the listings filter, sub-filters included. */
 export { HOME_TYPE_OPTS as TYPE_OPTS, COMMERCIAL_TYPES, LAND_USE } from './propertyTypes.js';
 
-/* CITY_POPULAR and NEARBY are curated names, never a locality registry: a name becomes a search token only through its slug. */
+/* CITY_POPULAR and NEARBY are curated names, never a locality registry:
+   a name becomes a search token only through its slug. */
 
 export const NEARBY = {
   Baner: ['Balewadi', 'Aundh', 'Pashan', 'Sus', 'Wakad'],
@@ -36,16 +37,12 @@ export function popularChipsFor(city) {
   return CITY_POPULAR[city] || [];
 }
 
-/* Canonical marketing stats, so the hero, "Why Draazy" and testimonials never disagree; each figure is a different metric.
-   TODO(API): still hard-coded; bind `properties` to the /bootstrap `counts` total and the rest to real aggregates before launch. */
+/* Launch-honest proof points, each true today, so the hero, "Why Draazy" and sign-in never disagree.
+   localityGuides is checked against content/localities by scripts/vite-plugin-locality-guides.test.mjs. */
 export const STATS = {
-  properties: '11,240+',
-  verifiedOwners: '523+',
-  localities: '54',
-  familiesHoused: '8,600+',
-  rating: '4.8',
-  reviews: '2,614',
   brokerage: '₹0',
+  localityGuides: '12',
+  otpVerified: '100%',
 };
 
 export const CATEGORIES = [

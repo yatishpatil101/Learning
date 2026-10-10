@@ -1,13 +1,16 @@
 import NativeSelect from './ui/NativeSelect.jsx';
 import LocalitySelect from './ui/LocalitySelect.jsx';
+import DateField from './ui/DateField.jsx';
 import FieldError from './ui/FieldError.jsx';
 import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router';
 import Icon from './Icon.jsx';
+import { ServiceBreadcrumbs } from './Breadcrumbs.jsx';
 import MobileField from './MobileField.jsx';
 import { useScrollReveal } from '../lib/useScrollReveal.js';
 import { useSignInGate } from '../lib/useSignInGate.js';
 import { useAuth } from '../context/AuthContext.jsx';
+import { SUPPORT_PHONE, SUPPORT_TEL } from '../lib/supportContact.js';
 /* Two distinct writes: the ops lead ticket a desk calls back from, and the flow request the customer then tracks. */
 import { useToast } from '../context/ToastContext.jsx';
 import { createTicket } from '../services/ticketService.js';
@@ -20,6 +23,7 @@ import { srcSetFor } from '../lib/imgSrcSet.js';
    full 1.26 MB asset while desktop keeps the 1600w source. */
 
 const HERO_WIDTHS = [640, 960, 1280, 1600];
+const CRUMB_KEY = { packers: 'packersMovers', legal: 'propertyLegal', loans: 'homeLoans' };
 /* Shared shell for every service landing page (packers, legal, home-loans, interior, valuation). */
 
 export default function ServiceLanding({
@@ -127,6 +131,7 @@ export default function ServiceLanding({
           <div className="absolute inset-0 opacity-20" style={{ backgroundImage: 'radial-gradient(circle at 18% 30%,rgb(var(--dz-c-white) / .3) 0,transparent 40%),radial-gradient(circle at 85% 70%,rgb(var(--dz-c-teal-500) / .5) 0,transparent 42%)' }} />
           <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-16 lg:py-20 grid grid-cols-1 lg:grid-cols-2 gap-12 items-center">
             <div className="reveal">
+              <ServiceBreadcrumbs k={CRUMB_KEY[desk]} />
               <span className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-white/10 border border-white/15 text-xs text-teal-200 font-medium mb-5"><Icon name={badgeIcon} className="w-3.5 h-3.5" /> {badge}</span>
               <h1 className="text-3xl sm:text-5xl font-extrabold text-white leading-tight">{titleTop}<br /><span className="gradient-text">{titleAccent}</span></h1>
               <p className="text-gray-200 text-base sm:text-lg mt-5 max-w-xl">{subtitle}</p>
@@ -167,6 +172,8 @@ export default function ServiceLanding({
                             </NativeSelect>
                           ) : f.type === 'locality' ? (
                             <LocalitySelect value={form[f.name]} onChange={(v) => { set(f.name, v); err.clear(f.name); }} nameOnly unrestricted={f.unrestricted} placeholder={f.placeholder || 'Select locality'} ariaLabel={f.label} dataErr={f.name} invalid={err.has(f.name)} className="w-full" />
+                          ) : f.type === 'date' ? (
+                            <DateField value={form[f.name]} onChange={(v) => { set(f.name, v); err.clear(f.name); }} ariaLabel={f.label} dataErr={f.name} invalid={err.has(f.name)} className="field w-full px-4 py-2.5 bg-white/5 border border-white/10 rounded-xl text-white text-sm" />
                           ) : f.type === 'textarea' ? (
                             <textarea rows={2} value={form[f.name]} onChange={(e) => { set(f.name, e.target.value); err.clear(f.name); }} placeholder={f.placeholder} className={'field w-full px-4 py-2.5 bg-white/5 border border-white/10 rounded-xl text-white text-sm placeholder-gray-500 resize-none' + err.cx(f.name)} />
                           ) : f.type === 'money' ? (
@@ -180,18 +187,18 @@ export default function ServiceLanding({
                     </div>
                     {status === 'failed' ? (
                       <div role="alert" className="rounded-xl border border-rose-500/30 bg-rose-500/10 px-4 py-3 text-sm text-rose-200">
-                        We couldn't file this — retry or call us on <a href="tel:+919876543210" className="font-semibold underline">+91 98765 43210</a>.
+                        We couldn't file this — retry or call us on <a href={SUPPORT_TEL} className="font-semibold underline">{SUPPORT_PHONE}</a>.
                       </div>
                     ) : null}
                     <button type="submit" disabled={status === 'sending'} aria-busy={status === 'sending'} className="btn-teal w-full py-3 rounded-xl text-white text-sm font-semibold flex items-center justify-center gap-2 disabled:opacity-60"><Icon name="send" className="w-4 h-4" /> {status === 'failed' ? 'Retry' : quote?.submitLabel || 'Request Free Quote'}</button>
-                    <p className="text-center text-[11px] text-gray-500">By submitting, you agree to be contacted by Draazy &amp; its verified partners.</p>
+                    <p className="text-center text-[11px] text-gray-500">By submitting, you agree to be contacted by Draazy &amp; its service partners.</p>
                   </form>
                 </>
               ) : (
                 <div className="text-center py-8">
                   <div className="w-14 h-14 mx-auto rounded-full bg-emerald-500/15 border border-emerald-500/30 flex items-center justify-center mb-4"><Icon name="check" className="w-7 h-7 text-emerald-400" /></div>
                   <h3 className="text-white font-bold text-lg">Request received!</h3>
-                  <p className="text-gray-400 text-sm mt-2 max-w-xs mx-auto">{quote?.successMessage || <>Our team will call you back within <span className="text-teal-400 font-semibold">24 hours</span>. Your request is queued with our verified partners.</>}</p>
+                  <p className="text-gray-400 text-sm mt-2 max-w-xs mx-auto">{quote?.successMessage || <>Our team will call you back within <span className="text-teal-400 font-semibold">24 hours</span>. Your request is queued with our service partners.</>}</p>
                   <button onClick={() => { setStatus('idle'); setForm(initial); }} className="mt-5 text-teal-400 text-sm font-medium hover:underline">Submit another request</button>
                 </div>
               )}
@@ -286,7 +293,7 @@ export default function ServiceLanding({
                 <p className="text-gray-400 mt-3 mb-7">{cta.sub}</p>
                 <div className="flex flex-col sm:flex-row gap-3 justify-center">
                   <button onClick={scrollToForm} className="btn-teal px-6 py-3.5 rounded-xl text-white text-sm font-semibold inline-flex items-center justify-center gap-2"><Icon name={cta.icon || 'send'} className="w-4 h-4" /> {cta.primary}</button>
-                  {cta.phone ? <a href={`tel:${cta.phone.replace(/\s/g, '')}`} className="px-6 py-3.5 rounded-xl border border-white/10 text-gray-200 text-sm font-semibold hover:bg-white/5 inline-flex items-center justify-center gap-2"><Icon name="phone" className="w-4 h-4" /> Call {cta.phone}</a> : null}
+                  {cta.phone ? <a href={`tel:${cta.phone.replace(/[^\d+]/g, '')}`} className="px-6 py-3.5 rounded-xl border border-white/10 text-gray-200 text-sm font-semibold hover:bg-white/5 inline-flex items-center justify-center gap-2"><Icon name="phone" className="w-4 h-4" /> Call {cta.phone}</a> : null}
                   {cta.link ? <Link to={cta.link} className="px-6 py-3.5 rounded-xl border border-white/10 text-gray-200 text-sm font-semibold hover:bg-white/5 inline-flex items-center justify-center gap-2">{cta.linkLabel}</Link> : null}
                 </div>
               </div>

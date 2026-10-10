@@ -3,10 +3,10 @@ import LegalPage from '../../components/LegalPage.jsx';
 
 export default function RefundPolicy() {
   return (
-    <LegalPage title="Refund Policy" lastUpdated="24 September 2026" current="refund-policy">
+    <LegalPage title="Refund Policy" lastUpdated="10 October 2026" current="refund-policy">
       <p>
         This Refund Policy applies to all paid services and subscription plans purchased through draazy.com
-        ("<strong>Platform</strong>") operated by Draazy Technologies Private Limited ("<strong>Draazy</strong>").
+        ("<strong>Platform</strong>") operated by Draazy Technologies ("<strong>Draazy</strong>").
       </p>
 
       <h2>1. Scope</h2>
@@ -30,8 +30,8 @@ export default function RefundPolicy() {
 
       <h3>2.2 After 7 days</h3>
       <p>
-        Subscriptions are non-refundable after the 7-day cooling-off period. You may cancel auto-renewal at any time;
-        access continues until the end of the current billing cycle.
+        Subscriptions are non-refundable after the 7-day cooling-off period. Plans do not renew automatically;
+        access continues until the end of the term you paid for.
       </p>
 
       <h3>2.3 Annual plans</h3>
@@ -82,7 +82,7 @@ export default function RefundPolicy() {
 
       <h2>5. How to request a refund</h2>
       <ol>
-        <li>Log in and open <strong>Dashboard → Billing</strong> to find the transaction and its transaction ID.</li>
+        <li>Log in and open <strong>Dashboard → Plan &amp; Billing</strong> to find the transaction and its transaction ID.</li>
         <li>
           Email <a href="mailto:support@draazy.com">support@draazy.com</a> from your registered email address — or
           raise a ticket from the <Link to="/support">Support</Link> page — with your registered mobile number,
@@ -95,7 +95,6 @@ export default function RefundPolicy() {
       <ul>
         <li>Approved refunds are processed within <strong>5–7 business days</strong>.</li>
         <li>Refunds are credited to the original payment method (UPI, bank account, or card).</li>
-        <li>In case of technical failures, refunds may be issued as Draazy wallet credits with your consent.</li>
       </ul>
 
       <h2>7. Chargebacks</h2>

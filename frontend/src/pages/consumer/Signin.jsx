@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router';
 import { useTranslation } from 'react-i18next';
-import { ArrowRight, BadgeCheck, CheckCircle2, IndianRupee, Loader2, Mail, Send, ShieldCheck, Smartphone, Star, User, UserCircle, Users } from 'lucide-react';
+import { ArrowRight, BadgeCheck, CheckCircle2, IndianRupee, Loader2, Mail, Send, ShieldCheck, Smartphone, User, UserCircle, Users } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext.jsx';
 import { sendOtp as sendOtpSvc } from '../../services/authService.js';
 import { recordClaimLinkOpened } from '../../services/propertyService.js';
@@ -19,7 +19,7 @@ import { resolveAuthIntent, postAuthDest } from '../../lib/authIntent.js';
 import { classifyOtpVerifyError } from '../../lib/otpVerifyError.js';
 import { healStaleShell } from '../../lib/seamErrors.js';
 import { cityHasData } from '../../lib/geoConfig.js';
-import { STATS, popularFor } from '../../data/homeData.js';
+import { STATS } from '../../data/homeData.js';
 // City-aware marketing panel: a city with no inventory yet gets "launching soon" copy and
 // generic-but-true claims, never Pune's numbers.
 
@@ -33,10 +33,8 @@ function LeftPanel() {
   const { t } = useTranslation();
   const { city } = useCity();
   const hasData = cityHasData(city);
-  const spot = popularFor(city)[4] || popularFor(city)[0] || null;
-  const stats = hasData
-    ? [[STATS.properties, 'auth.statProperties'], [STATS.verifiedOwners, 'auth.statVerifiedOwners'], [STATS.localities, 'auth.statLocalities']]
-    : [[STATS.brokerage, 'auth.statBrokerage'], ['100%', 'auth.statVerified'], ['RERA', 'auth.statCompliant']];
+  const stats = [[STATS.brokerage, 'auth.statBrokerage'], [STATS.otpVerified, 'auth.statOtpVerified'],
+    ...(hasData ? [[STATS.localityGuides, 'auth.statLocalityGuides']] : [])];
 
   return (
     <>
@@ -61,24 +59,7 @@ function LeftPanel() {
           </span>
         ))}
       </div>
-      <div className="glass-card rounded-2xl p-6 mb-8">
-        <div className="flex items-center gap-1 mb-3">
-          {Array.from({ length: 5 }).map((_, i) => <Star key={i} className="w-4 h-4 text-yellow-400 fill-yellow-400" />)}
-        </div>
-        <p className="text-gray-300 text-sm leading-relaxed italic mb-4">
-          {hasData && spot ? t('auth.testimonial', { spot }) : t('auth.testimonialSoon', { city })}
-        </p>
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-full bg-gradient-to-br from-teal-400 to-teal-600 flex items-center justify-center text-white font-bold text-sm">RP</div>
-          <div>
-            <p className="text-white text-sm font-semibold">{t('auth.testimonialName')}</p>
-            <p className="text-gray-500 text-xs">
-              {hasData && spot ? t('auth.testimonialRole', { spot }) : t('auth.testimonialRoleSoon', { city })}
-            </p>
-          </div>
-        </div>
-      </div>
-      <div className="grid grid-cols-3 gap-4">
+      <div className={`grid gap-4 ${stats.length === 3 ? 'grid-cols-3' : 'grid-cols-2'}`}>
         {stats.map(([n, key]) => (
           <div key={key} className="stat-card rounded-2xl p-4 text-center">
             <p className="text-2xl font-bold gradient-text">{n}</p>
@@ -197,7 +178,7 @@ export default function Signin() {
       if (emailVal) patch.email = emailVal;
       await update(patch);
       setDone(true);
-      /* Only this branch knows the account is seconds old, so only it can say the dashboard would be a wall of zeros. */
+      /* Only this branch knows the account is seconds old, so only it can say the dashboard is a wall of zeros. */
       redirectTo(postAuthDest(params, params.get('claim') ? '/dashboard#listings' : '/listings'));
       /* Read the STATUS, never `err.message`: the server speaks English and this form is trilingual. */
     } catch (err) {

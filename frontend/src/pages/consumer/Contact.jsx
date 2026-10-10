@@ -12,10 +12,11 @@ import { useFieldErrors } from '../../lib/hooks.js';
 import { maskPhone } from '../../lib/contact.js';
 import { getProperty } from '../../services/propertyService.js';
 import { fmtINR } from '../../lib/format.js';
+import { SUPPORT_PHONE, SUPPORT_TEL, SUPPORT_WHATSAPP } from '../../lib/supportContact.js';
 
 const SUBJECTS = ['Buying this property', 'Renting this property', 'Site visit', 'Home Loan Assistance', 'General enquiry'];
 const digits = (s) => String(s || '').replace(/\D/g, '').replace(/^91(?=\d{10}$)/, '');
-const WA_SUPPORT = `https://wa.me/919876543210?text=${encodeURIComponent('Hi Draazy, I need help with a property enquiry.')}`;
+const WA_SUPPORT = `${SUPPORT_WHATSAPP}?text=${encodeURIComponent('Hi Draazy, I need help with a property enquiry.')}`;
 
 function titleOf(p) {
   if (!p) return '';
@@ -221,10 +222,10 @@ export default function Contact() {
                   <span className="text-xs text-teal-300 font-medium">{t('misc1.contactResponseTime')}</span>
                 </div>
                 <div className="grid grid-cols-3 gap-2 lg:grid-cols-1 lg:gap-2.5">
-                  <a href="tel:18002000000" className="flex flex-col lg:flex-row items-center gap-1.5 lg:gap-3 min-h-[44px] py-3 px-2 lg:px-4 rounded-xl bg-white/5 border border-white/10 text-gray-200 text-sm hover:bg-white/10 transition-all">
+                  <a href={SUPPORT_TEL} className="flex flex-col lg:flex-row items-center gap-1.5 lg:gap-3 min-h-[44px] py-3 px-2 lg:px-4 rounded-xl bg-white/5 border border-white/10 text-gray-200 text-sm hover:bg-white/10 transition-all">
                     <Icon name="headset" className="w-4 h-4 text-teal-400 shrink-0" />
                     <span className="font-semibold text-xs lg:hidden">{t('misc1.contactCall')}</span>
-                    <span className="font-semibold hidden lg:inline">1800 200 0000</span>
+                    <span className="font-semibold hidden lg:inline">{SUPPORT_PHONE}</span>
                   </a>
                   <a href={WA_SUPPORT} target="_blank" rel="noopener noreferrer" className="flex flex-col lg:flex-row items-center gap-1.5 lg:gap-3 min-h-[44px] py-3 px-2 lg:px-4 rounded-xl border border-emerald-500/20 text-emerald-300 text-sm hover:bg-emerald-500/10 transition-all">
                     <Icon name="message-circle" className="w-4 h-4 shrink-0" />
@@ -246,7 +247,7 @@ export default function Contact() {
       {/* Sticky mobile quick-contact bar — Draazy support (not the gated owner number). */}
 
       <div className="dz-sticky-cta lg:hidden" role="navigation" aria-label="Quick contact support">
-        <a href="tel:18002000000" className="btn-teal flex-1 min-h-[44px] flex items-center justify-center gap-1.5 text-sm font-semibold py-3 px-4 focus-visible:ring-2 focus-visible:ring-teal-400 focus-visible:ring-offset-2 focus-visible:ring-offset-ink"><Icon name="phone" className="w-4 h-4" /> {t('misc1.contactCall')}</a>
+        <a href={SUPPORT_TEL} className="btn-teal flex-1 min-h-[44px] flex items-center justify-center gap-1.5 text-sm font-semibold py-3 px-4 focus-visible:ring-2 focus-visible:ring-teal-400 focus-visible:ring-offset-2 focus-visible:ring-offset-ink"><Icon name="phone" className="w-4 h-4" /> {t('misc1.contactCall')}</a>
         <a href={WA_SUPPORT} target="_blank" rel="noopener noreferrer" className="flex-1 min-h-[44px] flex items-center justify-center gap-1.5 rounded-xl bg-emerald-600 text-white text-sm font-semibold py-3 px-4 focus-visible:ring-2 focus-visible:ring-emerald-300 focus-visible:ring-offset-2 focus-visible:ring-offset-ink"><Icon name="message-circle" className="w-4 h-4" /> {t('misc1.contactWhatsappShort')}</a>
       </div>
     </div>

@@ -3,6 +3,7 @@ import LocalitySelect from '../../../components/ui/LocalitySelect.jsx';
 import { useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import Icon from '../../../components/Icon.jsx';
+import { ServiceBreadcrumbs } from '../../../components/Breadcrumbs.jsx';
 import MobileField from '../../../components/MobileField.jsx';
 import { useScrollReveal } from '../../../lib/useScrollReveal.js';
 import { useSignInGate } from '../../../lib/useSignInGate.js';
@@ -12,6 +13,7 @@ import ServiceTracker from '../../../components/ServiceTracker.jsx';
 import { createServiceRequest as createFlowRequest } from '../../../services/serviceRequestService.js';
 import AutosaveBanner from '../../../components/AutosaveBanner.jsx';
 import FieldError from '../../../components/ui/FieldError.jsx';
+import { SUPPORT_PHONE, SUPPORT_TEL } from '../../../lib/supportContact.js';
 import { useFormDraft, useFieldErrors } from '../../../lib/hooks.js';
 
 const RATES= { 'Koregaon Park': 16500, 'Kalyani Nagar': 15500, Kothrud: 13000, 'Viman Nagar': 12500, Baner: 11500, Aundh: 12000, Kharadi: 10500, Wakad: 9200, Hadapsar: 8800, Hinjawadi: 8200, Wagholi: 6800, Undri: 7200, Ravet: 7800 };
@@ -32,14 +34,14 @@ const SERVICES = [
   ['Pre-sale Pricing Advisory', 'tag', 'Price your home right to sell faster — backed by demand and comparable data.'],
 ];
 const FACTORS = [['Location & locality', 'map-pin'], ['Carpet area & layout', 'ruler'], ['Property age & condition', 'calendar-clock'], ['Floor, view & facing', 'building'], ['Amenities & parking', 'dumbbell'], ['Construction quality', 'hard-hat'], ['Demand & recent deals', 'trending-up']];
-const STEPS = [['Share Details', 'clipboard-list', 'Try the instant estimate, then request a certified report in a minute.'], ['Site Inspection', 'home', 'An IBBI valuer visits to verify area, condition, amenities and surroundings.'], ['Data Analysis', 'line-chart', 'We benchmark against recent comparable deals and ready-reckoner rates.'], ['Certified Report', 'file-badge', 'You receive a signed, bank- & court-accepted valuation report.']];
-const TRUST = [['IBBI Certified', 'badge-check', 'Reports are signed by registered valuers and accepted by banks, courts & tax authorities.'], ['Data-backed', 'database', 'Valuations use real recent comparables and ready-reckoner rates — not gut feel.'], ['Fast Turnaround', 'timer', 'Most certified reports are ready within 48 hours of the site inspection.'], ['Transparent Fees', 'indian-rupee', 'A clear, fixed valuation fee shared upfront before we begin.']];
+const STEPS = [['Share Details', 'clipboard-list', 'Try the instant estimate, then request a certified report in a minute.'], ['Site Inspection', 'home', 'A qualified valuer visits to verify area, condition, amenities and surroundings.'], ['Data Analysis', 'line-chart', 'We benchmark against recent comparable deals and ready-reckoner rates.'], ['Certified Report', 'file-badge', 'You receive a signed valuation report.']];
+const TRUST = [['Qualified Valuers', 'badge-check', 'Every report is signed by the valuer who inspected the property.'], ['Data-backed', 'database', 'Valuations use real recent comparables and ready-reckoner rates — not gut feel.'], ['Clear Timeline', 'timer', 'We confirm the report timeline and fee with you before the site inspection.'], ['Transparent Fees', 'indian-rupee', 'A clear, fixed valuation fee shared upfront before we begin.']];
 const FAQ = [
   ['Is the instant estimate accurate?', "It's a free, indicative range from current locality rates and your inputs — great for a quick idea. For an exact, official figure you need a certified valuation with a physical inspection."],
-  ['What is a certified valuation report?', "A signed report by an IBBI-registered valuer detailing the property's fair market value with methodology and comparables — accepted by banks, courts and tax authorities."],
+  ['What is a certified valuation report?', "A signed report by a qualified valuer detailing the property's fair market value, with the method and comparables used."],
   ['How is property value calculated?', 'Mainly the comparable-sales method (recent deals nearby) cross-checked with ready-reckoner rates, adjusted for area, age, floor, amenities and condition.'],
-  ['How long does it take and what does it cost?', 'A certified report is typically ready within 48 hours of inspection. Fees are fixed and shared upfront — the instant online estimate is always free.'],
-  ['Will banks accept this valuation?', 'Yes — our valuers are IBBI-registered and on major bank panels, so reports are accepted for home loans and mortgages.'],
+  ['How long does it take and what does it cost?', 'The report timeline depends on the property and is confirmed with you before the inspection. Fees are fixed and shared upfront — the instant online estimate is always free.'],
+  ['Will banks accept this valuation?', 'Banks often send their own panel valuer for a home loan, so ask your lender first. Our report suits resale pricing, family settlements, tax filings and insurance.'],
 ];
 
 export default function PropertyValuation() {
@@ -131,6 +133,7 @@ export default function PropertyValuation() {
           <div className="absolute inset-0 opacity-20" style={{ backgroundImage: 'radial-gradient(circle at 18% 30%,rgb(var(--dz-c-pure-white) / .3) 0,transparent 40%),radial-gradient(circle at 85% 70%,rgb(var(--dz-c-teal-500) / .5) 0,transparent 42%)' }} />
           <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-16 lg:py-20 grid grid-cols-1 lg:grid-cols-2 gap-12 items-center">
             <div className="reveal">
+              <ServiceBreadcrumbs k="valuation" />
               <span className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-white/10 border border-white/15 text-xs text-teal-200 font-medium mb-5"><Icon name="trending-up" className="w-3.5 h-3.5" /> {tr('services.valuation.heroBadge')}</span>
               <h1 className="text-3xl sm:text-5xl font-extrabold text-white leading-tight">{tr('services.valuation.heroTitle1')}<br /><span className="gradient-text">{tr('services.valuation.heroTitleAccent')}</span></h1>
               <p className="text-gray-200 text-base sm:text-lg mt-5 max-w-xl">{tr('services.valuation.heroSubtitle')}</p>
@@ -197,7 +200,7 @@ export default function PropertyValuation() {
         {/* Stats */}
         <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 -mt-8 relative z-10">
           <div className="glass-card rounded-2xl p-6 grid grid-cols-2 lg:grid-cols-4 gap-6 reveal">
-            {[['20K+', 'valuationsDone'], ['150+', 'puneLocalities'], ['48 hrs', 'reportTurnaround'], ['IBBI', 'certifiedValuers']].map(([v, slug]) => <div key={slug} className="text-center"><p className="text-3xl font-extrabold gradient-text">{v}</p><p className="text-gray-500 text-xs mt-1">{tr('services.valuation.stat.' + slug)}</p></div>)}
+            {[['Free', 'estimate'], ['Pune', 'comparables'], ['24 hrs', 'callback'], ['Fixed', 'fees']].map(([v, slug]) => <div key={slug} className="text-center"><p className="text-3xl font-extrabold gradient-text">{v}</p><p className="text-gray-500 text-xs mt-1">{tr('services.valuation.stat.' + slug)}</p></div>)}
           </div>
         </section>
 
@@ -341,7 +344,7 @@ export default function PropertyValuation() {
               <p className="text-gray-400 mt-3 mb-7">{tr('services.valuation.ctaSub')}</p>
               <div className="flex flex-col sm:flex-row gap-3 justify-center">
                 <button onClick={scrollToForm} className="btn-teal px-6 py-3.5 rounded-xl text-white text-sm font-semibold inline-flex items-center justify-center gap-2"><Icon name="file-badge" className="w-4 h-4" /> {tr('services.valuation.ctaRequest')}</button>
-                <a href="tel:18002000000" className="px-6 py-3.5 rounded-xl border border-white/10 text-gray-200 text-sm font-semibold hover:bg-white/5 inline-flex items-center justify-center gap-2"><Icon name="phone" className="w-4 h-4" /> {tr('services.valuation.ctaCall')}</a>
+                <a href={SUPPORT_TEL} className="px-6 py-3.5 rounded-xl border border-white/10 text-gray-200 text-sm font-semibold hover:bg-white/5 inline-flex items-center justify-center gap-2"><Icon name="phone" className="w-4 h-4" /> {tr('services.valuation.ctaCall', { phone: SUPPORT_PHONE })}</a>
               </div>
             </div>
           </div>

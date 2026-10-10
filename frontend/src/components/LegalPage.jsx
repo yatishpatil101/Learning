@@ -2,11 +2,8 @@ import { Children, cloneElement, isValidElement, useEffect, useMemo, useState } 
 import { Link } from 'react-router';
 import Icon from './Icon.jsx';
 
-/* Shared shell for legal/policy pages — renders a centred prose column with a
-   consistent header, an auto-generated "On this page" table of contents built
-   from the page's <h2> headings, cross-links to the other policies, a back-to-top
-   control, and the document <title>. Pages only author their prose; this shell
-   handles navigation, anchors, and chrome so all four stay consistent. */
+/* Pages only author their prose; the shell owns navigation, anchors and chrome so all four stay consistent,
+   and the document head comes from data/routeHeads.js. */
 
 const POLICIES = [
   ['Privacy Policy', '/privacy', 'privacy'],
@@ -39,12 +36,6 @@ export default function LegalPage({ title, lastUpdated, current, children }) {
   // TOC is a scanning aid, not the content. On phones a 10–13 item list buries
   // the policy below the fold, so start collapsed there and open on desktop.
   const [tocOpen, setTocOpen] = useState(isDesktop);
-
-  useEffect(() => {
-    const prev = document.title;
-    document.title = `${title} · Draazy`;
-    return () => { document.title = prev; };
-  }, [title]);
 
   useEffect(() => {
     const onScroll = () => setShowTop(window.scrollY > 600);

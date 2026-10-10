@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import Icon from '../../../components/Icon.jsx';
+import { ServiceBreadcrumbs } from '../../../components/Breadcrumbs.jsx';
 import MobileField from '../../../components/MobileField.jsx';
 import { useScrollReveal } from '../../../lib/useScrollReveal.js';
 import { useSignInGate } from '../../../lib/useSignInGate.js';
@@ -13,6 +14,7 @@ import ServiceTracker from '../../../components/ServiceTracker.jsx';
 import { createServiceRequest as createFlowRequest } from '../../../services/serviceRequestService.js';
 import AutosaveBanner from '../../../components/AutosaveBanner.jsx';
 import FieldError from '../../../components/ui/FieldError.jsx';
+import { SUPPORT_PHONE, SUPPORT_TEL } from '../../../lib/supportContact.js';
 import { useFormDraft, useFieldErrors } from '../../../lib/hooks.js';
 import { srcSetFor, CARD_SIZES } from '../../../lib/imgSrcSet.js';
 
@@ -32,15 +34,15 @@ const STYLES = [['Modern', '1600585154340-be6161a56a0c'], ['Scandinavian', '1493
 const PROJECTS = [['3 BHK in Baner', '1600596542815-ffad4c1539a9'], ['2 BHK in Wakad', '1522708323590-d24dbb6b0267'], ['Villa in Kothrud', '1600210492493-0946911123ea'], ['Studio in Hinjawadi', '1540518614846-7eded433c457'], ['4 BHK in Kalyani Nagar', '1600047509807-ba8f99d2cdde'], ['2 BHK in Viman Nagar', '1560448204-e02f11c3d0e2']];
 const PACKAGES = [
   ['Essentials', '1,499', 'Smart, budget-friendly interiors for first homes.', ['Modular kitchen + wardrobes', 'Laminate finishes', 'Essential false ceiling & lighting', '5-year warranty'], false],
-  ['Premium', '1,999', 'Our most popular, balanced design & quality.', ['Full home interiors', 'Acrylic / membrane finishes', 'Designer ceilings & lighting', 'Custom storage solutions', '10-year warranty'], true],
-  ['Luxe', '2,999', 'Bespoke, high-end materials and detailing.', ['Bespoke turnkey interiors', 'Premium veneer / lacquered glass', 'Imported hardware & appliances', 'Dedicated design lead', '10-year warranty'], false],
+  ['Premium', '1,999', 'Our most popular, balanced design & quality.', ['Full home interiors', 'Acrylic / membrane finishes', 'Designer ceilings & lighting', 'Custom storage solutions', 'Itemised quote before work starts'], true],
+  ['Luxe', '2,999', 'Bespoke, high-end materials and detailing.', ['Bespoke turnkey interiors', 'Premium veneer / lacquered glass', 'Imported hardware & appliances', 'Dedicated design lead', 'Itemised quote before work starts'], false],
 ];
-const STEPS = [['Consultation', 'calendar-heart', 'Share your space, style and budget with our designer — free.'], ['3D Design', 'box', 'Get a photorealistic 3D design and a transparent, itemised quote.'], ['Production', 'hammer', 'Vetted partners manufacture and execute with quality checks.'], ['Move In', 'key-round', 'On-time handover with a 10-year warranty. Welcome home!']];
+const STEPS = [['Consultation', 'calendar-heart', 'Share your space, style and budget with our designer — free.'], ['3D Design', 'box', 'Get a photorealistic 3D design and a transparent, itemised quote.'], ['Production', 'hammer', 'Vetted partners manufacture and execute with quality checks.'], ['Move In', 'key-round', 'Handover after a final quality check. Welcome home!']];
 const TRUST = [['10-Year Warranty', 'shield-check', 'Comprehensive warranty on modular work and materials, in writing.'], ['45-Day Move-in', 'timer', 'On-time delivery guarantee for standard full-home projects.'], ['Transparent Pricing', 'badge-indian-rupee', 'Itemised quotes with no hidden charges — pay in easy milestones.'], ['Dedicated Designer', 'user-round', 'One designer + project manager from concept to handover.']];
 const FAQ = [
   ['How long does a full home interior take?', 'A standard 2–3 BHK is typically designed, manufactured and installed in about 45 days from design sign-off, depending on scope and site readiness.'],
   ['Is the 3D design really free?', 'Yes — the consultation and 3D design concept are free. You only pay once you approve the design and quote and decide to proceed.'],
-  ['What does the 10-year warranty cover?', 'It covers modular cabinetry, hardware and workmanship against manufacturing defects, as detailed in your written warranty card.'],
+  ['Is there a warranty?', 'Warranty terms depend on the partner and the materials you choose, and are written into your quote before you sign. Ask your designer for them at the consultation.'],
   ['Can you work on an under-construction or occupied home?', 'Both. We plan around possession and, for occupied homes, sequence work room-by-room to minimise disruption.'],
   ['How is pricing calculated?', 'Pricing is itemised by scope and finishes (indicative per-sq.ft. packages above). Your final, transparent quote is shared after the consultation and measurements.'],
 ];
@@ -133,6 +135,7 @@ export default function InteriorRenovation() {
           <div className="absolute inset-0" style={{ background: 'linear-gradient(120deg,rgb(var(--dz-c-ink) / .96) 0%,rgb(var(--dz-c-ink) / .82) 45%,rgb(var(--dz-c-teal-600) / .45) 100%)' }} />
           <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-20 lg:py-28">
             <div className="max-w-2xl reveal">
+              <ServiceBreadcrumbs k="interior" />
               <span className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-white/10 border border-white/20 text-xs text-teal-200 font-medium mb-5"><Icon name="sparkles" className="w-3.5 h-3.5" /> {tr('services.interior.heroBadge')}</span>
               <h1 className="text-4xl sm:text-6xl font-extrabold text-white leading-[1.05]">{tr('services.interior.heroTitle1')}<br /><span className="gradient-text">{tr('services.interior.heroTitleAccent')}</span></h1>
               <p className="text-gray-200 text-base sm:text-lg mt-5 max-w-xl">{tr('services.interior.heroSubtitle')}</p>
@@ -147,7 +150,7 @@ export default function InteriorRenovation() {
         {/* Stats */}
         <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 -mt-10 relative z-10">
           <div className="glass-card rounded-2xl p-6 grid grid-cols-2 lg:grid-cols-4 gap-6 reveal">
-            {[['2,500+', 'homesDesigned'], ['45', 'daysToMoveIn'], ['10 yr', 'warranty'], ['4.8★', 'customerRating']].map(([v, slug]) => <div key={slug} className="text-center"><p className="text-3xl font-extrabold gradient-text">{v}</p><p className="text-gray-500 text-xs mt-1">{tr('services.interior.stat.' + slug)}</p></div>)}
+            {[['Free', 'design'], ['Itemised', 'quote'], ['Agreed', 'handover'], ['Written', 'warranty']].map(([v, slug]) => <div key={slug} className="text-center"><p className="text-3xl font-extrabold gradient-text">{v}</p><p className="text-gray-500 text-xs mt-1">{tr('services.interior.stat.' + slug)}</p></div>)}
           </div>
         </section>
 
@@ -329,7 +332,7 @@ export default function InteriorRenovation() {
               <p className="text-gray-200 mt-3 mb-7">{tr('services.interior.ctaSub')}</p>
               <div className="flex flex-col sm:flex-row gap-3 justify-center">
                 <button onClick={scrollToForm} className="btn-teal px-6 py-3.5 rounded-xl text-white text-sm font-semibold inline-flex items-center justify-center gap-2"><Icon name="calendar-heart" className="w-4 h-4" /> {tr('services.interior.ctaBook')}</button>
-                <a href="tel:18002000000" className="px-6 py-3.5 rounded-xl bg-white/10 border border-white/20 text-white text-sm font-semibold hover:bg-white/15 inline-flex items-center justify-center gap-2 transition-all"><Icon name="phone" className="w-4 h-4" /> {tr('services.interior.ctaCall')}</a>
+                <a href={SUPPORT_TEL} className="px-6 py-3.5 rounded-xl bg-white/10 border border-white/20 text-white text-sm font-semibold hover:bg-white/15 inline-flex items-center justify-center gap-2 transition-all"><Icon name="phone" className="w-4 h-4" /> {tr('services.interior.ctaCall', { phone: SUPPORT_PHONE })}</a>
               </div>
             </div>
           </div>

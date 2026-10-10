@@ -17,11 +17,13 @@ const seekerPlans = (t, fee) => [
   { id: 'seeker-free', name: t('misc1.plansSeekerFreeName'), price: '₹0', sub: t('misc1.plansSeekerFreeSub'), tag: t('misc1.plansSeekerFreeTag'), feats: [t('misc1.plansSeekerFreeFeat1'), t('misc1.plansSeekerFreeFeat2'), t('misc1.plansSeekerFreeFeat3'), t('misc1.plansSeekerFreeFeat4')], cta: t('misc1.plansSeekerFreeCta'), href: '/listings', pop: false },
   { id: 'seeker-plus', name: t('misc1.plansSeekerPlusName'), price: fee('seekerPlusTopup'), sub: t('misc1.plansSeekerPlusSub'), tag: t('misc1.plansSeekerPlusTag'), feats: [t('misc1.plansSeekerPlusFeat1'), t('misc1.plansSeekerPlusFeat2'), t('misc1.plansSeekerPlusFeat3'), t('misc1.plansSeekerPlusFeat4')], cta: t('misc1.plansSeekerPlusCta'), href: '/checkout?plan=seeker-plus', pop: true, badge: t('misc1.plansSeekerPlusBadge') },
 ];
-const ownerPlans = (t, fee) => [
-  { id: 'owner-free', name: t('misc1.plansOwnerFreeName'), price: '₹0', sub: t('misc1.plansOwnerFreeSub'), tag: t('misc1.plansOwnerFreeTag'), feats: [t('misc1.plansOwnerFreeFeat1'), t('misc1.plansOwnerFreeFeat2'), t('misc1.plansOwnerFreeFeat3'), t('misc1.plansOwnerFreeFeat4')], cta: t('misc1.plansOwnerFreeCta'), href: '/list-property', pop: false },
-  { id: 'owner2', name: t('misc1.plansOwnerName'), price: fee('ownerPlanYearly'), sub: t('misc1.plansOwnerSub'), tag: t('misc1.plansOwnerTag'), feats: [t('misc1.plansOwnerFeat1'), t('misc1.plansOwnerFeat2'), t('misc1.plansOwnerFeat3'), t('misc1.plansOwnerFeat4')], cta: t('misc1.plansOwnerCta'), href: '/checkout?plan=owner2', pop: true, badge: t('misc1.plansOwnerBadge') },
-  { id: 'owner5', name: t('misc1.plansOwnerProName'), price: fee('ownerProYearly'), sub: t('misc1.plansOwnerProSub'), tag: t('misc1.plansOwnerProTag'), feats: [t('misc1.plansOwnerProFeat1'), t('misc1.plansOwnerProFeat2'), t('misc1.plansOwnerProFeat3'), t('misc1.plansOwnerProFeat4')], cta: t('misc1.plansOwnerProCta'), href: '/checkout?plan=owner5', pop: false, badge: t('misc1.plansOwnerProBadge') },
+/** `listings(slug)` is the plan's live-listing ceiling: the catalogue's number, else the seeded one. */
+const ownerPlans = (t, fee, listings) => [
+  { id: 'owner-free', name: t('misc1.plansOwnerFreeName'), price: '₹0', sub: t('misc1.plansOwnerFreeSub'), tag: t('misc1.plansOwnerFreeTag'), feats: [t('misc1.plansOwnerFreeFeat1', { count: listings('owner-free') }), t('misc1.plansOwnerFreeFeat2'), t('misc1.plansOwnerFreeFeat3'), t('misc1.plansOwnerFreeFeat4')], cta: t('misc1.plansOwnerFreeCta'), href: '/list-property', pop: false },
+  { id: 'owner2', name: t('misc1.plansOwnerName'), price: fee('ownerPlanYearly'), sub: t('misc1.plansOwnerSub'), tag: t('misc1.plansOwnerTag'), feats: [t('misc1.plansOwnerFeat1', { count: listings('owner2') }), t('misc1.plansOwnerFeat2'), t('misc1.plansOwnerFeat3')], cta: t('misc1.plansOwnerCta'), href: '/checkout?plan=owner2', pop: true, badge: t('misc1.plansOwnerBadge') },
+  { id: 'owner5', name: t('misc1.plansOwnerProName'), price: fee('ownerProYearly'), sub: t('misc1.plansOwnerProSub'), tag: t('misc1.plansOwnerProTag'), feats: [t('misc1.plansOwnerProFeat1', { count: listings('owner5') }), t('misc1.plansOwnerProFeat2'), t('misc1.plansOwnerProFeat3'), t('misc1.plansOwnerProFeat4')], cta: t('misc1.plansOwnerProCta'), href: '/checkout?plan=owner5', pop: false, badge: t('misc1.plansOwnerProBadge') },
 ];
+const SEEDED_LISTING_LIMITS = { 'owner-free': 1, owner2: 2, owner5: 5 };
 /** `price` resolves a plan slug to the card's price so FAQ prose can't quote a different number. */
 const plansFaqs = (t, rentFee, price) => [
   [t('misc1.plansFaq1Q'), t('misc1.plansFaq1A')],
@@ -161,7 +163,8 @@ export default function Plans() {
   /** Server price when the catalogue has this plan, otherwise the card's configured fallback. */
   const priced = (p) => (catalogue[p.id] ? { ...p, price: rupees(catalogue[p.id].price) } : p);
   const SEEKER = seekerPlans(t, fee).map(priced);
-  const OWNER = ownerPlans(t, fee).map(priced);
+  const listings = (slug) => catalogue[slug]?.listingLimit ?? SEEDED_LISTING_LIMITS[slug];
+  const OWNER = ownerPlans(t, fee, listings).map(priced);
   /** Falls back to the configured fee only while the catalogue is
    * unreachable, so prose can't quote a different number than the card. */
   const priceOf = (slug) => (catalogue[slug]
