@@ -2,12 +2,24 @@
 title: "How to check a project on MahaRERA before you buy"
 description: A step-by-step guide to checking a Pune project on the MahaRERA website, from the registration number and completion date to progress reports and red flags.
 published: 2026-10-09
+updated: 2026-10-09
 author: Draazy Team
 topic: buying
 tags: [MahaRERA, RERA, buying a flat, under construction, builder, Pune]
 ---
 
-If you are buying a flat in a new or under-construction project, the MahaRERA website is the most useful free tool you have. In ten minutes it tells you whether the project is registered, who the developer really is, when the flat is due and whether construction is on track.
+To check a project, search the MahaRERA website for its registration number, project name or developer's name. You do not need to log in. The project page shows the developer, the committed completion date, approvals, carpet area, progress updates and any complaints. A project that should be registered but has no number is a serious red flag.
+
+## Key facts
+
+| Fact | Detail |
+|---|---|
+| Registration is needed if | The land is over 500 square metres, or the project has more than eight flats across all phases (RERA Act, 2016, section 3) |
+| Registration number | Starts with **P** followed by 11 digits, for example *P52100012345* |
+| QR code on advertisements | Required on advertisements for registered projects since 1 August 2023 (MahaRERA) |
+| Advance before a registered agreement | Not more than 10% of the flat's cost (RERA Act, section 13) |
+| Structural defects | The developer must fix them free of charge if reported within five years of possession (RERA Act, section 14(3)) |
+| Cost of checking | Free, no login |
 
 ## What MahaRERA is
 
@@ -18,14 +30,14 @@ A project must be registered with MahaRERA before it can be advertised or sold i
 - the land is larger than **500 square metres**, or
 - it has more than **eight flats** across all phases.
 
-Most housing projects in Pune fall into this net.
+Most apartment projects in Pune fall within this rule.
 
 ## Find the registration number
 
 Every registered project has a number that starts with **P** followed by 11 digits, for example *P52100012345*. You will find it:
 
 - on the project's brochure, hoardings and website,
-- in every advertisement, next to a **QR code** that MahaRERA has required on all ads since August 2023, and
+- in every advertisement, next to a **QR code** that MahaRERA has required on advertisements since August 2023, and
 - on the agreement for sale.
 
 If a developer cannot give you a MahaRERA number for a project that should have one, treat that as a serious red flag.
@@ -44,7 +56,7 @@ If a developer cannot give you a MahaRERA number for a project that should have 
 
 - **Developer's name.** The company in the registration must match the one on your agreement and receipts. Marketing brands sometimes differ from the legal entity.
 - **Completion date.** The date the developer has committed to. Note whether it has been extended, and how often.
-- **Carpet area.** Under RERA, flats must be sold on carpet area, the usable floor area inside the walls. Compare it with what the sales team quotes.
+- **Carpet area.** Under RERA, flats must be sold on carpet area, the usable floor area inside the walls. Compare it with what the sales team quotes. Our guide to [carpet area vs built-up area](/blog/carpet-vs-built-up-area) explains the difference.
 - **Approvals.** Look for the sanctioned building plan and commencement certificate.
 - **Quarterly progress reports.** Developers must upload updates on construction and bookings. Missing or stale updates are a warning sign.
 - **Complaints and orders.** Check whether buyers have filed complaints against the project or developer.
@@ -65,4 +77,10 @@ If a developer cannot give you a MahaRERA number for a project that should have 
 
 ## Next steps
 
-Once the project checks out, work out the full cost of buying, including stamp duty and registration. See our guide to [stamp duty and registration charges in Pune](/blog/stamp-duty-flat-pune). For a lawyer's check of the title and documents, use [Draazy's property legal service](/services/property-legal).
+Once the project checks out, work out the full cost of buying, including stamp duty and registration. Use the [stamp duty calculator for Maharashtra](/tools/stamp-duty-calculator-maharashtra) or read our guide to [stamp duty and registration charges in Pune](/blog/stamp-duty-flat-pune). Check the occupancy and completion certificates too, as explained in [how to check OC and CC in Pune](/blog/oc-cc-check-pune). For a lawyer's check of the title and documents, use [Draazy's property legal service](/services/property-legal).
+
+## Sources
+
+- [MahaRERA website and registered projects search](https://maharera.maharashtra.gov.in), Maharashtra Real Estate Regulatory Authority. Accessed October 2026.
+- [Real Estate (Regulation and Development) Act, 2016](https://www.indiacode.nic.in), Government of India, India Code: sections 3, 13 and 14. Accessed October 2026.
+- MahaRERA directions on QR codes in project advertisements, effective 1 August 2023, published on the [MahaRERA website](https://maharera.maharashtra.gov.in). Accessed October 2026.

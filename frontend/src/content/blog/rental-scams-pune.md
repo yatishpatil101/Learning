@@ -2,14 +2,25 @@
 title: "Rental scams in Pune: warning signs before you pay a token"
 description: Fake owners, "army officer" landlords and urgent token requests. How rental scams in Pune work, and how to check a flat and its owner before you pay.
 published: 2026-10-09
+updated: 2026-10-09
 author: Draazy Team
 topic: renting
 tags: [rental scam, fraud, token amount, tenants, Pune, safety]
 ---
 
-Most rental scams in Pune follow the same script: a flat that looks too good for the price, an owner who cannot meet you, and a request for money before you have seen anything. The amounts are often small (a ₹5,000 token or a ₹10,000 "booking charge"), which is exactly why people pay without thinking twice.
+Do not transfer any money before you have seen the flat and met the owner in person. Most rental scams in Pune follow one script: a flat priced too low, an owner who cannot meet you, and an urgent request for a token, "booking charge" or refundable fee. If you have already paid, call 1930 or report at cybercrime.gov.in straight away.
 
-This guide shows the patterns to look out for and the checks that protect you.
+## Key facts
+
+| Fact | Detail |
+|---|---|
+| The one rule | No money before you have seen the flat and met the owner |
+| Typical amounts | Small, such as a ₹5,000 token or a ₹10,000 "booking charge", so people pay without thinking |
+| UPI PIN | You enter it only to send money, never to receive it |
+| If you have paid | Call the national cyber crime helpline **1930** or report at cybercrime.gov.in, tell your bank and keep the evidence |
+| Draazy | We never collect rent, deposits or token amounts, and never ask for payment over WhatsApp or UPI |
+
+The amounts are often small, which is exactly why people pay without thinking twice. This guide shows the patterns to look out for and the checks that protect you.
 
 > [!WARNING]
 > **Never transfer money before you have seen the flat and met the owner in person.** Every scam below depends on you breaking this one rule.
@@ -42,7 +53,7 @@ Before you pay anything, take these steps. A genuine owner will not mind any of 
 
 1. **Visit in person.** See the flat, check that the keys work and look at the water supply, the electricity meter and the parking.
 2. **Meet the owner, not only a "caretaker".** If someone else shows the flat, speak to the owner on a video call during the visit and match their name to their ID.
-3. **Match the name to the property.** Ask to see the Index II or the sale deed. A recent property tax bill or society maintenance receipt in the same name is a good cross-check.
+3. **Match the name to the property.** Ask to see the Index II or the sale deed. A recent property tax bill or society maintenance receipt in the same name is a good cross-check. Our guide explains [what an Index II shows](/blog/index-2-pune-property).
 4. **Ask the society office.** The secretary or the security desk usually knows who owns the flat and whether it is genuinely up for rent.
 5. **Pay only against a written receipt,** preferably by bank transfer to an account in the owner's name. Avoid cash.
 6. **Keep the token small and conditional.** Write down that it will be adjusted against the deposit and refunded if the agreement is not signed.
@@ -52,7 +63,7 @@ Before you pay anything, take these steps. A genuine owner will not mind any of 
 
 ## Too good to be true usually is
 
-Scam listings are priced to stand out. A 2 BHK in Baner or Kharadi listed at half the going rent is not a lucky find. Compare it with similar [flats for rent in Pune](/listings?deal=rent) before you get excited.
+Scam listings are priced to stand out. A 2 BHK in Baner or Kharadi listed at half the going rent is not a lucky find. Compare it with similar [flats for rent in Pune](/listings?deal=rent), and with the cited ranges in our [Pune rent report 2026](/blog/pune-rent-report-2026), before you get excited.
 
 ## If you have already paid
 
@@ -65,4 +76,13 @@ Act quickly. The first few hours matter.
 
 ## How Draazy helps
 
-On Draazy you contact owners directly. Owners who have verified their identity or ownership carry a badge, so you can see what has been checked before you call. We never collect rent, deposits or token amounts on behalf of owners, and we never ask for money over WhatsApp. If anyone asks you to pay a "Draazy fee" outside the app, it is a scam. Read [how we verify owners and listings](/help/a/how-we-verify) and [Spotting a rental scam](/help/a/spot-a-scam), and [report a listing](/help/a/report-a-listing) if something feels wrong.
+On Draazy you contact owners directly. Owners who complete our online KYC, a government ID and a live selfie reviewed by our staff, carry an ID verified badge. Ownership papers earn a separate badge. Neither badge certifies legal title, so still do the checks above. [See how verification works](/how-verification-works).
+
+We never collect rent, deposits or token amounts on behalf of owners, and we never ask for money over WhatsApp. If anyone asks you to pay a "Draazy fee" outside the app, it is a scam. Read [how we verify owners and listings](/help/a/how-we-verify) and [Spotting a rental scam](/help/a/spot-a-scam), and [report a listing](/help/a/report-a-listing) if something feels wrong.
+
+## Sources
+
+- [National Cyber Crime Reporting Portal](https://cybercrime.gov.in), Ministry of Home Affairs, Government of India: reporting and the 1930 helpline. Accessed October 2026.
+- [NPCI UPI safety guidance](https://www.npci.org.in), National Payments Corporation of India: a UPI PIN is needed only to send money. Accessed October 2026.
+- [Pune City Police](https://punepolice.gov.in). Accessed October 2026.
+- [IGR Maharashtra](https://igrmaharashtra.gov.in), Index II search for checking property records. Accessed October 2026.

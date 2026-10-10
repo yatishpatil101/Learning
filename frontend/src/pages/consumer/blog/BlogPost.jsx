@@ -4,7 +4,8 @@ import Icon from '../../../components/Icon.jsx';
 import ArticleProse from '../../../components/help/ArticleProse.jsx';
 import ArticleToc from '../../../components/help/ArticleToc.jsx';
 import usePageHead from '../../../lib/usePageHead.js';
-import { PostMeta, PostCard, OwnerCta, TopicLabel } from './BlogParts.jsx';
+import Byline from '../../../components/Byline.jsx';
+import { PostCard, OwnerCta, TopicLabel } from './BlogParts.jsx';
 
 export default function BlogPost() {
   const { slug } = useParams();
@@ -41,7 +42,12 @@ export default function BlogPost() {
             <Link to={`/blog?topic=${post.topic}`} className="hover:underline"><TopicLabel post={post} /></Link>
             <h1 className="mt-2 text-[1.65rem] font-extrabold leading-tight text-white sm:text-4xl">{post.title}</h1>
             <p className="mt-3 text-base leading-relaxed text-gray-400">{post.description}</p>
-            <PostMeta post={post} withAuthor className="mt-4" />
+            <Byline updated={post.updated} label={post.updatedLabel} className="mt-4"> · {post.readMinutes} min read</Byline>
+            {post.dataset && (
+              <a href={post.dataset} download className="mt-3 inline-flex items-center gap-1.5 text-sm font-semibold text-teal-400 hover:underline">
+                <Icon name="download" aria-hidden="true" className="h-4 w-4" /> Download the data (CSV)
+              </a>
+            )}
           </header>
 
           {post.image && (

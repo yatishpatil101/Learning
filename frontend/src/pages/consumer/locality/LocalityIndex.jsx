@@ -45,6 +45,10 @@ export default function LocalityIndex() {
           </p>
           <h1 className="mt-4 text-[1.85rem] font-extrabold leading-[1.15] text-white sm:text-5xl">{hub.heading}</h1>
           <p className="mt-3 text-[15px] leading-relaxed text-gray-400 sm:text-lg">{hub.intro}</p>
+          <p className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-sm font-semibold">
+            <Link to="/rent/pune" className="text-teal-300 hover:underline">Homes for rent in Pune</Link>
+            <Link to="/buy/pune" className="text-teal-300 hover:underline">Homes for sale in Pune</Link>
+          </p>
         </div>
         <figure className="mt-6 rounded-2xl border border-white/10 bg-ink-card p-2 sm:p-4 lg:mt-0">
           <PuneMap guides={guides} active={active} onActive={setActive} />

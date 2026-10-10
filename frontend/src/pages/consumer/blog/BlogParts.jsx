@@ -12,10 +12,9 @@ const toneOf = (topic) => TONES[topic] || TONES.renting;
 
 const CARD = 'group rounded-2xl border border-white/10 bg-ink-card shadow-[var(--tile-shadow)] transition-colors duration-200 hover:border-teal-400/40 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-400';
 
-export function PostMeta({ post, className = '', withAuthor = false }) {
+function PostMeta({ post, className = '' }) {
   return (
     <p className={`text-xs text-gray-500 ${className}`}>
-      {withAuthor && `${post.author} · `}
       <time dateTime={post.published}>{post.dateLabel}</time> · {post.readMinutes} min read
     </p>
   );

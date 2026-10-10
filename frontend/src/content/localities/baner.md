@@ -9,16 +9,35 @@ lat: 18.5590
 lng: 73.7868
 ---
 
-## At a glance
+Baner is a busy, sought-after residential and office area in west Pune, within Pune Municipal Corporation (PMC) limits. Published listing data puts 2 BHK rent at about ₹28,000–₹45,000 a month. It suits IT professionals and families who want city life within reach of Hinjawadi, though that commute depends heavily on peak-hour traffic.
 
-- **Civic body:** Pune Municipal Corporation (PMC).
-- **Known for:** a busy residential and commercial hub on Pune's western side, with offices, restaurants and gated societies.
-- **Green spaces:** Baner Hill and the Baner–Pashan Biodiversity Park.
-- **Best for:** IT professionals and families who want city life within reach of Hinjawadi.
+## Key facts
+
+| Fact | Detail |
+| --- | --- |
+| Civic body | Pune Municipal Corporation (PMC) |
+| 2 BHK rent | ₹28,000–₹45,000 a month (Magicbricks; all sizes in the rent table below) |
+| Known for | Offices, restaurants and gated societies; Baner Hill and the Baner–Pashan Biodiversity Park |
+| Commute anchors | Hinjawadi IT park (short on paper, long at peak hours); Aundh and the University area via Baner Road |
+| Metro | Line 3 (Hinjawadi–Shivajinagar) had not opened as of 9 October 2026; the Baner and Baner Gaon stations are not in the first phase |
+| Best for | IT professionals and families who want city life within reach of Hinjawadi |
+| As of | 9 October 2026 for rents and metro status |
 
 ## Who it suits
 
 Baner is one of Pune's most sought-after addresses for working professionals. It sits between the Hinjawadi IT park and the older city, so it suits couples where one person works in Hinjawadi and the other elsewhere in Pune. Families like the choice of large gated societies, and the cafés and restaurants along Baner Road keep weekends busy.
+
+## Monthly rent ranges
+
+| Flat size | Monthly rent |
+| --- | --- |
+| 1 BHK | ₹12,000–₹31,000 |
+| 2 BHK | ₹28,000–₹45,000 |
+| 3 BHK | ₹37,000–₹1,30,000 |
+| Source | Magicbricks rent ranges for [1 BHK](https://www.magicbricks.com/1-bhk-flats-for-rent-in-baner-pune-pppfr), [2 BHK](https://www.magicbricks.com/2-bhk-flats-for-rent-in-baner-pune-pppfr), [3 BHK](https://www.magicbricks.com/3-bhk-flats-for-rent-in-baner-pune-pppfr) flats in Baner |
+| As of | 9 October 2026 |
+
+Ranges from published third-party data, not Draazy listings. We'll switch to Draazy's own listing data once there's enough of it. Figures are rounded to the nearest ₹1,000, and rent varies with the society, age, floor and furnishing. See homes for rent in [Baner](/rent/baner) and the [Pune rent report 2026](/blog/pune-rent-report-2026).
 
 ## Getting around
 
@@ -45,3 +64,10 @@ Baner has plenty of restaurants, cafés, gyms and supermarkets, and it is close 
 
 - [Hinjawadi, Wakad or Baner: where to rent near the IT park](/blog/hinjawadi-wakad-baner-rent)
 - [Security deposit in Pune: how much, and how to get it back](/blog/security-deposit-pune)
+
+## Sources
+
+- [Magicbricks](https://www.magicbricks.com): published rent ranges for [1 BHK](https://www.magicbricks.com/1-bhk-flats-for-rent-in-baner-pune-pppfr), [2 BHK](https://www.magicbricks.com/2-bhk-flats-for-rent-in-baner-pune-pppfr), [3 BHK](https://www.magicbricks.com/3-bhk-flats-for-rent-in-baner-pune-pppfr) flats for rent in Baner; as of 9 October 2026.
+- [Pune Municipal Corporation](https://pmc.gov.in): civic body and ward information; accessed October 2026.
+- [Indian Express: Pune IT commuters must wait more as poll code delays launch of Metro Line 3](https://indianexpress.com/article/cities/pune/pune-metro-line-3-opening-delayed-election-model-code-10889030/): Line 3 status (safety clearance in July, opening awaiting inauguration; model code of conduct until end-October); accessed October 2026.
+- [Hindustan Times: PM likely to open Pune Metro Line 3 by September-end](https://www.hindustantimes.com/cities/pune-news/pm-likely-to-open-pune-metro-line-3-virtually-by-septemberend-101789419607802.html): 17 of 23 stations planned for the first phase, and which six open later; accessed October 2026.

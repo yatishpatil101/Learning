@@ -3,13 +3,14 @@
 import { readFileSync, readdirSync, existsSync, writeFileSync, mkdirSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { createRenderer, parseFrontmatter, toPlainText } from './vite-plugin-help-content.mjs';
+import { esc, headTags, jsonLd, renderPage, byline, editorialAuthor, publisher, longDate } from './seo-html.mjs';
+import { ogCard } from './og-card.mjs';
 
 const VIRTUAL_ID = 'virtual:blog-posts';
 const RESOLVED_ID = '\0' + VIRTUAL_ID;
-const DEFAULT_AUTHOR = 'Draazy Team';
 const REQUIRED = ['title', 'description', 'published', 'topic'];
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
-const TOPICS = { renting: 'Renting', buying: 'Buying', owners: 'For owners', localities: 'Localities' };
+export const TOPICS = { renting: 'Renting', buying: 'Buying', owners: 'For owners', localities: 'Localities' };
 
 const BLOG = {
   title: 'Pune Property Guides: Renting, Buying & Localities | Draazy',
@@ -38,6 +39,7 @@ function compilePosts(dir, { includeDrafts = false } = {}) {
         !/^[a-z0-9]+(-[a-z0-9]+)*$/.test(slug) && 'file name must be a lowercase-hyphenated slug',
         [data.published, data.updated].some((d) => d && !DATE.test(String(d))) && 'dates must be YYYY-MM-DD',
         data.image && !data.imageAlt && 'an image needs imageAlt',
+        data.dataset && !/^\/data\/[\w.-]+\.csv$/.test(data.dataset) && 'dataset must be a /data/<file>.csv path',
         data.topic && !Object.hasOwn(TOPICS, data.topic) && `topic must be one of: ${Object.keys(TOPICS).join(', ')}`,
       ].filter(Boolean);
       if (problems.length) throw new Error(`[blog] ${file}: ${problems.join('; ')}`);
@@ -60,7 +62,10 @@ function compilePosts(dir, { includeDrafts = false } = {}) {
         published: String(data.published),
         updated: String(data.updated || data.published),
         dateLabel: formatDate(String(data.published)),
-        author: data.author || DEFAULT_AUTHOR,
+        updatedLabel: longDate(String(data.updated || data.published)),
+        dataset: data.dataset ? String(data.dataset) : '',
+        period: data.period ? String(data.period) : '',
+        license: data.license ? String(data.license) : '',
         image: data.image || '',
         imageAlt: data.imageAlt || '',
         tags: Array.isArray(data.tags) ? data.tags : [],
@@ -75,69 +80,36 @@ function compilePosts(dir, { includeDrafts = false } = {}) {
     .map((p, _, all) => ({ ...p, related: relatedTo(p, all) }));
 }
 
-export const esc = (s) => String(s)
-  .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+const absolute = (src, siteUrl) => (src.startsWith('/') ? `${siteUrl}${src}` : src);
 
-// `<` escaped so post text can never close the script element.
-export const jsonLd = (data) => `<script type="application/ld+json">${JSON.stringify(data).replace(/</g, '\\u003c')}</script>`;
+const shareImage = (root, post, siteUrl) => (post.image
+  ? { image: absolute(post.image, siteUrl), imageAlt: post.imageAlt }
+  : ogCard(root, 'blog', post.slug, post.title, siteUrl));
 
-const absolute = (src, siteUrl) => {
-  if (!src) return `${siteUrl}/og-image.jpg`;
-  return src.startsWith('/') ? `${siteUrl}${src}` : src;
-};
-
-export function headTags({ title, description, url, image, type, extra = [] }) {
-  return [
-    `<title>${esc(title)}</title>`,
-    `<meta name="description" content="${esc(description)}" />`,
-    `<link rel="canonical" href="${url}" />`,
-    `<meta property="og:type" content="${type}" />`,
-    '<meta property="og:site_name" content="Draazy" />',
-    '<meta property="og:locale" content="en_IN" />',
-    `<meta property="og:title" content="${esc(title)}" />`,
-    `<meta property="og:description" content="${esc(description)}" />`,
-    `<meta property="og:url" content="${url}" />`,
-    `<meta property="og:image" content="${esc(image)}" />`,
-    '<meta name="twitter:card" content="summary_large_image" />',
-    '<meta name="twitter:site" content="@draazy" />',
-    `<meta name="twitter:title" content="${esc(title)}" />`,
-    `<meta name="twitter:description" content="${esc(description)}" />`,
-    `<meta name="twitter:image" content="${esc(image)}" />`,
-    ...extra,
-  ].map((t) => `    ${t}`).join('\n');
-}
-
-const SHELL_SEO = /\s*<title>[\s\S]*?<\/title>|\s*<meta\s+(?:name|property)="(?:description|og:[\w:]+|twitter:[\w:]+)"[^>]*>/g;
-const attr = (s) => s.replace(/"/g, '&quot;');
-
-/* `data-shell` carries the app-wide value each tag replaced, so src/lib/usePageHead.js can put it
-   back when the reader navigates in-app away from a page that was loaded prerendered. */
-export function renderPage(shell, head, body) {
-  if (!shell.includes('<div id="root"></div>')) throw new Error('[blog] dist/index.html has no empty #root to prerender into');
-  const shellTitle = shell.match(/<title>([\s\S]*?)<\/title>/)?.[1] ?? '';
-  const shellDescription = shell.match(/<meta\s+name="description"\s+content="([^"]*)"/)?.[1] ?? '';
-  const taggedHead = head
-    .replace('<title>', () => `<title data-shell="${attr(shellTitle)}">`)
-    .replace('<meta name="description"', () => `<meta data-shell="${attr(shellDescription)}" name="description"`)
-    .replace('<link rel="canonical"', '<link data-shell="" rel="canonical"');
-  // Function replacements: a `$` in post text must not be read as a replacement pattern.
-  return shell
-    .replace(SHELL_SEO, '')
-    .replace('</head>', () => `${taggedHead}\n  </head>`)
-    .replace('<div id="root"></div>', () => `<div id="root">${body}</div>`);
-}
+const datasetLd = (post, url, siteUrl) => ({
+  '@type': 'Dataset',
+  name: post.title,
+  description: post.description,
+  url,
+  creator: publisher(siteUrl),
+  dateModified: post.updated,
+  isAccessibleForFree: true,
+  ...(post.period && { temporalCoverage: post.period }),
+  ...(post.license && { license: post.license }),
+  distribution: { '@type': 'DataDownload', encodingFormat: 'text/csv', contentUrl: absolute(post.dataset, siteUrl) },
+});
 
 const postMeta = (p) => `<time datetime="${p.published}">${p.dateLabel}</time> · ${p.readMinutes} min read`;
 
-function postPage(shell, post, posts, siteUrl) {
+function postPage(shell, post, posts, siteUrl, root) {
   const url = `${siteUrl}/blog/${post.slug}`;
-  const image = absolute(post.image, siteUrl);
+  const card = shareImage(root, post, siteUrl);
   const more = post.related.map((slug) => posts.find((p) => p.slug === slug));
   const head = headTags({
     title: post.seoTitle,
     description: post.description,
     url,
-    image,
+    ...card,
     type: 'article',
     extra: [
       `<meta property="article:published_time" content="${post.published}" />`,
@@ -152,14 +124,15 @@ function postPage(shell, post, posts, siteUrl) {
             description: post.description,
             datePublished: post.published,
             dateModified: post.updated,
-            author: { '@type': post.author === DEFAULT_AUTHOR ? 'Organization' : 'Person', name: post.author },
-            publisher: { '@type': 'Organization', name: 'Draazy', url: siteUrl, logo: { '@type': 'ImageObject', url: `${siteUrl}/icon-512.png` } },
-            image,
+            author: editorialAuthor(siteUrl),
+            publisher: publisher(siteUrl),
+            image: card.image,
             url,
             mainEntityOfPage: url,
             inLanguage: 'en-IN',
             ...(post.tags.length && { keywords: post.tags.join(', ') }),
           },
+          ...(post.dataset ? [datasetLd(post, url, siteUrl)] : []),
           {
             '@type': 'BreadcrumbList',
             itemListElement: [
@@ -177,7 +150,7 @@ function postPage(shell, post, posts, siteUrl) {
 <article>
 <h1 class="text-[1.65rem] font-extrabold leading-tight text-white sm:text-4xl">${esc(post.title)}</h1>
 <p class="mt-3 text-base leading-relaxed text-gray-400">${esc(post.description)}</p>
-<p class="mt-4 text-xs text-gray-500">${esc(post.author)} · ${postMeta(post)}</p>
+<p class="mt-4 text-xs text-gray-500">${byline(post.updated)} · ${post.readMinutes} min read</p>${post.dataset ? `\n<p class="mt-3 text-sm"><a href="${post.dataset}" download>Download the data (CSV)</a></p>` : ''}
 <div class="doc-prose mt-7">${post.html}</div>
 </article>
 ${more.length ? `<nav aria-label="More from the blog" class="mt-12"><h2 class="text-lg font-bold text-white">Keep reading</h2><ul>${more.map((p) => `<li><a href="/blog/${p.slug}">${esc(p.title)}</a></li>`).join('')}</ul></nav>` : ''}
@@ -253,7 +226,7 @@ export default function blogPlugin(options = {}) {
       mkdirSync(join(outDir, 'blog'), { recursive: true });
       writeFileSync(join(outDir, 'blog.html'), indexPage(shell, posts, siteUrl), 'utf-8');
       for (const post of posts) {
-        writeFileSync(join(outDir, 'blog', `${post.slug}.html`), postPage(shell, post, posts, siteUrl), 'utf-8');
+        writeFileSync(join(outDir, 'blog', `${post.slug}.html`), postPage(shell, post, posts, siteUrl, root), 'utf-8');
       }
 
       const sitemap = join(outDir, 'sitemap.xml');
@@ -262,7 +235,7 @@ export default function blogPlugin(options = {}) {
       if (xml.includes('/blog</loc>')) return;
       const entry = (path, lastmod, changefreq, priority) => `  <url><loc>${siteUrl}${path}</loc>${lastmod ? `<lastmod>${lastmod}</lastmod>` : ''}<changefreq>${changefreq}</changefreq><priority>${priority}</priority></url>`;
       const urls = [
-        entry('/blog', posts[0]?.updated, 'weekly', '0.7'),
+        entry('/blog', posts.map((p) => p.updated).sort().at(-1), 'weekly', '0.7'),
         ...posts.map((p) => entry(`/blog/${p.slug}`, p.updated, 'monthly', '0.6')),
       ];
       writeFileSync(sitemap, xml.replace('</urlset>', `${urls.join('\n')}\n</urlset>`), 'utf-8');

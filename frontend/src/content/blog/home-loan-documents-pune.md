@@ -2,14 +2,27 @@
 title: Home loan documents checklist for buying a flat in Pune
 description: The identity, income and property documents banks ask for when you buy a flat in Pune, for salaried and self-employed buyers, new or resale.
 published: 2026-10-09
+updated: 2026-10-09
 author: Draazy Team
 topic: buying
 tags: [home loan, documents, checklist, LTV, resale flat, under construction, Pune]
 ---
 
-A home loan moves only as fast as your paperwork. Most delays happen because a single document is missing or does not match another. Gather the list below before you apply, and the bank's checks go much faster.
+For a home loan on a Pune flat, banks ask for your PAN, identity and address proof, income proof and the property papers. Salaried buyers show salary slips and Form 16 or tax returns. Self-employed buyers show tax returns, financial statements and business proof. A resale flat needs the chain of ownership papers, and a new flat needs the agreement for sale and the MahaRERA number.
 
 Every lender has its own list, so treat this as a starting point and confirm with your bank.
+
+## Key facts
+
+| Fact | Detail |
+|---|---|
+| Compulsory ID | PAN card |
+| Maximum loan for a flat up to ₹30 lakh | 90% of its value (RBI loan-to-value limit) |
+| Maximum loan for ₹30 lakh to ₹75 lakh | 80% |
+| Maximum loan above ₹75 lakh | 75% |
+| Not covered by the loan | Stamp duty and registration, usually paid from your own funds |
+| Tax benefit, old regime | Interest up to ₹2 lakh a year on a self-occupied home (Income-tax Act, 2025, in force from 1 April 2026) |
+| Tax benefit, new regime | No deduction for interest on a self-occupied home |
 
 ## Your identity and address
 
@@ -48,10 +61,10 @@ If you are applying with a co-borrower, such as your spouse or a parent, they wi
 - **The registered sale deed or agreement** of the current owner, and earlier ones that show the chain of ownership.
 - **[Index II](/blog/index-2-pune-property)** for each registered sale.
 - **A society NOC** and the **share certificate**.
-- **The occupancy certificate** (OC) or completion certificate.
+- **The occupancy certificate** (OC) or completion certificate. See [how to check OC and CC in Pune](/blog/oc-cc-check-pune).
 - **Recent property tax and maintenance receipts.**
 
-Your bank's lawyer will run a title search on these papers, and a valuer will inspect the flat before the loan is sanctioned.
+Your bank's lawyer will run a title search on these papers, and a valuer will inspect the flat before the loan is sanctioned. Our full list for resale buyers is in [documents to check for a resale flat in Pune](/blog/resale-flat-documents-pune).
 
 ## How much the bank can lend
 
@@ -61,7 +74,7 @@ The Reserve Bank of India caps the loan-to-value (LTV) ratio, that is, the share
 - **₹30 lakh to ₹75 lakh:** up to 80%.
 - **Above ₹75 lakh:** up to 75%.
 
-The rest is your down payment. Stamp duty and registration are usually paid from your own pocket on top of it, so plan for those too. Our [stamp duty guide](/blog/stamp-duty-flat-pune) shows the numbers for a typical Pune flat, and the [EMI calculator](/emi-calculator) shows what the loan will cost each month.
+The rest is your down payment. Stamp duty and registration are usually paid from your own pocket on top of it, so plan for those too. Our [stamp duty guide](/blog/stamp-duty-flat-pune) shows the numbers for a typical Pune flat, and the [EMI calculator](/emi-calculator) shows what the loan will cost each month. To see how much you may qualify for, read [home loan eligibility in Pune](/blog/home-loan-eligibility-pune).
 
 ## Tax benefits in 2026
 
@@ -78,3 +91,10 @@ Which regime suits you depends on your other deductions, so ask a tax adviser be
 ## Next steps
 
 Compare offers on Draazy's [home loans page](/home-loans), and when you have found the flat, have a lawyer check the papers through our [property legal services](/services/property-legal).
+
+## Sources
+
+- [Reserve Bank of India](https://www.rbi.org.in), directions on loan-to-value ratios for individual housing loans. Accessed October 2026.
+- [Income Tax Department, Government of India](https://www.incometax.gov.in), Income-tax Act, 2025 (in force from 1 April 2026). Accessed October 2026.
+- [MahaRERA](https://maharera.maharashtra.gov.in), project registration search. Accessed October 2026.
+- [IGR Maharashtra](https://igrmaharashtra.gov.in), Index II search. Accessed October 2026.

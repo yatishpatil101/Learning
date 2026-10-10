@@ -3,7 +3,8 @@
 import { readFileSync, readdirSync, existsSync, writeFileSync, mkdirSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { createRenderer, parseFrontmatter } from './vite-plugin-help-content.mjs';
-import { esc, jsonLd, headTags, renderPage } from './vite-plugin-blog.mjs';
+import { esc, jsonLd, headTags, renderPage, byline, editorialAuthor, publisher, longDate } from './seo-html.mjs';
+import { ogCard } from './og-card.mjs';
 
 const VIRTUAL_ID = 'virtual:locality-guides';
 const RESOLVED_ID = '\0' + VIRTUAL_ID;
@@ -49,7 +50,9 @@ function compileGuides(dir) {
         title,
         seoTitle: title.length <= 51 ? `${title} | Draazy` : title,
         description,
+        published: String(data.published || data.updated),
         updated: String(data.updated),
+        updatedLabel: longDate(String(data.updated)),
         zone: String(data.zone),
         tagline: String(data.tagline),
         lat: Number(data.lat),
@@ -60,20 +63,34 @@ function compileGuides(dir) {
     .sort((a, b) => a.name.localeCompare(b.name));
 }
 
-function guidePage(shell, guide, guides, siteUrl) {
+function guidePage(shell, guide, guides, siteUrl, root) {
   const url = `${siteUrl}/locality/${guide.slug}`;
   const others = guides.filter((g) => g.slug !== guide.slug);
   const head = headTags({
     title: guide.seoTitle,
     description: guide.description,
     url,
-    image: `${siteUrl}/og-image.jpg`,
+    ...ogCard(root, 'locality', guide.slug, `${guide.name}, Pune: Draazy locality guide`, siteUrl),
     type: 'article',
     extra: [jsonLd({
       '@context': 'https://schema.org',
       '@graph': [
         {
+          '@type': 'Article',
+          headline: guide.title,
+          description: guide.description,
+          url,
+          mainEntityOfPage: url,
+          inLanguage: 'en-IN',
+          datePublished: guide.published,
+          dateModified: guide.updated,
+          author: editorialAuthor(siteUrl),
+          publisher: publisher(siteUrl),
+          about: { '@id': `${url}#place` },
+        },
+        {
           '@type': 'Place',
+          '@id': `${url}#place`,
           name: `${guide.name}, Pune`,
           description: guide.description,
           url,
@@ -98,7 +115,8 @@ function guidePage(shell, guide, guides, siteUrl) {
 <p class="text-[11px] font-semibold uppercase tracking-widest text-teal-300">Pune locality guide</p>
 <h1 class="mt-2 text-[1.65rem] font-extrabold leading-tight text-white sm:text-4xl">${esc(guide.name)}</h1>
 <p class="mt-3 text-base leading-relaxed text-gray-400">${esc(guide.description)}</p>
-<p class="mt-4"><a href="/listings?loc=${guide.slug}">See homes in ${esc(guide.name)}</a></p>
+<p class="mt-4 text-xs text-gray-500">${byline(guide.updated)}</p>
+<p class="mt-3 flex flex-wrap gap-x-5 gap-y-1"><a href="/listings?loc=${guide.slug}">See homes in ${esc(guide.name)}</a><a href="/rent/${guide.slug}">Flats for rent in ${esc(guide.name)}</a><a href="/buy/${guide.slug}">Property for sale in ${esc(guide.name)}</a></p>
 <div class="doc-prose mt-7">${guide.html}</div>
 </article>
 ${others.length ? `<nav aria-label="Other Pune localities" class="mt-12"><h2 class="text-lg font-bold text-white">Other Pune localities</h2><ul>${others.map((g) => `<li><a href="/locality/${g.slug}">${esc(g.name)}</a></li>`).join('')}</ul></nav>` : ''}
@@ -178,7 +196,7 @@ export default function localityGuidesPlugin(options = {}) {
       mkdirSync(join(outDir, 'locality'), { recursive: true });
       writeFileSync(join(outDir, 'locality.html'), hubPage(shell, guides, siteUrl), 'utf-8');
       for (const guide of guides) {
-        writeFileSync(join(outDir, 'locality', `${guide.slug}.html`), guidePage(shell, guide, guides, siteUrl), 'utf-8');
+        writeFileSync(join(outDir, 'locality', `${guide.slug}.html`), guidePage(shell, guide, guides, siteUrl, root), 'utf-8');
       }
 
       const sitemap = join(outDir, 'sitemap.xml');

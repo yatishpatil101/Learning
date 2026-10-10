@@ -9,16 +9,36 @@ lat: 18.5018
 lng: 73.9386
 ---
 
-## At a glance
+Hadapsar is a large east Pune employment hub within Pune Municipal Corporation (PMC) limits, with homes ranging from older housing to big gated townships. Published listing data puts 2 BHK rent at about ₹18,000–₹52,000 a month, a wide spread that reflects that range. It suits people who work in east Pune and want a choice of budgets.
 
-- **Civic body:** Pune Municipal Corporation (PMC).
-- **Known for:** a large employment hub in east Pune, home to the Serum Institute of India, the Hadapsar industrial estate and IT parks such as Magarpatta CyberCity and SP Infocity.
-- **Homes:** everything from older housing to large gated townships such as Magarpatta and Amanora.
-- **Best for:** people working in east Pune who want a wide choice of homes and budgets.
+## Key facts
+
+| Fact | Detail |
+| --- | --- |
+| Civic body | Pune Municipal Corporation (PMC) |
+| 2 BHK rent | ₹18,000–₹52,000 a month (Magicbricks; all sizes in the rent table below) |
+| Known for | Serum Institute of India, the Hadapsar industrial estate and IT parks such as Magarpatta CyberCity and SP Infocity |
+| Homes | Older housing to large townships such as Magarpatta and Amanora |
+| Commute anchors | Solapur Road into the city; Magarpatta and the Kharadi bypass towards Kharadi and Nagar Road (busy at peak hours) |
+| Metro | No station yet. Line 4 (Kharadi–Hadapsar–Swargate–Khadakwasla) was approved on 26 November 2025 and has not been built |
+| Best for | People working in east Pune who want a wide choice of homes and budgets |
+| As of | 9 October 2026 for rents and metro status |
 
 ## Who it suits
 
 Hadapsar is big and varied. Professionals working at its IT parks and industries can live close to work, and families can choose between established neighbourhoods and self-contained townships. The range of budgets is one of its strengths.
+
+## Monthly rent ranges
+
+| Flat size | Monthly rent |
+| --- | --- |
+| 1 BHK | ₹9,000–₹33,000 |
+| 2 BHK | ₹18,000–₹52,000 |
+| 3 BHK | ₹35,000–₹1,10,000 |
+| Source | Magicbricks rent ranges for [1 BHK](https://www.magicbricks.com/1-bhk-flats-for-rent-in-hadapsar-pune-pppfr), [2 BHK](https://www.magicbricks.com/2-bhk-flats-for-rent-in-hadapsar-pune-pppfr), [3 BHK](https://www.magicbricks.com/3-bhk-flats-for-rent-in-hadapsar-pune-pppfr) flats in Hadapsar |
+| As of | 9 October 2026 |
+
+Ranges from published third-party data, not Draazy listings. We'll switch to Draazy's own listing data once there's enough of it. Figures are rounded to the nearest ₹1,000, and rent varies with the society, age, floor and furnishing. See homes for rent in [Hadapsar](/rent/hadapsar) and the [Pune rent report 2026](/blog/pune-rent-report-2026).
 
 ## Getting around
 
@@ -45,3 +65,10 @@ Seasons Mall and Amanora Mall cover shopping and films, and schools and hospital
 
 - [Home loan documents checklist for buying a flat in Pune](/blog/home-loan-documents-pune)
 - [Security deposit in Pune: how much, and how to get it back](/blog/security-deposit-pune)
+
+## Sources
+
+- [Magicbricks](https://www.magicbricks.com): published rent ranges for [1 BHK](https://www.magicbricks.com/1-bhk-flats-for-rent-in-hadapsar-pune-pppfr), [2 BHK](https://www.magicbricks.com/2-bhk-flats-for-rent-in-hadapsar-pune-pppfr), [3 BHK](https://www.magicbricks.com/3-bhk-flats-for-rent-in-hadapsar-pune-pppfr) flats for rent in Hadapsar; as of 9 October 2026.
+- [Pune Municipal Corporation](https://pmc.gov.in): civic body and ward information; accessed October 2026.
+- [Press Information Bureau: Cabinet approves Pune Metro Phase-2, Line 4 and 4A](https://pib.gov.in/PressReleasePage.aspx?PRID=2194691): approval on 26 November 2025; accessed October 2026.
+- [MahaRERA](https://maharera.maharashtra.gov.in): project registration search; accessed October 2026.

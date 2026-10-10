@@ -9,16 +9,36 @@ lat: 18.5362
 lng: 73.8940
 ---
 
-## At a glance
+Koregaon Park is a leafy, premium central-east Pune area within Pune Municipal Corporation (PMC) limits, known for old bungalows and dining. Published listing data puts 2 BHK rent at about ₹35,000–₹70,000 a month, the top of the range among the 12 localities we cover. It suits professionals, expats and families who want a premium, central address.
 
-- **Civic body:** Pune Municipal Corporation (PMC).
-- **Known for:** leafy lanes, old bungalows, and one of Pune's best-known dining and nightlife scenes along North and South Main Road.
-- **Homes:** independent bungalows, low-rise buildings and premium apartments.
-- **Best for:** professionals, expats and families looking for a premium, central address.
+## Key facts
+
+| Fact | Detail |
+| --- | --- |
+| Civic body | Pune Municipal Corporation (PMC) |
+| 2 BHK rent | ₹35,000–₹70,000 a month (Magicbricks; all sizes in the rent table below) |
+| Known for | Leafy lanes, old bungalows and the dining and nightlife along North and South Main Road |
+| Homes | Independent bungalows, low-rise buildings and premium apartments |
+| Commute anchors | Railway station (roughly 4 km) and airport (roughly 6 km); bridges to Kalyani Nagar and Yerawada |
+| Metro | The nearest open Line 2 stations include Bund Garden, Ruby Hall Clinic and Kalyani Nagar |
+| Best for | Professionals, expats and families looking for a premium, central address |
+| As of | 9 October 2026 for rents and metro status |
 
 ## Who it suits
 
 Koregaon Park is one of Pune's most upmarket neighbourhoods. Its tree-lined streets, central location and restaurants draw senior professionals, expats and families who want to be close to the city, the railway station and the airport.
+
+## Monthly rent ranges
+
+| Flat size | Monthly rent |
+| --- | --- |
+| 1 BHK | Not enough published data |
+| 2 BHK | ₹35,000–₹70,000 |
+| 3 BHK | ₹50,000–₹2,20,000 |
+| Source | Magicbricks rent ranges for [1 BHK](https://www.magicbricks.com/1-bhk-flats-for-rent-in-koregaon-park-pune-pppfr), [2 BHK](https://www.magicbricks.com/2-bhk-flats-for-rent-in-koregaon-park-pune-pppfr), [3 BHK](https://www.magicbricks.com/3-bhk-flats-for-rent-in-koregaon-park-pune-pppfr) flats in Koregaon Park |
+| As of | 9 October 2026 |
+
+Ranges from published third-party data, not Draazy listings. We'll switch to Draazy's own listing data once there's enough of it. Figures are rounded to the nearest ₹1,000, and rent varies with the society, age, floor and furnishing. See homes for rent in [Koregaon Park](/rent/koregaon-park) and the [Pune rent report 2026](/blog/pune-rent-report-2026).
 
 ## Getting around
 
@@ -46,3 +66,9 @@ The area is known for its cafés, restaurants and green, quiet residential lanes
 
 - [Rent agreement in Pune: registration, stamp duty & documents](/blog/rent-agreement-pune)
 - [Renting out your flat in Pune: an owner's checklist](/blog/renting-out-flat-pune)
+
+## Sources
+
+- [Magicbricks](https://www.magicbricks.com): published rent ranges for [1 BHK](https://www.magicbricks.com/1-bhk-flats-for-rent-in-koregaon-park-pune-pppfr), [2 BHK](https://www.magicbricks.com/2-bhk-flats-for-rent-in-koregaon-park-pune-pppfr), [3 BHK](https://www.magicbricks.com/3-bhk-flats-for-rent-in-koregaon-park-pune-pppfr) flats for rent in Koregaon Park; as of 9 October 2026.
+- [Pune Municipal Corporation](https://pmc.gov.in): civic body and ward information; accessed October 2026.
+- [Maha-Metro Pune](https://www.punemetrorail.org): Pune Metro Line 1 and Line 2 stations and routes; accessed October 2026.
