@@ -1,0 +1,62 @@
+/* Free tools (Tier 1). The receipts print on their own: the portal copy is the only thing the print view shows. */
+.tool-print-root { display: none; }
+
+.tool-receipt {
+  border: 1px solid rgb(var(--dz-c-white) / 0.25);
+  border-radius: 0.75rem;
+  padding: 1.25rem;
+  background: rgb(var(--dz-c-ink-card));
+  color: rgb(var(--dz-c-white));
+  font-size: 0.9375rem;
+  line-height: 1.6;
+}
+
+.tool-receipt__head {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 0.25rem 1rem;
+  margin-bottom: 0.75rem;
+  padding-bottom: 0.5rem;
+  border-bottom: 1px solid rgb(var(--dz-c-white) / 0.25);
+}
+
+.tool-receipt__head h3 { font-size: 1.125rem; font-weight: 700; }
+
+.tool-receipt__foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-top: 1.25rem;
+}
+
+.tool-receipt__stamp,
+.tool-receipt__sign {
+  min-width: 9rem;
+  padding-top: 2.5rem;
+  border-top: 1px dashed rgb(var(--dz-c-white) / 0.4);
+  font-size: 0.75rem;
+  text-align: center;
+}
+
+.tool-receipt__stamp {
+  padding: 0.5rem;
+  min-height: 4.5rem;
+  border: 1px dashed rgb(var(--dz-c-white) / 0.4);
+}
+
+@media print {
+  html:root:root,
+  html.light {
+    --dz-c-white: 15 23 42;
+    --dz-c-ink: 243 247 246;
+    --dz-c-ink-2: 232 239 238;
+    --dz-c-ink-card: 255 255 255;
+  }
+
+  body > *:not(.tool-print-root) { display: none !important; }
+  .tool-print-root { display: block; }
+  .tool-receipt { break-inside: avoid; margin-bottom: 1.5rem; }
+}

@@ -1,31 +1,13 @@
 import { useMemo, useState } from 'react';
-import NativeSelect from '../../../components/ui/NativeSelect.jsx';
+import { PUNE_STAMP_RATE_PCT, computeStampDuty } from '../../../lib/toolCalc.js';
 
-/* Maharashtra stamp-duty & registration cost calculator— the signature, high-trust
-   "customer touch" for the legal page. Indicative, purpose-built for Pune buyers.
-   Pure math in computeStampDuty() so it stays testable. */
-const AREA = {
-  'Municipal Corporation (Pune / PCMC)': 6,
-  'Municipal Council / Nagar Panchayat': 5,
-  'Gram Panchayat (rural)': 4,
-};
-const BUYER = { 'Male / Joint owners': false, 'Female (sole owner)': true };
-
-export function computeStampDuty(value, ratePct, femaleConcession) {
-  const v = Math.max(value, 0);
-  const rate = Math.max(ratePct - (femaleConcession ? 1 : 0), 1); // MH: 1% concession for women (residential)
-  const stamp = Math.round((v * rate) / 100);
-  const reg = Math.min(Math.round(v * 0.01), 30000); // registration 1%, capped at ₹30,000
-  return { stamp, reg, total: stamp + reg, rate };
-}
+/* Pure math in computeStampDuty() so it stays testable. */
 const fmt = (n) => '₹' + Math.round(n).toLocaleString('en-IN');
 const fmtShort = (n) => (n >= 1e7 ? '₹' + (n / 1e7).toFixed(2) + ' Cr' : '₹' + (n / 1e5).toFixed(1) + ' L');
 
 export default function LegalCostCalc({ t }) {
   const [value, setValue] = useState(7500000);
-  const [area, setArea] = useState('Municipal Corporation (Pune / PCMC)');
-  const [buyer, setBuyer] = useState('Male / Joint owners');
-  const { stamp, reg, total, rate } = useMemo(() => computeStampDuty(value, AREA[area], BUYER[buyer]), [value, area, buyer]);
+  const { stamp, reg, total, rate } = useMemo(() => computeStampDuty(value, PUNE_STAMP_RATE_PCT), [value]);
 
   return (
     <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 section-pb">
@@ -41,14 +23,6 @@ export default function LegalCostCalc({ t }) {
               <span className="text-sm font-semibold text-teal-300">{fmtShort(value)}</span>
             </div>
             <input type="range" min={1000000} max={50000000} step={100000} value={value} onChange={(e) => setValue(+e.target.value)} className="w-full accent-teal-400" />
-          </div>
-          <div>
-            <label className="block text-xs font-medium text-gray-300 mb-1.5">{t('services.legal.calc.areaType')}</label>
-            <NativeSelect value={area} onChange={(e) => setArea(e.target.value)}>{Object.keys(AREA).map((k) => <option key={k} value={k}>{k}</option>)}</NativeSelect>
-          </div>
-          <div>
-            <label className="block text-xs font-medium text-gray-300 mb-1.5">{t('services.legal.calc.buyer')}</label>
-            <NativeSelect value={buyer} onChange={(e) => setBuyer(e.target.value)}>{Object.keys(BUYER).map((k) => <option key={k} value={k}>{k}</option>)}</NativeSelect>
           </div>
         </div>
         <div className="rounded-xl bg-teal-500/[0.07] p-6 text-center">
