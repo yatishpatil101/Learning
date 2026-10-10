@@ -19,8 +19,9 @@ public final class ReportEnforcement {
 
     private static final Set<String> ALL = Set.of(NONE, HIDE_CONTENT, SUSPEND_ACCOUNT);
 
-    /** What may be done to each reportable kind. See the class Javadoc for the two empty ones. */
+    /** What may be done to each reportable kind; reviews are decide-only and refuse with a pointer. */
     private static final Set<String> FOR_PROPERTY = Set.of(NONE, HIDE_CONTENT);
+    private static final Set<String> FOR_POST = Set.of(NONE, HIDE_CONTENT);
     private static final Set<String> FOR_USER = Set.of(NONE, SUSPEND_ACCOUNT);
     private static final Set<String> DECIDE_ONLY = Set.of(NONE);
 
@@ -33,6 +34,7 @@ public final class ReportEnforcement {
     public static Set<String> forTarget(String targetType) {
         return switch (targetType) {
             case ReportTargetTypes.PROPERTY -> FOR_PROPERTY;
+            case ReportTargetTypes.POST -> FOR_POST;
             case ReportTargetTypes.USER -> FOR_USER;
             default -> DECIDE_ONLY;
         };
@@ -51,9 +53,6 @@ public final class ReportEnforcement {
             case ReportTargetTypes.REVIEW -> base
                     + " Take a review down with PATCH /reviews/{id}/status (status=rejected),"
                     + " which also removes it from the rating average.";
-            case ReportTargetTypes.POST -> base
-                    + " Share-flat posts have no moderation verb yet; decide the report and raise"
-                    + " the post separately.";
             default -> base + " Expected one of " + forTarget(targetType) + ".";
         };
     }

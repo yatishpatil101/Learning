@@ -20,30 +20,28 @@ class FlatmateReviewTest {
         return new FlatmateReview("room", UUID.randomUUID(), null, UUID.randomUUID(), "Baner",
                 FlatmateVocabulary.TIER_TENANT, false, true,
                 Map.of("id", "doc-1", "dataUrl", "data:application/pdf;base64,JVBERi0xLjQK"),
-                new AgreementRegistration("PNE-3/1234/2025", LocalDate.of(2026, 5, 1), VALID_TILL),
+                new AgreementRegistration(VALID_TILL),
                 null);
     }
 
     private static Stream<Arguments> reopenedAgreements() {
         return Stream.of(
-                Arguments.of("keeps a legacy registration while the same stored agreement stays attached",
-                        Map.of("id", "doc-1"), "PNE-3/1234/2025", VALID_TILL),
-                Arguments.of("drops the registration once a different agreement replaces the file",
+                Arguments.of("keeps a legacy expiry while the same stored agreement stays attached",
+                        Map.of("id", "doc-1"), VALID_TILL),
+                Arguments.of("drops the expiry once a different agreement replaces the file",
                         Map.of("id", "doc-2", "dataUrl", "data:application/pdf;base64,JVBERi0xLjQK"),
-                        null, null));
+                        null));
     }
 
     @ParameterizedTest(name = "{0}")
     @MethodSource("reopenedAgreements")
-    @DisplayName("the registration follows the stored agreement file")
-    void registrationFollowsTheFile(String name, Map<String, Object> agreement, String regNo,
-            LocalDate validTill) {
+    @DisplayName("the expiry follows the stored agreement file")
+    void expiryFollowsTheFile(String name, Map<String, Object> agreement, LocalDate validTill) {
         FlatmateReview review = legacyReview();
 
         review.reopenAfterEdit("Baner", FlatmateVocabulary.TIER_TENANT, false, true,
                 agreement, new AgreementRegistration(), null);
 
-        assertThat(review.getAgreement().getRegNo()).isEqualTo(regNo);
         assertThat(review.getAgreement().getValidTill()).isEqualTo(validTill);
     }
 }

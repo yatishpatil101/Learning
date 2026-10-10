@@ -58,8 +58,9 @@ test.describe('flatmate terms, occupancy and the budget range', () => {
 
     const mine = await fetch(`${API}/me/flatmate-rooms`, { headers: auth(token) }).then((r) => r.json());
     const rows = mine.content || mine.items || mine;
-    expect(rows.find((r) => r.id === room.id)).toMatchObject({
-      occupants: 2,
+    expect(rows.find((r) => r.id === room.id)).toMatchObject({ occupants: 2 });
+    const detail = await fetch(`${API}/flatmates/rooms/${room.id}`, { headers: auth(token) }).then((r) => r.json());
+    expect(detail.item).toMatchObject({
       maxOccupants: 4,
       deposit: 32000,
       noticePeriodDays: 30,

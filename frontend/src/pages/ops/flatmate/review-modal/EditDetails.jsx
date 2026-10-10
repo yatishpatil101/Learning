@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Pencil } from 'lucide-react';
 import { Block } from '../board.jsx';
 import LocalitySelect from '../../../../components/ui/LocalitySelect.jsx';
+import DateField from '../../../../components/ui/DateField.jsx';
 
 const isoDate = (v) => (/^\d{4}-\d{2}-\d{2}/.test(v || '') ? v.slice(0, 10) : '');
 
@@ -76,7 +77,12 @@ export default function EditDetails({ detail, busy, onSave, onCancel }) {
               : <LocalitySelect multi values={form.localities} onChange={(arr) => setForm({ ...form, localities: arr })} placeholder="Add localities" ariaLabel="Localities" onBusyChange={setPicking} />}
           </div>
         </div>
-        {form.moveIn !== null ? <Input label={detail.room ? 'Available from' : 'Move-in by'} type="date" value={form.moveIn} onChange={set('moveIn')} /> : null}
+        {form.moveIn !== null ? (
+        <label className="block text-xs text-gray-300">
+          {detail.room ? 'Available from' : 'Move-in by'}
+          <DateField value={form.moveIn} onChange={(moveIn) => setForm({ ...form, moveIn })} ariaLabel={detail.room ? 'Available from' : 'Move-in by'} className="dz-input mt-1 w-full" />
+        </label>
+      ) : null}
       </div>
       {problem ? <p className="mt-2 text-xs text-amber-300" role="alert">{problem}</p> : null}
       <div className="mt-3 flex gap-2">

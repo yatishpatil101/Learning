@@ -281,13 +281,12 @@ class FlatmateOwnerConsentEndpointsTest extends AbstractApiTest {
         sendAndForceCode(tenant, ownerMobile, "Scoped consent", "Baner");
         record(tenant, ownerMobile, "Scoped consent", "Baner");
 
-        String myGroups = mvc.perform(get(Routes.Flatmates.MY_GROUPS)
+        String myGroup = mvc.perform(get(Routes.Flatmates.GROUP_BY_ID, groupId)
                         .header(HttpHeaders.AUTHORIZATION, bearer(tenant)))
                 .andExpect(status().isOk())
                 .andReturn().getResponse().getContentAsString();
-        List<Boolean> consentFlags = JsonPath.read(myGroups,
-                "$.content[?(@.id == '" + groupId + "')].ownerConsent");
-        assertThat(consentFlags).containsExactly(true);
+        Boolean consentFlag = JsonPath.read(myGroup, "$.item.ownerConsent");
+        assertThat(consentFlag).isTrue();
     }
 
     @Test

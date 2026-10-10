@@ -147,21 +147,41 @@ class FlatmateHostRoomEndpointsTest extends AbstractApiTest {
         }
 
         @Test
-        @DisplayName("carries the fields the public card drops, the host's own number included")
-        void carriesTheHostsOwnView() throws Exception {
+        @DisplayName("is a card: what the host's lists draw, none of the host-only internals")
+        void carriesOnlyTheCardFields() throws Exception {
             User host = user("9840000005", "Host Five");
-            createRoom(host, "Wakad", "Sai Radha B");
+            String id = createRoom(host, "Wakad", "Sai Radha B");
 
             mvc.perform(get(Routes.Flatmates.MY_ROOMS)
                             .header(HttpHeaders.AUTHORIZATION, bearer(host)))
                     .andExpect(status().isOk())
-                    .andExpect(jsonPath("$.content[0].ownerMobile").value("9840000005"))
-                    .andExpect(jsonPath("$.content[0].owner").value("Host Five"))
-                    .andExpect(jsonPath("$.content[0].seatsTotal").value(1))
-                    .andExpect(jsonPath("$.content[0].seatsOpen").value(1))
-                    .andExpect(jsonPath("$.content[0].type").value("flatmate"))
+                    .andExpect(jsonPath("$.content[0].id").value(id))
+                    .andExpect(jsonPath("$.content[0].locality").value("Wakad"))
+                    .andExpect(jsonPath("$.content[0].status").value("active"))
+                    .andExpect(jsonPath("$.content[0].modStatus").value("pending"))
+                    .andExpect(jsonPath("$.content[0].shareMax").isNumber())
+                    .andExpect(jsonPath("$.content[0].occupants").isNumber())
+                    .andExpect(jsonPath("$.content[0].cover").value("https://cdn.example/1.jpg"))
+                    .andExpect(jsonPath("$.content[0].createdAt").isNotEmpty())
+                    .andExpect(jsonPath("$.content[0].ownerMobile").doesNotExist())
+                    .andExpect(jsonPath("$.content[0].owner").doesNotExist())
+                    .andExpect(jsonPath("$.content[0].addressFingerprint").doesNotExist())
+                    .andExpect(jsonPath("$.content[0].flagForReview").doesNotExist())
+                    .andExpect(jsonPath("$.content[0].verificationTier").doesNotExist())
+                    .andExpect(jsonPath("$.content[0].reviewStatus").doesNotExist())
+                    .andExpect(jsonPath("$.content[0].host").doesNotExist())
+                    .andExpect(jsonPath("$.content[0].photos").doesNotExist())
+                    .andExpect(jsonPath("$.content[0].lat").doesNotExist())
                     .andExpect(jsonPath("$.page").value(0))
                     .andExpect(jsonPath("$.totalElements").value(1));
+
+            mvc.perform(get(Routes.Flatmates.ROOM_BY_ID, id)
+                            .header(HttpHeaders.AUTHORIZATION, bearer(host)))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.item.ownerMobile").value("9840000005"))
+                    .andExpect(jsonPath("$.item.owner").value("Host Five"))
+                    .andExpect(jsonPath("$.item.seatsTotal").value(1))
+                    .andExpect(jsonPath("$.item.seatsOpen").value(1));
         }
 
         @Test

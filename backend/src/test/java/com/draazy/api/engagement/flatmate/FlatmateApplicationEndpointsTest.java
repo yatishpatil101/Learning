@@ -126,6 +126,16 @@ class FlatmateApplicationEndpointsTest extends AbstractApiTest {
                     // rather than current members.
                     .andExpect(jsonPath("$.perHead").value(15000))
                     .andExpect(jsonPath("$.seatsTotal").value(3));
+
+            assertThat(jdbc.queryForMap(
+                    "select type, title, body, link from notifications where user_id = ?", owner.getId()))
+                    .containsEntry("type", "flatmate.groupApplication.received")
+                    .containsEntry("title", "A group applied to your flat")
+                    .containsEntry("body", "Three of us for a 3BHK would like to rent 3BHK in Kothrud.")
+                    .containsEntry("link", "/dashboard");
+            assertThat(jdbc.queryForObject(
+                    "select count(*) from notifications where user_id = ?", Long.class, host.getId()))
+                    .isZero();
         }
 
         @Test
@@ -279,6 +289,9 @@ class FlatmateApplicationEndpointsTest extends AbstractApiTest {
             assertThat(jdbc.queryForObject(
                     "select count(*) from audit_log where actor = ? and action = ?", Long.class,
                     owner.getId().toString(), "flatmate.groupApplication.declined")).isEqualTo(1L);
+            assertThat(jdbc.queryForList(
+                    "select type from notifications where user_id = ?", String.class, host.getId()))
+                    .containsExactly("flatmate.groupApplication.declined");
 
             mvc.perform(patch(path)
                             .header(HttpHeaders.AUTHORIZATION, bearer(owner))

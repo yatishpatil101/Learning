@@ -22,10 +22,9 @@ async function publish(roomId) {
 }
 
 async function myRoom(token, roomId) {
-  const response = await fetch(`${API}/me/flatmate-rooms?size=50`, { headers: auth(token) });
+  const response = await fetch(`${API}/flatmates/rooms/${roomId}`, { headers: auth(token) });
   expect(response.status).toBe(200);
-  const page = await response.json();
-  const room = page.content.find((row) => row.id === roomId);
+  const { item: room } = await response.json();
   expect(room, 'the host should still own the room').toBeTruthy();
   return room;
 }

@@ -1509,6 +1509,12 @@ class FlatmateSupplyEndpointsTest extends AbstractApiTest {
                             .content("{\"decision\":\"rejected\",\"note\":\"Illegible agreement\"}"))
                     .andExpect(status().isOk());
 
+            assertThat(jdbc.queryForMap(
+                    "select title, body from notifications where user_id = ? and type = 'flatmate.review.rejected'",
+                    host.getId()))
+                    .containsEntry("title", "We could not verify your flatmate post")
+                    .hasEntrySatisfying("body", b -> assertThat((String) b).contains("Illegible agreement"));
+
             mvc.perform(get(Routes.Flatmates.FEED).param("tab", "team-up").param("locality", "VerdictTownC"))
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.content", Matchers.hasSize(1)))
@@ -1527,17 +1533,17 @@ class FlatmateSupplyEndpointsTest extends AbstractApiTest {
             User ops = user("9820000076", "Ops5", Roles.Wire.STAFF);
             String id = tenantClaimGroup(host, "Mine", "VerdictTownD");
 
-            mvc.perform(get(Routes.Flatmates.MY_GROUPS)
+            mvc.perform(get(Routes.Flatmates.GROUP_BY_ID, id)
                             .header(HttpHeaders.AUTHORIZATION, bearer(host)))
                     .andExpect(status().isOk())
-                    .andExpect(jsonPath("$.content[0].reviewStatus").value("pending"));
+                    .andExpect(jsonPath("$.item.reviewStatus").value("pending"));
 
             decide(ops, id, "approved");
 
-            mvc.perform(get(Routes.Flatmates.MY_GROUPS)
+            mvc.perform(get(Routes.Flatmates.GROUP_BY_ID, id)
                             .header(HttpHeaders.AUTHORIZATION, bearer(host)))
                     .andExpect(status().isOk())
-                    .andExpect(jsonPath("$.content[0].reviewStatus").value("approved"));
+                    .andExpect(jsonPath("$.item.reviewStatus").value("approved"));
         }
 
         @Test

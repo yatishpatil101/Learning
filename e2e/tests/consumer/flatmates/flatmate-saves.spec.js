@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { API, apiLogin, signedInAs, uniqueMobile } from '../../../helpers/liveAuth.js';
+import { API, apiLogin, seedConsent, signedInAs, uniqueMobile } from '../../../helpers/liveAuth.js';
 import { ACTORS } from '../../../fixtures/live.js';
 import { flatmateCleanup } from '../../../helpers/flatmateCleanup.js';
 import { tenantRoomAgreement } from '../../../helpers/flatmateAgreement.js';
@@ -243,6 +243,7 @@ test('saving while signed out asks for identity instead of writing a bookmark no
   const society = `Zztest Anon ${stamp()}`;
   await createRoom(hostAuth.accessToken, { society });
 
+  await seedConsent(page);
   await openRooms(page);
   await cardFor(page, society).locator(".save-btn").click();
   await expect(page).toHaveURL(/\/signin/, { timeout: 15_000 });

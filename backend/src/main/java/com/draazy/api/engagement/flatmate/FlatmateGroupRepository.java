@@ -65,6 +65,10 @@ public interface FlatmateGroupRepository extends JpaRepository<FlatmateGroup, UU
 
     Page<FlatmateGroup> findByRecheckRequestedAtNotNullAndArchivedFalse(Pageable pageable);
 
+    long countByModStatusInAndArchivedFalse(Collection<String> modStatuses);
+
+    long countByRecheckRequestedAtNotNullAndArchivedFalse();
+
     /** {@code cast(:locality as string)} is required: with a bare parameter Hibernate binds a null as
      * {@code bytea} and PostgreSQL has no {@code lower(bytea)}, 500ing the unfiltered feed. */
     @Query(value = """

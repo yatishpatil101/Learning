@@ -15,6 +15,21 @@ const rootOverflow = (page) => page.evaluate(() => getComputedStyle(document.doc
 
 test.describe('Flatmates modals', () => {
   for (const [name, intent] of [['post request', '1'], ['flat-share group', 'group']]) {
+    test(`the ${name} sheet takes focus, traps Shift+Tab inside, and names its close button`, async ({ page }) => {
+      await signedInAsNew(page);
+      await openModal(page, intent);
+      const dialog = page.locator('.sf-modal [role="dialog"]');
+      await expect(dialog).toBeFocused();
+
+      const close = dialog.getByRole('button', { name: 'Close', exact: true }).first();
+      await close.focus();
+      await page.keyboard.press('Shift+Tab');
+      expect(await dialog.evaluate((el) => el.contains(document.activeElement)), 'focus must wrap inside the sheet').toBe(true);
+      await expect(close).not.toBeFocused();
+    });
+  }
+
+  for (const [name, intent] of [['post request', '1'], ['flat-share group', 'group']]) {
     test(`the ${name} sheet holds the board still behind it`, async ({ page }) => {
       await signedInAsNew(page);
       await openModal(page, intent);

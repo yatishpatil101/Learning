@@ -237,7 +237,9 @@ test.describe('LIVE: my flatmate listings', () => {
     const rows = mine.content || mine.items || mine;
     expect(rows.map((r) => r.society), 'the server did not keep the room the wizard posted')
       .toContain(society);
-    expect(rows.find((r) => r.id === room.id)).toMatchObject({ occupants: 2, noticePeriodDays: 30 });
+    expect(rows.find((r) => r.id === room.id)).toMatchObject({ occupants: 2 });
+    const detail = await fetch(`${API}/flatmates/rooms/${room.id}`, { headers: auth(accessToken) }).then((r) => r.json());
+    expect(detail.item).toMatchObject({ noticePeriodDays: 30 });
     // A live server write must not leave a parallel browser-local room store.
     const stored = await page.evaluate(() => {
       try { return JSON.parse(localStorage.getItem('draazyRoomListings') || '[]') || []; }
@@ -305,10 +307,8 @@ test.describe('LIVE: my flatmate listings', () => {
     const room = await response.json();
     track('rooms', room.id, accessToken);
 
-    const mine = await fetch(`${API}/me/flatmate-rooms`, { headers: auth(accessToken) })
-      .then((r) => r.json());
-    const rows = mine.content || mine.items || mine;
-    expect(rows.find((r) => r.id === room.id)).toMatchObject({ homeTypeLabel: 'Row House' });
+    const detail = await fetch(`${API}/flatmates/rooms/${room.id}`, { headers: auth(accessToken) }).then((r) => r.json());
+    expect(detail.item).toMatchObject({ homeTypeLabel: 'Row House' });
   });
 
   test('a home type outside the four the wizard offers is refused, not published blank', async () => {

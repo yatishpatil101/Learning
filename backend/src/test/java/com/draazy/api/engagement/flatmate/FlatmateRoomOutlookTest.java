@@ -183,15 +183,16 @@ class FlatmateRoomOutlookTest extends AbstractApiTest {
                 UUID.fromString(id));
         assertThat(stored.get("facing")).isEqualTo(facing);
         assertThat(stored.get("overlooking")).isEqualTo(overlooking);
-        for (String route : new String[]{Routes.Flatmates.MY_ROOMS, Routes.Flatmates.FEED}) {
-            var request = get(route).param("size", "100").param("tab", "move-in");
-            if (route.equals(Routes.Flatmates.MY_ROOMS)) {
-                request.header(HttpHeaders.AUTHORIZATION, bearer(host));
-            }
+        for (String route : new String[]{Routes.Flatmates.ROOM_BY_ID, Routes.Flatmates.FEED}) {
+            boolean detail = route.equals(Routes.Flatmates.ROOM_BY_ID);
+            var request = detail
+                    ? get(route, id).header(HttpHeaders.AUTHORIZATION, bearer(host))
+                    : get(route).param("size", "100").param("tab", "move-in");
             String response = mvc.perform(request).andExpect(status().isOk())
                     .andReturn().getResponse().getContentAsString();
-            java.util.List<java.util.Map<String, Object>> matches = JsonPath.read(response,
-                    "$.content[?(@.id == '" + id + "')]");
+            java.util.List<java.util.Map<String, Object>> matches = detail
+                    ? java.util.List.of(JsonPath.<java.util.Map<String, Object>>read(response, "$.item"))
+                    : JsonPath.read(response, "$.content[?(@.id == '" + id + "')]");
             assertThat(matches).as(route).hasSize(1);
             assertThat(matches.getFirst().get("facing")).as(route).isEqualTo(facing);
             assertThat(matches.getFirst().get("overlooking")).as(route).isEqualTo(overlooking);

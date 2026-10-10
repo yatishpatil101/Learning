@@ -75,7 +75,8 @@ test('owner-consent OTP flow records consent on the server, and the card shows t
   const items = myGroups.content ?? myGroups.items ?? myGroups;
   const updatedGroup = items.find((g) => g.id === group.id);
   expect(updatedGroup, 'the group should appear in my list').toBeTruthy();
-  expect(updatedGroup.ownerConsent).toBe(true);
+  const detail = await fetch(`${API}/flatmates/groups/${group.id}`, { headers: auth(tenantToken) }).then((r) => r.json());
+  expect(detail.item.ownerConsent).toBe(true);
 
   await approve(group.id);
 

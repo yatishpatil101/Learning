@@ -112,5 +112,10 @@ export const hasSharerAlready = (r) => {
   const open = Number(r?.seatsOpen);
   return r?.seatsOpen != null && open > 0 && open < roomPlacesOf(r);
 };
-export const roomTypeLabel = (r, t) => r?.roomType
-  && t(r.roomType === ROOM_DOUBLE ? 'flatmates.roomDouble' : 'flatmates.roomSingle');
+/* A legacy room with no `seatsTotal` is priced "each, if shared" by `decorateRooms`, so calling it a
+   single room would contradict its own price tag. */
+export const roomTypeLabel = (r, t) => {
+  if (!r?.roomType) return null;
+  if (r.roomType === ROOM_DOUBLE) return t('flatmates.roomDouble');
+  return r.seatsTotal == null && (r.shareMax || 1) > 1 ? null : t('flatmates.roomSingle');
+};

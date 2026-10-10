@@ -82,7 +82,10 @@ test('browser uploads, a PNG or a PDF, back a tenant-tier group and reach the re
 
     const review = (await pendingReviews()).find((row) => row.groupId === group.id);
     expect(review, 'an agreement-backed group must be queued for Ops').toBeTruthy();
-    expect(review.agreementDoc).toBeTruthy();
+    expect(review).not.toHaveProperty('agreementDoc');
+    const detail = await fetch(`${API}/admin/flatmates/${group.id}`, { headers: auth((await apiLogin(ACTORS.admin)).accessToken) });
+    expect(detail.status).toBe(200);
+    expect((await detail.json()).review.agreementDoc).toBeTruthy();
   });
 
   await test.step('a PDF agreement uploads and backs a tenant-tier group', async () => {

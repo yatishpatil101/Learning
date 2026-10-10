@@ -88,7 +88,7 @@ test.describe('Flatmate seat stepper (live)', () => {
     await expect(page.getByText('2 of 4 seats taken')).toBeVisible();
     await expect(page.getByText('₹11,250').first()).toBeVisible();
     const row = await serverGroup(accessToken, group.id);
-    expect([row.seatsOpen, row.seatsTotal, row.perHead]).toEqual([2, 4, 11250]);
+    expect([row.seatsOpen, row.seatsTotal, Math.round(row.rent / row.seatsTotal)]).toEqual([2, 4, 11250]);
 
     await page.reload();
     await expect(page.getByText('Your share · 4 sharing')).toBeVisible({ timeout: 15_000 });

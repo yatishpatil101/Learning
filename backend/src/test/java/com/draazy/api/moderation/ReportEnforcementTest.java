@@ -37,7 +37,7 @@ class ReportEnforcementTest extends AbstractApiTest {
     @Autowired
     ReportRepository reports;
 
-    /** Audit writes run {@code REQUIRES_NEW} and commit past rollback; wipe them per-actor to keep the class order-independent. */
+    /** Audit writes commit past rollback ({@code REQUIRES_NEW}); wipe them per actor to stay order-independent. */
     private final List<String> createdActors = new ArrayList<>();
 
     @AfterEach
@@ -252,6 +252,44 @@ class ReportEnforcementTest extends AbstractApiTest {
         mvc.perform(get("/reports").param("reason", "notareason")
                         .header(HttpHeaders.AUTHORIZATION, bearer(staff)))
                 .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    @DisplayName("counts=true, q, sinceDays and the per-target tally are served by the page itself")
+    void summaryCountsSearchAndRepeatTally() throws Exception {
+        User r1 = user("9800000231", "buyer", "Reporter 1");
+        User r2 = user("9800000232", "buyer", "Reporter 2");
+        User r3 = user("9800000233", "buyer", "Reporter 3");
+        User owner = user("9800000234", "owner", "Owner");
+        User staff = user("9800000235", "staff", "Ops");
+        Property listing = listing(owner);
+        String target = listing.getId().toString();
+        long undecidedBefore = jdbc.queryForObject(
+                "select count(*) from reports where target_type = 'property' and status in ('open','reviewing')",
+                Long.class);
+        report("property", target, r1, "fake");
+        report("property", target, r2, "fake");
+        report("property", target, r3, "fake");
+
+        mvc.perform(get("/reports").param("targetType", "property").param("q", target.substring(0, 8))
+                        .param("counts", "true").param("size", "10")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(staff)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.totalElements").value(3))
+                .andExpect(jsonPath("$.content[0].targetReportCount").value(3))
+                .andExpect(jsonPath("$.content[0].reporterId").doesNotExist())
+                .andExpect(jsonPath("$.counts['undecided.property']").value(undecidedBefore + 3))
+                .andExpect(jsonPath("$.counts['status.open']").isNumber())
+                .andExpect(jsonPath("$.counts['status.all']").isNumber());
+
+        mvc.perform(get("/reports").param("sinceDays", "1").param("targetType", "property")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(staff)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.counts").doesNotExist())
+                .andExpect(jsonPath("$.totalElements").value(org.hamcrest.Matchers.greaterThanOrEqualTo(3)));
+        mvc.perform(get("/reports").param("q", "zzz-no-such-report")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(staff)))
+                .andExpect(jsonPath("$.totalElements").value(0));
     }
 
     // ------------------------------------------------------------------ the dashboard tile

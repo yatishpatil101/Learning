@@ -9,6 +9,7 @@ import com.draazy.api.common.trust.Notifier;
 import com.draazy.api.identity.user.User;
 import com.draazy.api.identity.user.UserRepository;
 import com.draazy.api.security.AuthPrincipal;
+import java.util.List;
 import java.util.UUID;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -109,5 +110,16 @@ public class FlatmateMembershipService {
         }
         audit.record(caller, "flatmate.group.remove_member", "flatmategroup", groupId.toString(),
                 "member", memberId.toString());
+    }
+
+    /** A deleted group has no page to open, so the asks pointing at it go too — they would otherwise
+     * sit in every asker's list as a card whose View is a 404. */
+    void disband(FlatmateGroup group) {
+        List<FlatmateRequest> asks = requests.findByKindAndTargetId("group", group.getId());
+        asks.stream().filter(r -> "accepted".equals(r.getStatus())).forEach(r ->
+                notifier.notify(r.getRequesterId(), "flatmate.group.removed",
+                        group.getTitle() + " was deleted",
+                        "The host took this group down.", FlatmateLinks.of("group", group.getId())));
+        requests.deleteAll(asks);
     }
 }

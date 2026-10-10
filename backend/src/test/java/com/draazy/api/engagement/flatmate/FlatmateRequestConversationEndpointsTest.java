@@ -14,7 +14,6 @@ import com.draazy.api.security.Roles;
 import com.draazy.api.support.AbstractApiTest;
 import java.util.ArrayList;
 import java.util.List;
-import org.hamcrest.Matchers;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -104,7 +103,7 @@ class FlatmateRequestConversationEndpointsTest extends AbstractApiTest {
         String fromSeeker = idOf(open(requestId, seeker)
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.counterpartyName").value("Host"))
-                .andExpect(jsonPath("$.counterpartyMobile", Matchers.not(host.getMobile())))
+                .andExpect(jsonPath("$.counterpartyMobile").doesNotExist())
                 .andReturn().getResponse().getContentAsString());
         String fromHost = idOf(open(requestId, host).andExpect(status().isOk())
                 .andReturn().getResponse().getContentAsString());

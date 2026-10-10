@@ -175,6 +175,45 @@ class FlatmateTrustReconcilerTest {
     }
 
     @Test
+    void doesNotAutoApproveAGroupWhoseListingIsInAnotherSocietyInTheSameLocality() {
+        UUID hostId = UUID.randomUUID();
+        UUID groupId = UUID.randomUUID();
+        UUID parentId = UUID.randomUUID();
+        UUID claimedId = UUID.randomUUID();
+        FlatmateReview review = groupReview(hostId, groupId, claimedId);
+        FlatmateGroup group = new FlatmateGroup(hostId, "Two seats", "Baner", 12_000L);
+        group.setPropertyId(parentId);
+        when(reviews.findConsentedTenantBacklog()).thenReturn(List.of(review));
+        when(groups.findById(groupId)).thenReturn(Optional.of(group));
+        when(properties.findById(parentId)).thenReturn(Optional.of(propertyIn("Baner", UUID.randomUUID())));
+        when(properties.findById(claimedId)).thenReturn(Optional.of(propertyIn("Baner", UUID.randomUUID())));
+
+        assertThat(reconciler.reconcileDraazyAgreements()).isZero();
+        verifyNoInteractions(agreements, badges, notifier);
+    }
+
+    @Test
+    void approvesAGroupWhoseListingIsInTheClaimedSociety() {
+        UUID hostId = UUID.randomUUID();
+        UUID groupId = UUID.randomUUID();
+        UUID parentId = UUID.randomUUID();
+        UUID claimedId = UUID.randomUUID();
+        UUID societyId = UUID.randomUUID();
+        FlatmateReview review = groupReview(hostId, groupId, claimedId);
+        FlatmateGroup group = new FlatmateGroup(hostId, "Two seats", "Baner", 12_000L);
+        group.setPropertyId(parentId);
+        User host = new User("9820000103", "buyer");
+        when(reviews.findConsentedTenantBacklog()).thenReturn(List.of(review));
+        when(groups.findById(groupId)).thenReturn(Optional.of(group));
+        when(properties.findById(parentId)).thenReturn(Optional.of(propertyIn("Baner", societyId)));
+        when(properties.findById(claimedId)).thenReturn(Optional.of(propertyIn("Baner", societyId)));
+        when(users.findById(hostId)).thenReturn(Optional.of(host));
+        when(agreements.hasRegisteredTenancy(claimedId, host.getMobile())).thenReturn(true);
+
+        assertThat(reconciler.reconcileDraazyAgreements()).isEqualTo(1);
+    }
+
+    @Test
     void aSelfPublishedRoomThatLosesOwnerTierGoesBackToTheQueue() {
         UUID hostId = UUID.randomUUID();
         FlatmateRoom room = ownerTierRoom(hostId, FlatmateVocabulary.MOD_LIVE);
@@ -227,6 +266,12 @@ class FlatmateTrustReconcilerTest {
         return property;
     }
 
+    private static FlatmateReview groupReview(UUID hostId, UUID groupId, UUID tenancyPropertyId) {
+        return new FlatmateReview("group", null, groupId, hostId, "Baner", "tenant", false, true,
+                null, new AgreementRegistration(LocalDate.now().plusDays(300)),
+                tenancyPropertyId);
+    }
+
     private static FlatmateReview tenantReview(UUID hostId, UUID roomId, LocalDate validTill) {
                 return tenantReview(hostId, roomId, validTill, null);
         }
@@ -234,7 +279,7 @@ class FlatmateTrustReconcilerTest {
         private static FlatmateReview tenantReview(UUID hostId, UUID roomId, LocalDate validTill,
                         UUID tenancyPropertyId) {
         return new FlatmateReview("room", roomId, null, hostId, "Baner", "tenant", false, true,
-                                null, new AgreementRegistration("PNE-123", validTill.minusMonths(11), validTill),
+                                null, new AgreementRegistration(validTill),
                                 tenancyPropertyId);
     }
 }

@@ -45,8 +45,8 @@ public class FlatmateOwnerConsentService {
         this.audit = audit;
     }
 
-    /* {@code noRollbackFor} must repeat {@link OtpService#verifyCode}'s list: rollback rules apply at every boundary, so a
-       shorter list here resets the 3-guess ceiling. */
+    /* {@code noRollbackFor} must repeat {@link OtpService#verifyCode}'s list: rollback rules apply at every
+       boundary, so a shorter list here resets the 3-guess ceiling. */
     @Transactional(noRollbackFor = {OtpSender.DeliveryFailedException.class,
             UnauthorizedException.class, RateLimitedException.class})
     public boolean ownerConsent(AuthPrincipal caller, String title, String society, String locality,
@@ -62,7 +62,7 @@ public class FlatmateOwnerConsentService {
             send(caller.userId(), mobile, fingerprint);
             return false;
         }
-        record(caller, mobile, otp, null, fingerprint);
+        record(caller, mobile, otp, fingerprint);
         applyConsentToLivePosts(caller, mobile, fingerprint);
         return true;
     }
@@ -128,38 +128,20 @@ public class FlatmateOwnerConsentService {
      * be, or the first cross-bean caller resets the 3-guess ceiling. */
     @Transactional(noRollbackFor = {OtpSender.DeliveryFailedException.class,
             UnauthorizedException.class, RateLimitedException.class})
-    public void record(AuthPrincipal caller, String ownerMobile, String otp, UUID groupId,
+    public void record(AuthPrincipal caller, String ownerMobile, String otp,
             String addressFingerprint) {
         if (addressFingerprint == null) {
             throw new BadRequestException(
                     "Name the flat first — give the post a title and locality, then ask the owner.");
         }
         otpService.verifyCode(ownerMobile, otp.strip(), purposeFor(addressFingerprint));
-        upsert(ownerMobile, caller.userId(), groupId, addressFingerprint);
-        audit.record(caller, "flatmate.ownerConsent", "flatmateOwnerConsent",
-                groupId == null ? ownerMobile : groupId.toString(),
+        consents.insertIfAbsent(ownerMobile, caller.userId().toString(), addressFingerprint);
+        audit.record(caller, "flatmate.ownerConsent", "flatmateOwnerConsent", ownerMobile,
                 "ownerMobile", ownerMobile, "address", addressFingerprint);
     }
 
     private static String purposeFor(String addressFingerprint) {
         return OtpCode.PURPOSE_OWNER_CONSENT + ":" + Tokens.sha256Hex(addressFingerprint);
-    }
-
-    /** The read after the insert is what turns {@code ON CONFLICT DO NOTHING}'s silence into the row:
-     * the statement reports nothing about which case happened. */
-    private void upsert(String ownerMobile, UUID grantedBy, UUID groupId, String fingerprint) {
-        consents.insertIfAbsent(ownerMobile, grantedBy.toString(),
-                groupId == null ? null : groupId.toString(), fingerprint);
-        consents.findByOwnerMobileAndGrantedByAndAddressFingerprint(
-                        ownerMobile, grantedBy, fingerprint)
-                .ifPresent(row -> adoptGroup(row, groupId));
-    }
-
-    private void adoptGroup(FlatmateOwnerConsent row, UUID groupId) {
-        if (groupId != null && row.getGroupId() == null) {
-            row.adoptGroup(groupId);
-            consents.saveAndFlush(row);
-        }
     }
 
     /** Mobile must be normalised and the fingerprint must be the one the post was filed under; a null

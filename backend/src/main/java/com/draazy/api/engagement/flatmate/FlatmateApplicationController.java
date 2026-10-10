@@ -21,22 +21,7 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
-/**
- * Group applications — the consumer ends of {@code flatmate_group_applications}.
- *
- * <p>Three routes for two different people. The applicant's host commits the group
- * ({@link #apply}); the listing's owner reads their inbox ({@link #inbox}) and answers
- * ({@link #decide}). The admin's moderation axis lives in {@link FlatmateModerationController} and
- * shares no route with any of these, so no request can be ambiguous about which column it writes.
- *
- * <p>Both writes are role-gated to the consumer roles for the same reason a room or a group is: an
- * application is made by somebody who intends to live there, which ops staff do not. The reads are
- * caller-scoped, so they need no role beyond being signed in.
- *
- * <p>{@link #myGroups} is the fourth route and the flow's first step — which of the caller's groups
- * could apply at all. It answers about groups rather than applications, but it is here because this
- * is what asks the question; see {@code FlatmateApplicationService#myGroups}.
- */
+/** Writes are gated to consumer roles because applicants intend to live there; reads are caller-scoped. */
 @RestController
 public class FlatmateApplicationController {
 
@@ -48,7 +33,7 @@ public class FlatmateApplicationController {
 
     /** {@code GET /me/flatmate-groups} — the caller's own groups, moderation state included. */
     @GetMapping(Routes.Flatmates.MY_GROUPS)
-    public PageResponse<FlatmateGroupDto> myGroups(@CurrentUser AuthPrincipal principal,
+    public PageResponse<FlatmateGroupCard> myGroups(@CurrentUser AuthPrincipal principal,
             @PageableDefault(size = 20) Pageable pageable) {
         return PageResponse.of(service.myGroups(principal, pageable), dto -> dto);
     }
@@ -77,22 +62,11 @@ public class FlatmateApplicationController {
         return service.decide(principal, id, body.status());
     }
 
-    /**
-     * Which flat the group wants.
-     *
-     * <p>The group is the path, so only the listing travels in the body — and it is required
-     * rather than defaulted, because there is no sensible flat to guess.
-     */
     public record ApplyRequest(@NotNull UUID listingId) {
     }
 
-    /**
-     * The owner's yes or no.
-     *
-     * <p>Validated as non-blank here and against {@link FlatmateVocabulary#DECISION} in the
-     * service, so an unknown verdict is a 400 with the allowed set rather than a check-constraint
-     * violation from PostgreSQL.
-     */
+    /** Verdict is checked against {@link FlatmateVocabulary#DECISION} in the service, so an unknown one is a 400
+     * with the allowed set rather than a PostgreSQL check-constraint violation. */
     public record DecisionRequest(@NotBlank String status) {
     }
 }

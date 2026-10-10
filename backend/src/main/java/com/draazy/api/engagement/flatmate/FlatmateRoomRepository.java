@@ -87,6 +87,10 @@ public interface FlatmateRoomRepository extends JpaRepository<FlatmateRoom, UUID
      * so its state is whatever publication left it at. */
     Page<FlatmateRoom> findByRecheckRequestedAtNotNullAndArchivedFalse(Pageable pageable);
 
+    long countByModStatusInAndArchivedFalse(Collection<String> modStatuses);
+
+    long countByRecheckRequestedAtNotNullAndArchivedFalse();
+
     /** Deliberately unfiltered by {@code modStatus}, unlike {@link #feed}: a host who cannot see
      * their own pending room posts it again. {@code archived} is what the host took down. */
     /** {@code cast(:x as string)} because Hibernate binds an untyped null as {@code bytea}, and

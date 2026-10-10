@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import Icon from '../../../components/Icon.jsx';
 import NativeSelect from '../../../components/ui/NativeSelect.jsx';
@@ -11,30 +11,22 @@ import AmountInput from './AmountInput.jsx';
 import MoveInField from './MoveInField.jsx';
 import { MAX_LOCALITIES, TAGS } from './constants.js';
 import { seekerHeadline } from './helpers.js';
-import isTopDialog from '../../../lib/isTopDialog.js';
 import useScrollLock from '../../../hooks/useScrollLock.js';
+import useModalDialog from '../../../hooks/useModalDialog.js';
 
 export default function PostModal({ setPostOpen, submitPost, postFormRef, postDraft, post, setPost, postErr, editingId }) {
   const [localityBusy, setLocalityBusy] = useState(false);
   const { t: tr } = useTranslation();
-  const panelRef = useRef(null);
   /* Without the lock a thumb that reaches the end of this form goes on scrolling the results
    * behind it, so the sheet closes onto a board that has moved. */
   useScrollLock();
-  useEffect(() => {
-    const onKey = (e) => {
-      if (!isTopDialog(panelRef.current)) return;
-      if (e.key === 'Escape') setPostOpen(false);
-    };
-    document.addEventListener('keydown', onKey);
-    return () => document.removeEventListener('keydown', onKey);
-  }, [setPostOpen]);
+  const panelRef = useModalDialog(true, () => setPostOpen(false));
   return (
     <div className="sf-modal" onClick={() => setPostOpen(false)}>
-      <div ref={panelRef} role="dialog" aria-modal="true" aria-label={tr('flatmates.postModalTitle')} className="dz-modal-panel border border-white/10 rounded-3xl w-full max-w-xl p-6 sm:p-7" onClick={(e) => e.stopPropagation()}>
+      <div ref={panelRef} tabIndex={-1} role="dialog" aria-modal="true" aria-label={tr('flatmates.postModalTitle')} className="dz-modal-panel border border-white/10 rounded-3xl w-full max-w-xl p-6 sm:p-7 outline-none" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-start justify-between mb-5">
           <div><h2 className="text-xl font-bold text-white">{tr('flatmates.postModalTitle')}</h2></div>
-          <button onClick={() => setPostOpen(false)} className="p-2 rounded-xl hover:bg-white/5 text-gray-400 hover:text-white"><Icon name="x" className="w-5 h-5" /></button>
+          <button onClick={() => setPostOpen(false)} aria-label={tr('common.close')} className="p-2 rounded-xl hover:bg-white/5 text-gray-400 hover:text-white"><Icon name="x" className="w-5 h-5" /></button>
         </div>
         <form onSubmit={submitPost} className="space-y-4" ref={postFormRef}>
           <AutosaveBanner restored={postDraft.restored} onStartFresh={postDraft.startFresh} />

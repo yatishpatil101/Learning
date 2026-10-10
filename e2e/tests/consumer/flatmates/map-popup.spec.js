@@ -49,3 +49,34 @@ test('map bubbles preview posts with actions, open the list or a detail page, an
     await expect(page.locator('h1')).toBeVisible({ timeout: 20_000 });
   });
 });
+
+test('a room whose request the host accepted offers "Message owner" in the map popup, not "Sent"', async ({ page }) => {
+  test.slow();
+  const roomIds = new Promise((resolve) => {
+    page.route('**/api/flatmates/feed**', async (route) => {
+      const res = await route.fetch();
+      const body = await res.json();
+      const ids = [];
+      const walk = (v) => {
+        if (Array.isArray(v)) v.forEach(walk);
+        else if (v && typeof v === 'object') {
+          if (typeof v.id === 'string') ids.push(v.id);
+          Object.values(v).forEach(walk);
+        }
+      };
+      walk(body);
+      resolve(ids);
+      await route.fulfill({ response: res, json: body });
+    });
+  });
+  await page.route('**/api/me/flatmate-interests/keys', async (route) => {
+    const ids = await roomIds;
+    await route.fulfill({ json: ids.map((targetId) => ({ kind: 'room', targetId, status: 'accepted' })) });
+  });
+  await signedInAs(page, uniqueMobile());
+
+  await openMap(page, '/flatmates');
+
+  await expect(page.locator('.dz-sp-cta').filter({ hasText: 'Message owner' }).first()).toBeVisible();
+  await expect(page.locator('.dz-sp-cta').filter({ hasText: /^\s*Sent\s*$/ })).toHaveCount(0);
+});

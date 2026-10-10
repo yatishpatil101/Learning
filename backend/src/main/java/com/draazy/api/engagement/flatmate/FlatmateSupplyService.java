@@ -435,6 +435,7 @@ public class FlatmateSupplyService {
         }
         group.archive("removed by the host");
         groups.saveAndFlush(group);
+        membership.disband(group);
     }
 
     @Transactional

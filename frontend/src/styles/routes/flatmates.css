@@ -438,6 +438,7 @@
 /* Smart-search submit: `.btn-primary` paints it but carries none of the classes buttons.css
    scopes `:focus-visible` to, so the ring would fall back to the UA outline. */
 .sf-page .sf-search-go:focus-visible { outline: 2px solid var(--teal-2); outline-offset: 2px; }
+.sf-page .sf-search-go { transition: background-color .25s ease, box-shadow .25s ease, transform .25s ease, filter .25s ease; }
 
 .sf-page .sf-match-great {
   background: var(--brand-gradient);

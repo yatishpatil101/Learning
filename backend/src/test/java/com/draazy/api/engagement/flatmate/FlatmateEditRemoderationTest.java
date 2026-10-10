@@ -202,9 +202,9 @@ class FlatmateEditRemoderationTest extends AbstractApiTest {
             recheckBoard(admin("9812000011"), "room")
                     .andExpect(jsonPath("$.content[?(@.id == '" + id + "')].recheckReason",
                             Matchers.contains("photos")))
-                    // A number burned into an image cannot be caught by reading the note.
-                    .andExpect(jsonPath("$.content[?(@.id == '" + id + "')].photos[0]",
-                            Matchers.contains("https://cdn.example/c-swapped.jpg")));
+                    .andExpect(jsonPath("$.content[?(@.id == '" + id + "')].photoCount",
+                            Matchers.contains(1)))
+                    .andExpect(jsonPath("$.content[0].photos").doesNotExist());
         }
 
         @Test
@@ -624,20 +624,26 @@ class FlatmateEditRemoderationTest extends AbstractApiTest {
     }
 
     @Nested
-    @DisplayName("the verification queue shows the host's number to the desk")
+    @DisplayName("the verification desk shows the host's number in the popup, not on every card")
     class HostMobile {
 
         @Test
-        @DisplayName("a tenant-tier host's number leaves the server in full")
-        void theQueueShowsTheMobile() throws Exception {
-            createRoom(host("9812000050", "Documented"),
+        @DisplayName("a tenant-tier host's number leaves the server in full, from the detail only")
+        void theDetailShowsTheMobile() throws Exception {
+            String id = createRoom(host("9812000050", "Documented"),
                     roomBody("EditTownH", "Theta Place", "Private room", 15000,
                             "https://cdn.example/h1.jpg", "Sunny room."));
+            User desk = admin("9812000051");
 
             mvc.perform(get(Routes.Moderation.FLATMATE_REVIEWS)
-                            .header(HttpHeaders.AUTHORIZATION, bearer(admin("9812000051"))))
+                            .header(HttpHeaders.AUTHORIZATION, bearer(desk)))
                     .andExpect(status().isOk())
-                    .andExpect(jsonPath("$.content[*].hostMobile", Matchers.hasItem("9812000050")));
+                    .andExpect(jsonPath("$.content[*].hostMobile").doesNotExist());
+
+            mvc.perform(get(Routes.Moderation.FLATMATE_MODERATION_DETAIL, id)
+                            .header(HttpHeaders.AUTHORIZATION, bearer(desk)))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.review.hostMobile").value("9812000050"));
         }
     }
 

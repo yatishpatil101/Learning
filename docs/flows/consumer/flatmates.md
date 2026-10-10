@@ -651,7 +651,7 @@ cap is spent, scoped to `PURPOSE_OWNER_CONSENT` so neither flow can be used agai
   (`leads.contact`). That model has nothing to work with here — there is no listing to request
   against, and the person contacted is a flatmate-seeker rather than an owner fielding enquiries. So
   the feed publishes no contact at all and "I'm interested" hands the *requester's* own name and
-  number to the host. Pressing it on one named post is precisely the affirmative act the contact gate
+  number to the host, masked in their inbox until they accept and in full from then on. Pressing it on one named post is precisely the affirmative act the contact gate
   exists to require: the gate protects you from your number being given out without your say-so, not
   from giving it out yourself. `GET /me/flatmate-interests` deliberately does **not** carry the
   host's number — adding it would hand every seeker a contact list assembled by pressing buttons.

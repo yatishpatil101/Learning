@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import Icon from '../../../components/Icon.jsx';
 import NativeSelect from '../../../components/ui/NativeSelect.jsx';
@@ -10,23 +10,15 @@ import FlatmateTerms from './FlatmateTerms.jsx';
 import GroupPreferencesFields from './GroupPreferencesFields.jsx';
 import AmountInput from './AmountInput.jsx';
 import { inr, MAX_GROUP_SEATS } from './helpers.js';
-import isTopDialog from '../../../lib/isTopDialog.js';
 import useScrollLock from '../../../hooks/useScrollLock.js';
+import useModalDialog from '../../../hooks/useModalDialog.js';
 
 export default function GroupModal({ setGroupOpen, submitGroup, grpFormRef, grpDraft, grp, setGrp, grpErr, myListings, myListingsStatus, retryMyListings, myTenancies, myTenanciesStatus, retryMyTenancies, onAttachProperty, onAttachTenancy, onRequestConsent, editing = false }) {
   const { t: tr } = useTranslation();
   const title = tr(editing ? 'flatmates.groupEditTitle' : 'flatmates.groupModalTitle');
-  const panelRef = useRef(null);
   const [localityBusy, setLocalityBusy] = useState(false);
   useScrollLock();
-  useEffect(() => {
-    const onKey = (e) => {
-      if (!isTopDialog(panelRef.current)) return;
-      if (e.key === 'Escape') setGroupOpen(false);
-    };
-    document.addEventListener('keydown', onKey);
-    return () => document.removeEventListener('keydown', onKey);
-  }, [setGroupOpen]);
+  const panelRef = useModalDialog(true, () => setGroupOpen(false));
   const policyField = <div><label className="block text-xs font-medium text-gray-400 mb-1.5">{tr('flatmates.openTo')}</label><NativeSelect value={grp.policy} onChange={(e) => setGrp({ ...grp, policy: e.target.value })} className="field w-full rounded-full px-4 py-2 text-sm"><option value="women">{tr('flatmates.optWomenOnly')}</option><option value="men">{tr('flatmates.optMenOnly')}</option><option value="any">{tr('flatmates.optAnyone')}</option></NativeSelect></div>;
   const seatsField = <div><label className="block text-xs font-medium text-gray-400 mb-1.5">{tr('flatmates.peopleSharing')} <span className="text-rose-400">*</span></label><input type="number" min="1" max={MAX_GROUP_SEATS} value={grp.seats} onChange={(e) => setGrp({ ...grp, seats: e.target.value })} className="field w-full rounded-xl px-3.5 py-2.5 text-sm" /></div>;
   const mode = (hunting, icon, label) => (
@@ -34,10 +26,10 @@ export default function GroupModal({ setGroupOpen, submitGroup, grpFormRef, grpD
   );
   return (
     <div className="sf-modal" onClick={() => setGroupOpen(false)}>
-      <div ref={panelRef} role="dialog" aria-modal="true" aria-label={title} className="dz-modal-panel border border-white/10 rounded-3xl w-full max-w-xl p-6 sm:p-7" onClick={(e) => e.stopPropagation()}>
+      <div ref={panelRef} tabIndex={-1} role="dialog" aria-modal="true" aria-label={title} className="dz-modal-panel border border-white/10 rounded-3xl w-full max-w-xl p-6 sm:p-7 outline-none" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-start justify-between mb-5">
           <div><h2 className="text-xl font-bold text-white">{title}</h2>{!editing && <p className="text-gray-400 text-xs mt-1">{tr('flatmates.groupModalSubtitle')}</p>}</div>
-          <button onClick={() => setGroupOpen(false)} className="p-2 rounded-xl hover:bg-white/5 text-gray-400 hover:text-white"><Icon name="x" className="w-5 h-5" /></button>
+          <button onClick={() => setGroupOpen(false)} aria-label={tr('common.close')} className="p-2 rounded-xl hover:bg-white/5 text-gray-400 hover:text-white"><Icon name="x" className="w-5 h-5" /></button>
         </div>
         <form onSubmit={submitGroup} className="space-y-4" ref={grpFormRef}>
           <AutosaveBanner restored={grpDraft.restored} onStartFresh={grpDraft.startFresh} />

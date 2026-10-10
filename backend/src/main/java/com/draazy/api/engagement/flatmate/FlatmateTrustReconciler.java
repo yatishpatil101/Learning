@@ -163,13 +163,17 @@ public class FlatmateTrustReconciler {
         return posted != null && posted.equalsIgnoreCase(claimedLocality) ? claimed : null;
     }
 
-    /** Rooms only: a group carries no society at all, so every group falls back to the locality
-     * check. */
+    /** A room carries its own society; a group has none of its own and takes its parent listing's,
+     * so a group with no listing falls back to the locality check. */
     private UUID postedSocietyId(FlatmateReview review) {
-        if (review.getRoomId() == null) {
+        if (review.getRoomId() != null) {
+            return rooms.findById(review.getRoomId()).map(FlatmateRoom::getSocietyId).orElse(null);
+        }
+        if (review.getGroupId() == null) {
             return null;
         }
-        return rooms.findById(review.getRoomId()).map(FlatmateRoom::getSocietyId).orElse(null);
+        return groups.findById(review.getGroupId()).map(FlatmateGroup::getPropertyId)
+                .flatMap(properties::findById).map(Property::getSocietyId).orElse(null);
     }
 
     /** The locality the post was published under, or null when the post is gone. */

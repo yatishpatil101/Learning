@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { API, apiLogin, signedInAsNew, uniqueMobile } from '../../../helpers/liveAuth.js';
+import { API, apiLogin, seedConsent, signedInAsNew, uniqueMobile } from '../../../helpers/liveAuth.js';
 import { ACTORS } from '../../../fixtures/live.js';
 import { flatmateCleanup } from '../../../helpers/flatmateCleanup.js';
 import { detailCta } from '../../../helpers/app.js';
@@ -77,6 +77,7 @@ test('joining a group reaches the server: the host\'s inbox shows the request', 
 });
 
 test('a signed-out user is routed to sign-in when joining a group', async ({ page }) => {
+  await seedConsent(page);
   await page.goto(`${BASE}/flatmates`);
   await page.getByRole('button', { name: /Team up/i }).first().click();
   const card = page.locator('.sf-card[data-sf-id^="g:"]').filter({ hasText: /seats? left/ }).first();

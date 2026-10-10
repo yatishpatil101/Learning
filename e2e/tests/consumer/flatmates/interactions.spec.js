@@ -93,9 +93,9 @@ test.describe('Flatmates interactions', () => {
     expect(row.kind).toBe('room');
     expect(row.status).toBe('pending');
     expect(row.message).toBe('Is the room still free?');
-    // The contact gate runs backwards here on purpose: pressing "I'm interested" hands over the
-    // *requester's* number, so the host receiving it unmasked is the feature, not a leak.
-    expect(row.requesterMobile).toBe(seeker.mobile);
+    // The contact gate runs backwards here on purpose: pressing "I'm interested" hands the host the
+    // *requester's* number, but only once they accept — until then the inbox carries a masked one.
+    expect(row.requesterMobile).toBe(`${seeker.mobile.slice(0, 2)}XXXXX${seeker.mobile.slice(-3)}`);
   });
 
   test('a second ask on the same room is refused as a duplicate', async ({ page }) => {

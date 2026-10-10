@@ -150,9 +150,12 @@ test('splitting writes rooms the server can see, then the split flat is not offe
     const rows = (mine.json.content || mine.json.items || [])
       .filter((r) => String(r.propertyId) === String(flat.listingId));
     expect(rows).toHaveLength(2);
-    expect(rows.every((r) => r.priceBasis === 'room')).toBe(true);
     expect(rows.every((r) => Number(r.occupants) === 0)).toBe(true);
     expect(rows.map((r) => r.budget).sort((a, b) => a - b)).toEqual([13000, 15000]);
+    for (const r of rows) {
+      const detail = await api('GET', `/flatmates/rooms/${r.id}`, auth(flat.accessToken));
+      expect(detail.json.item.priceBasis).toBe('room');
+    }
   });
 
   await test.step('a split flat is not offered a second split, and can be withdrawn while empty', async () => {
@@ -224,8 +227,9 @@ test('a split room carries the owner badge publicly; once someone moves in the f
   await test.step('rooms split from an approved flat carry the owner badge on the public board', async () => {
     /* The badge is the whole point of splitting rather than posting a room: the flat was already proven.
        Decided by the server from the parent's status — `verificationTier` is not a field any client sends. */
-    expect(room.verificationTier).toBe('owner');
-    expect(room.verified).toBe(true);
+    const detail = await api('GET', `/flatmates/rooms/${room.id}`, auth(flat.accessToken));
+    expect(detail.json.item.verificationTier).toBe('owner');
+    expect(detail.json.item.verified).toBe(true);
 
     await publishRoom(room.id);
     const seeker = await page.context().browser().newPage();

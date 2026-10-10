@@ -18,6 +18,8 @@ public interface FlatmateGroupApplicationRepository
 
     Page<FlatmateGroupApplication> findByModStatusIn(Collection<String> modStatuses, Pageable pageable);
 
+    long countByModStatusIn(Collection<String> modStatuses);
+
     List<FlatmateGroupApplication> findByListingIdOrderByCreatedAtDesc(UUID listingId);
 
     /** {@code modStatus} hides removed spam while leaving owner-facing status pending. */

@@ -38,6 +38,10 @@ public interface FlatmateSeekerPostRepository extends JpaRepository<FlatmateSeek
 
     Page<FlatmateSeekerPost> findByRecheckRequestedAtNotNullAndArchivedFalse(Pageable pageable);
 
+    long countByModStatusInAndArchivedFalse(Collection<String> modStatuses);
+
+    long countByRecheckRequestedAtNotNullAndArchivedFalse();
+
     @Modifying(clearAutomatically = true, flushAutomatically = true)
     @Query("update FlatmateSeekerPost p set p.verified = :verified where p.userId = :userId and p.verified <> :verified")
     int copyBadge(@Param("userId") UUID userId, @Param("verified") boolean verified);

@@ -5,19 +5,10 @@ import jakarta.persistence.Embeddable;
 import java.time.LocalDate;
 import lombok.Getter;
 
-/** Registration particulars of a Leave &amp; License agreement, compulsory under Maharashtra
- * Rent Control Act 1999 §55. Every field is nullable: pre- rows and owner-tier reviews have none. */
+/** Validity of a Leave &amp; License agreement. Nullable: pre- rows and owner-tier reviews have none. */
 @Embeddable
 @Getter
 class AgreementRegistration {
-
-    /** Free text: the format varies by sub-registrar office and by year, nothing downstream parses
-     * it, and a human checks it against the IGR portal. */
-    @Column(name = "agreement_reg_no")
-    private String regNo;
-
-    @Column(name = "agreement_registered_on")
-    private LocalDate registeredOn;
 
     @Column(name = "agreement_valid_till")
     private LocalDate validTill;
@@ -25,9 +16,7 @@ class AgreementRegistration {
     protected AgreementRegistration() {
     }
 
-    AgreementRegistration(String regNo, LocalDate registeredOn, LocalDate validTill) {
-        this.regNo = FlatmateVocabulary.blankToNull(regNo);
-        this.registeredOn = registeredOn;
+    AgreementRegistration(LocalDate validTill) {
         this.validTill = validTill;
     }
 

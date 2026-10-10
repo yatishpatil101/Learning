@@ -238,6 +238,10 @@ class FlatmateSeekerEndpointsTest extends AbstractApiTest {
                     "select body from notifications where user_id = ?::uuid",
                     String.class, requester.getId().toString());
             assertThat(toRequester).isNotEmpty().noneMatch((b) -> b.contains("9810000020"));
+            assertThat(jdbc.queryForList(
+                    "select type from notifications where user_id = ?::uuid",
+                    String.class, requester.getId().toString()))
+                    .containsExactly("flatmate.interest.sent");
         }
 
         @Test
@@ -343,7 +347,7 @@ class FlatmateSeekerEndpointsTest extends AbstractApiTest {
     class Inbox {
 
         @Test
-        @DisplayName("shows who answered, with their number, so the host can act")
+        @DisplayName("shows who answered, with their number masked until the host accepts")
         void inboxCarriesTheRequesterContact() throws Exception {
             User host = user("9810000030", "Rhea");
             User requester = user("9810000031", "Sameer");
@@ -359,7 +363,7 @@ class FlatmateSeekerEndpointsTest extends AbstractApiTest {
                             .header(HttpHeaders.AUTHORIZATION, bearer(host)))
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.content[0].requesterName").value("Sameer"))
-                    .andExpect(jsonPath("$.content[0].requesterMobile").value("9810000031"))
+                    .andExpect(jsonPath("$.content[0].requesterMobile").value("98XXXXX031"))
                     .andExpect(jsonPath("$.content[0].status").value("pending"));
         }
 

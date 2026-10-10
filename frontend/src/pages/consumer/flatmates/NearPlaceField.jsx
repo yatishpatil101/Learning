@@ -43,7 +43,7 @@ export default function NearPlaceField({ filters, setF }) {
               <button
                 key={mode}
                 type="button"
-                onClick={() => setF({ nearMode: mode })}
+                onClick={() => setF({ nearMode: mode, nearRadius: clampNearRadius(nearRadius, nearMaxFor(mode)) })}
                 aria-pressed={nearMode === mode}
                 className={`flex min-h-11 items-center justify-center gap-1.5 text-xs font-semibold py-1.5 rounded-lg t-all ${nearMode === mode ? 'bg-teal-500/20 text-teal-200 shadow-sm' : 'text-gray-400 hover:text-gray-200'}`}
               >
