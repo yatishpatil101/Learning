@@ -1,6 +1,7 @@
 package com.draazy.api.provider.whatsapp;
 
 import com.draazy.api.provider.OtpSender;
+import com.draazy.api.provider.ProviderCalls;
 import jakarta.annotation.PostConstruct;
 import java.util.ArrayList;
 import java.util.List;
@@ -17,10 +18,12 @@ class WhatsAppOtpSender implements OtpSender {
 
     private final WhatsAppClient client;
     private final WhatsAppProperties props;
+    private final ProviderCalls calls;
 
-    WhatsAppOtpSender(WhatsAppClient client, WhatsAppProperties props) {
+    WhatsAppOtpSender(WhatsAppClient client, WhatsAppProperties props, ProviderCalls calls) {
         this.client = client;
         this.props = props;
+        this.calls = calls;
     }
 
     // Checked at startup because the alternative is worse than it looks.
@@ -71,9 +74,9 @@ class WhatsAppOtpSender implements OtpSender {
                         "components", components));
 
         try {
-            client.post("/" + props.phoneNumberId() + "/messages", payload);
+            calls.track(ProviderCalls.WHATSAPP, OPERATION, mobile, null,
+                    () -> client.post("/" + props.phoneNumberId() + "/messages", payload));
         } catch (WhatsAppClient.WhatsAppException e) {
-
             throw new DeliveryFailedException("WhatsApp could not deliver the code.", e);
         }
     }

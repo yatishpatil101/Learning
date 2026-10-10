@@ -18,6 +18,10 @@ import org.springframework.stereotype.Component;
 
 public interface PaymentGateway {
 
+    String CREATE_ORDER = "create-order";
+    String REFUND = "refund";
+    String WEBHOOK = "webhook";
+
     // Prefer `#createOrder(long, String, Customer)` so Cashfree can prefill and notify the real payer.
     default PaymentOrder createOrder(long amountInr, String reference) {
         return createOrder(amountInr, reference, null);
@@ -26,6 +30,9 @@ public interface PaymentGateway {
     PaymentOrder createOrder(long amountInr, String reference, Customer customer);
 
     Optional<String> resumeSession(String orderId);
+
+    /** True once the provider holds the money, so an unresumable order is not mistaken for an unpaid one. */
+    boolean paid(String orderId);
 
     String refund(String orderId, long amountInr, String refundId, String note);
 
@@ -46,9 +53,17 @@ public interface PaymentGateway {
         havingValue = "false", matchIfMissing = true)
 class MockPaymentGateway implements PaymentGateway {
 
+    private final ProviderCalls calls;
+
+    MockPaymentGateway(ProviderCalls calls) {
+        this.calls = calls;
+    }
+
     @Override
     public PaymentOrder createOrder(long amountInr, String reference, Customer customer) {
         String orderId = "mock_order_" + UUID.randomUUID();
+        calls.record(ProviderCalls.CASHFREE, CREATE_ORDER, ProviderCalls.Outcome.SKIPPED,
+                customer == null ? null : customer.phone(), orderId, "mock", null);
         return new PaymentOrder(orderId, "mock_session_" + UUID.randomUUID());
     }
 
@@ -58,7 +73,13 @@ class MockPaymentGateway implements PaymentGateway {
     }
 
     @Override
+    public boolean paid(String orderId) {
+        return false;
+    }
+
+    @Override
     public String refund(String orderId, long amountInr, String refundId, String note) {
+        calls.record(ProviderCalls.CASHFREE, REFUND, ProviderCalls.Outcome.SKIPPED, null, orderId, "mock", null);
         return "mock_refund_" + refundId;
     }
 }
@@ -81,11 +102,14 @@ class CashfreePaymentGateway implements PaymentGateway {
     private final CashfreeClient cashfree;
     private final CheckoutTtl ttl;
     private final String notifyUrl;
+    private final ProviderCalls calls;
 
-    CashfreePaymentGateway(CashfreeClient cashfree, CheckoutTtl ttl, CashfreeProperties props) {
+    CashfreePaymentGateway(CashfreeClient cashfree, CheckoutTtl ttl, CashfreeProperties props,
+            ProviderCalls calls) {
         this.cashfree = cashfree;
         this.ttl = ttl;
         this.notifyUrl = requireHttpsOrBlank(props.notifyUrl());
+        this.calls = calls;
     }
 
     // Cashfree POSTs the phone, amount and HMAC here, so a typo'd `http://` would put all of it in cleartext.
@@ -119,27 +143,36 @@ class CashfreePaymentGateway implements PaymentGateway {
                 ? customer.phone()
                 : PLACEHOLDER_PHONE;
 
-        OrderResponse response = cashfree.post(
-                "/pg/orders",
-                API_VERSION,
-                orderRequest(orderId, amountInr, reference, customerId, phone,
-                        ttl.expiryFrom(Instant.now()), notifyUrl),
-                OrderResponse.class);
+        String sessionId = calls.track(ProviderCalls.CASHFREE, CREATE_ORDER,
+                PLACEHOLDER_PHONE.equals(phone) ? null : phone, orderId, () -> {
+                    OrderResponse response = cashfree.post(
+                            "/pg/orders",
+                            API_VERSION,
+                            orderRequest(new OrderSpec(orderId, amountInr, reference,
+                                    new Customer(customerId, phone), ttl.expiryFrom(Instant.now()), notifyUrl)),
+                            OrderResponse.class);
+                    if (response == null || response.payment_session_id() == null
+                            || response.payment_session_id().isBlank()) {
 
-        if (response == null || response.payment_session_id() == null
-                || response.payment_session_id().isBlank()) {
-
-            // A 2xx with no session id is a broken vendor contract, not a caller mistake, so it
-            // surfaces as a 500. Transport failures never reach here — CashfreeClient.post throws.
-            throw new IllegalStateException(
-                    "Cashfree returned no payment_session_id for order " + orderId);
-        }
-        return new PaymentOrder(orderId, response.payment_session_id());
+                        // A 2xx with no session id is a broken vendor contract, not a caller mistake, so it
+                        // surfaces as a 500. Transport failures never reach here — CashfreeClient.post throws.
+                        throw new IllegalStateException(
+                                "Cashfree returned no payment_session_id for order " + orderId);
+                    }
+                    return response.payment_session_id();
+                });
+        return new PaymentOrder(orderId, sessionId);
     }
 
     @Override
     public Optional<String> resumeSession(String orderId) {
         return resumable(cashfree.get("/pg/orders/" + orderId, API_VERSION, OrderResponse.class));
+    }
+
+    @Override
+    public boolean paid(String orderId) {
+        OrderResponse order = cashfree.get("/pg/orders/" + orderId, API_VERSION, OrderResponse.class);
+        return order != null && "PAID".equals(order.order_status());
     }
 
     static Optional<String> resumable(OrderResponse order) {
@@ -153,32 +186,37 @@ class CashfreePaymentGateway implements PaymentGateway {
     @Override
     public String refund(String orderId, long amountInr, String refundId, String note) {
         String text = note == null || note.isBlank() ? "Refund" : note.strip();
-        RefundResponse response = cashfree.post("/pg/orders/" + orderId + "/refunds", API_VERSION,
-                Map.of("refund_amount", amountInr, "refund_id", refundId,
-                        "refund_note", text.length() > 100 ? text.substring(0, 100) : text),
-                RefundResponse.class);
-        if (response == null || response.cf_refund_id() == null || response.cf_refund_id().isBlank()) {
-            throw new IllegalStateException("Cashfree returned no cf_refund_id for refund " + refundId);
-        }
-        return response.cf_refund_id();
+        return calls.track(ProviderCalls.CASHFREE, REFUND, null, orderId, () -> {
+            RefundResponse response = cashfree.post("/pg/orders/" + orderId + "/refunds", API_VERSION,
+                    Map.of("refund_amount", amountInr, "refund_id", refundId,
+                            "refund_note", text.length() > 100 ? text.substring(0, 100) : text),
+                    RefundResponse.class);
+            if (response == null || response.cf_refund_id() == null || response.cf_refund_id().isBlank()) {
+                throw new IllegalStateException("Cashfree returned no cf_refund_id for refund " + refundId);
+            }
+            return response.cf_refund_id();
+        });
     }
 
     record RefundResponse(String cf_refund_id, String refund_id, String refund_status) {
     }
 
-    static Map<String, Object> orderRequest(String orderId, long amountInr, String reference,
-            String customerId, String phone, Instant expiresAt, String notifyUrl) {
+    record OrderSpec(String orderId, long amountInr, String reference, Customer customer, Instant expiresAt,
+            String notifyUrl) {
+    }
+
+    static Map<String, Object> orderRequest(OrderSpec order) {
         Map<String, Object> body = new LinkedHashMap<>();
-        body.put("order_id", orderId);
-        body.put("order_amount", amountInr);
+        body.put("order_id", order.orderId());
+        body.put("order_amount", order.amountInr());
         body.put("order_currency", "INR");
-        body.put("order_note", reference);
-        body.put("order_expiry_time", expiryFormat(expiresAt));
+        body.put("order_note", order.reference());
+        body.put("order_expiry_time", expiryFormat(order.expiresAt()));
         body.put("customer_details", Map.of(
-                "customer_id", customerId,
-                "customer_phone", phone));
-        if (notifyUrl != null && !notifyUrl.isBlank()) {
-            body.put("order_meta", Map.of("notify_url", notifyUrl.trim()));
+                "customer_id", order.customer().id(),
+                "customer_phone", order.customer().phone()));
+        if (order.notifyUrl() != null && !order.notifyUrl().isBlank()) {
+            body.put("order_meta", Map.of("notify_url", order.notifyUrl().trim()));
         }
         return body;
     }

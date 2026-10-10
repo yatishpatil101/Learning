@@ -99,6 +99,12 @@ token; the one the App Dashboard offers on the WhatsApp setup page expires in 24
 presents as "logins stopped working overnight". `phoneNumberId` is the numeric ID of the sending
 number, not the number: test and production are two IDs against the same code.
 
+**Email (ZeptoMail).** `draazy.providers.zeptomail.enabled` swaps `LoggingEmailSender` for
+`ZeptoMailEmailSender`. Email is best-effort everywhere: the send runs after commit, a vendor failure
+is logged as Zoho's error codes only (its messages can echo the recipient) and swallowed, because every
+email today duplicates something the user can already reach. Neither sender logs the body — it can be a
+staff invite link, which is a credential.
+
 ## 1. `local`
 
 ```powershell

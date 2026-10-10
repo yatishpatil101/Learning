@@ -12,10 +12,8 @@ import java.util.Map;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
-/**
- * A missing field on an outbound vendor call is invisible until a customer outlasts the TTL and
- * pays a row the sweep already retired — for rent, a double charge. Asserts the payload directly.
- */
+/** A missing outbound vendor field is invisible until a customer outlasts the TTL and pays a row the sweep
+ * already retired (for rent, a double charge), so the payload is asserted directly. */
 @DisplayName("D169 — the Cashfree order carries an expiry derived from the shared TTL")
 class CashfreeOrderExpiryTest {
 
@@ -24,11 +22,8 @@ class CashfreeOrderExpiryTest {
     /** Stated rather than read from the package-private {@code CheckoutTtl.DEFAULT_MINUTES}. */
     private static final CheckoutTtl TTL = new CheckoutTtl(45);
 
-    /**
-     * Before D169 the key was absent and Cashfree's account default — days — applied instead; an
-     * absent key fails the cast here. Compared against the TTL object's own answer, so a second
-     * hard-coded number fails here too.
-     */
+    /** An absent key makes Cashfree apply its account default (days); compared against the TTL object's
+     * own answer so a second hard-coded number fails too. */
     @Test
     @DisplayName("the expiry is the shared TTL's look-forward, not a number of its own")
     void theExpiryComesFromTheSharedTtl() {
@@ -60,9 +55,8 @@ class CashfreeOrderExpiryTest {
     @Test
     @DisplayName("sub-second precision is truncated rather than sent")
     void nanosecondsAreTruncated() {
-        Map<String, Object> body = CashfreePaymentGateway.orderRequest(
-                "dz_1", 2499L, "sub_1", "cust_1", "9800000000",
-                Instant.parse("2026-03-14T10:15:00.123456789Z"), null);
+        Map<String, Object> body = CashfreePaymentGateway.orderRequest(order(
+                Instant.parse("2026-03-14T10:15:00.123456789Z"), null));
 
         assertThat(body.get("order_expiry_time")).isEqualTo("2026-03-14T10:15:00Z");
     }
@@ -87,22 +81,18 @@ class CashfreeOrderExpiryTest {
     @DisplayName("notify_url is omitted when unconfigured and sent when set")
     void theNotifyUrlIsOptional() {
         assertThat(body()).doesNotContainKey("order_meta");
-        assertThat(CashfreePaymentGateway.orderRequest(
-                "dz_1", 2499L, "sub_1", "cust_1", "9800000000", TTL.expiryFrom(NOW), "   "))
+        assertThat(CashfreePaymentGateway.orderRequest(order(TTL.expiryFrom(NOW), "   ")))
                 .doesNotContainKey("order_meta");
 
-        Map<String, Object> body = CashfreePaymentGateway.orderRequest(
-                "dz_1", 2499L, "sub_1", "cust_1", "9800000000", TTL.expiryFrom(NOW),
-                "https://tunnel.example/webhooks/cashfree/payment");
+        Map<String, Object> body = CashfreePaymentGateway.orderRequest(order(TTL.expiryFrom(NOW),
+                "https://tunnel.example/webhooks/cashfree/payment"));
 
         assertThat(body.get("order_meta")).isEqualTo(
                 Map.of("notify_url", "https://tunnel.example/webhooks/cashfree/payment"));
     }
 
-    /**
-     * The test above bypasses the guard by passing a raw string, so without this one it is
-     * unexecuted code. Constructing directly is sound — the constructor dereferences no collaborator.
-     */
+    /** The test above bypasses the guard with a raw string, so without this one it is unexecuted code;
+     * direct construction is sound since the constructor dereferences no collaborator. */
     @Test
     @DisplayName("a notify url that is not absolute https refuses to start")
     void aBadNotifyUrlIsABootFailure() {
@@ -118,10 +108,8 @@ class CashfreeOrderExpiryTest {
         }
     }
 
-    /**
-     * Blank is the deployed default ("use the dashboard endpoint"), and the scheme is
-     * case-insensitive per RFC 3986 — a guard meant to catch a typo must not invent one.
-     */
+    /** Blank is the deployed default ("use the dashboard endpoint") and the scheme is case-insensitive
+     * per RFC 3986; a guard meant to catch a typo must not invent one. */
     @Test
     @DisplayName("blank, absent and upper-case https all start cleanly")
     void agoodNotifyUrlIsAccepted() {
@@ -136,11 +124,15 @@ class CashfreeOrderExpiryTest {
 
     private static CashfreePaymentGateway gatewayWithNotifyUrl(String notifyUrl) {
         return new CashfreePaymentGateway(null, TTL,
-                new CashfreeProperties(true, null, null, null, notifyUrl));
+                new CashfreeProperties(true, null, null, null, notifyUrl), null);
     }
 
     private static Map<String, Object> body() {
-        return CashfreePaymentGateway.orderRequest(
-                "dz_1", 2499L, "sub_1", "cust_1", "9800000000", TTL.expiryFrom(NOW), null);
+        return CashfreePaymentGateway.orderRequest(order(TTL.expiryFrom(NOW), null));
+    }
+
+    private static CashfreePaymentGateway.OrderSpec order(Instant expiresAt, String notifyUrl) {
+        return new CashfreePaymentGateway.OrderSpec("dz_1", 2499L, "sub_1",
+                new PaymentGateway.Customer("cust_1", "9800000000"), expiresAt, notifyUrl);
     }
 }

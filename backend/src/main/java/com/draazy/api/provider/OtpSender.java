@@ -13,6 +13,8 @@ import org.springframework.stereotype.Component;
 // The app must run and be demoable with zero paid keys, so the `dev` profile logs the code instead of sending it.
 public interface OtpSender {
 
+    String OPERATION = "otp";
+
     /** Deliver {@code code} to {@code mobile}. Implementations must not block the request thread long. */
     void send(String mobile, String code);
 
@@ -41,15 +43,23 @@ class MockOtpSender implements OtpSender {
 
     private static final Logger log = LoggerFactory.getLogger(MockOtpSender.class);
 
+    private final ProviderCalls calls;
+
+    MockOtpSender(ProviderCalls calls) {
+        this.calls = calls;
+    }
+
     @Override
     public void send(String mobile, String code) {
         log.info("[MOCK OTP] mobile={} code={}", mobile, code);
+        calls.record(ProviderCalls.WHATSAPP, OPERATION, ProviderCalls.Outcome.SKIPPED, mobile, null, "mock", null);
     }
 
     @Override
     public void send(String mobile, String code, Context context) {
         log.info("[MOCK OTP] mobile={} code={} text={}", mobile, code,
                 context == null ? "" : context.text());
+        calls.record(ProviderCalls.WHATSAPP, OPERATION, ProviderCalls.Outcome.SKIPPED, mobile, null, "mock", null);
     }
 }
 
@@ -65,9 +75,16 @@ class SandboxOtpSender implements OtpSender {
 
     private static final Logger log = LoggerFactory.getLogger(SandboxOtpSender.class);
 
+    private final ProviderCalls calls;
+
+    SandboxOtpSender(ProviderCalls calls) {
+        this.calls = calls;
+    }
+
     @Override
     public void send(String mobile, String code) {
         log.warn("[SANDBOX OTP] mobile={} - not sent; the code is draazy.otp.sandbox-code", mobile);
+        calls.record(ProviderCalls.WHATSAPP, OPERATION, ProviderCalls.Outcome.SKIPPED, mobile, null, "sandbox", null);
     }
 
     @Override

@@ -10,17 +10,15 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
+import org.mockito.Mockito;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.jdbc.core.JdbcTemplate;
 
-/**
- * Pins what {@code draazy.providers.cashfree.enabled} wires — a property-name typo in
- * {@code @ConditionalOnProperty} would silently unreach the real provider. The enabled base URL
- * points at {@code localhost:1} so a wiring mistake surfaces as a connection failure, never as a
- * real Cashfree call from CI.
- */
+/** A property-name typo in ConditionalOnProperty would silently unreach the real provider; the enabled base
+ * URL is localhost:1 so a wiring mistake fails as a connection error, never a real Cashfree call from CI. */
 @DisplayName("Provider wiring — Cashfree")
 class CashfreeProviderWiringTest {
 
@@ -30,6 +28,11 @@ class CashfreeProviderWiringTest {
         @Bean
         CheckoutTtl checkoutTtl() {
             return new CheckoutTtl(45);
+        }
+
+        @Bean
+        ProviderCalls providerCalls() {
+            return new ProviderCalls(Mockito.mock(JdbcTemplate.class), Runnable::run);
         }
     }
 

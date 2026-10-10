@@ -10,37 +10,15 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-/**
- * Issues and redeems the single-use invites that let a back-office colleague set their own password
- * (tech debt D206, V71).
- *
- * <p><strong>The defect this closes.</strong> {@code StaffCreate} once carried a {@code password}
- * field, so the creator chose the credential and could sign in as the colleague. Administrators now
- * have no way to set or read that credential.
- *
- * <p><strong>Why this lives in {@code identity.auth} and not beside the account factory.</strong>
- * Everything here is authentication: it mints a credential, it gates token issue, and it writes a
- * password hash. {@code moderation} (layer 6) calls down into it, which is a legal direction; the
- * reverse would not have been. Keeping it here means the answer to "may this caller obtain a token
- * at all" stays in one package.
- */
+/** Lives in {@code identity.auth} because it mints a credential and gates token issue; {@code moderation}
+ * calls down into it, which is a legal direction where the reverse would not be. */
 @Service
 public class StaffInviteService {
 
-    /**
-     * How long a colleague has to set their password.
-     *
-     * <p>Long enough to survive a weekend and a missed message; short enough that an invite sitting
-     * unread in an SMS history is not a permanent credential.
-     */
-    static final Duration TTL = Duration.ofDays(7);
+    /** Long enough to survive a weekend; short enough that an unread SMS invite is not a permanent credential. */
+    public static final Duration TTL = Duration.ofDays(7);
 
-    /**
-     * Separates the selector from the secret in the delivered token.
-     *
-     * <p>Split on the FIRST occurrence: the selector is a UUID and can never contain one, so
-     * everything after it is the secret however the secret happens to be encoded.
-     */
+    /** Split on the FIRST occurrence: the selector is a UUID and never contains one, so the rest is the secret. */
     private static final String SEPARATOR = ".";
 
     private final StaffInviteRepository invites;
@@ -54,12 +32,6 @@ public class StaffInviteService {
         this.passwordEncoder = passwordEncoder;
     }
 
-    /**
-     * Mint an invite for a freshly created account and return the only copy of the raw token.
-     *
-     * @param userId    the account that cannot authenticate until this is redeemed
-     * @param createdBy the administrator who minted the account
-     */
     @Transactional
     public String issue(UUID userId, UUID createdBy) {
         return issueToken(userId, createdBy, TTL);
@@ -73,10 +45,8 @@ public class StaffInviteService {
         return invite.getId() + SEPARATOR + secret;
     }
 
-    /**
-     * Forgotten password or expired invite: supersede any open invite and return a fresh one. The new
-     * open row blocks sign-in until it is redeemed, so the old password stops working at once.
-     */
+    /** Supersedes any open invite; the new open row blocks sign-in until redeemed, so the old password
+     * stops working at once. */
     @Transactional
     public String reissue(UUID userId, UUID reissuedBy) {
         return reissueToken(userId, reissuedBy, TTL);
@@ -89,27 +59,8 @@ public class StaffInviteService {
         return issueToken(userId, reissuedBy, ttl);
     }
 
-    /**
-     * {@code POST /auth/staff-invite/redeem} — the invitee presents their token and chooses a
-     * password.
-     *
-     * <p><strong>Every refusal is the same 401 with the same message.</strong> Unknown selector,
-     * wrong secret, expired, already redeemed, account since archived — all indistinguishable to the
-     * caller. Distinguishing them would turn this route into an oracle: "already redeemed" tells an
-     * attacker a guessed selector was real, and "expired" tells them the account exists and is worth
-     * a second look. The person who legitimately holds the token is not helped by the distinction
-     * either, since their remedy is the same in every case: ask an administrator.
-     *
-     * <p><strong>The secret is compared in constant time.</strong> The selector fetches exactly one
-     * row and {@link Tokens#hashesEqual} then does the comparison with
-     * {@link java.security.MessageDigest#isEqual}, so response timing says nothing about how many
-     * leading characters of a guess were right. Looking the row up <em>by</em> the hash would have
-     * been shorter and would have moved that comparison into the database's indexed {@code =}, which
-     * is neither constant-time nor ours to reason about.
-     *
-     * <p>Redeeming does <em>not</em> let the account sign in on its own. It only removes the invite
-     * gate; password sign-in and TOTP enrolment still follow.
-     */
+    /** Every refusal is the same 401 so the route is no oracle; the secret is compared in constant time via
+     * {@link Tokens#hashesEqual}, not by the database's indexed {@code =}. */
     @Transactional
     public void redeem(String token, String password) {
         StaffInvite invite = openInviteFor(token);

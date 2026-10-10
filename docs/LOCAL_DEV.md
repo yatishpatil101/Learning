@@ -287,6 +287,20 @@ Common failures, all of which surface as a 500 with the Graph error code in the 
 `131030` = recipient is not on the test number's allow-list; `132001` = no template by that
 name/language; `133010` = the token's phone number is not registered.
 
+#### Sending a real email locally (optional)
+
+```powershell
+$env:ZEPTOMAIL_ENABLED  = 'true'
+$env:ZEPTOMAIL_API_KEY  = '<agent Send Mail token>'
+```
+
+Then create a staff account (or reissue an invite) at `/admin/team` with an inbox you own. With the flag
+off the backend logs `[MOCK EMAIL] to=***@domain subject=...` and never the link.
+
+On the corporate network the send logs `PKIX path building failed`: TLS is intercepted and Zulu's
+`cacerts` lacks the corporate root. Start the JVM with `-Djavax.net.ssl.trustStoreType=Windows-ROOT`
+so it trusts the Windows certificate store, the same one `curl.exe` uses. Production is unaffected.
+
 ## 3. Frontend
 
 ```powershell

@@ -9,9 +9,9 @@ const USER = process.env.E2E_DB_USER || 'postgres';
 // Waive write-path tables: a seeded row would make the creation assertion unfalsifiable.
 const WAIVED = new Map([
   ['otp_codes', 'every login writes one; a seeded code is a seeded credential'],
-  ['rent_agreement_tenant_consents', 'written by the tenant confirming their code; a seeded row would fake the consent under test'],
   ['refresh_tokens', 'issued at login, by the same flow every spec starts with'],
   ['push_subscriptions', 'written by the push opt-in flow; a seeded endpoint would fake browser registration'],
+  ['provider_call', 'written by every OTP, email and payment call the specs make'],
   ['audit_log', 'written BY the admin actions the ops specs assert on'],
   ['transactions', 'written by the payment flows; a seeded row would fake the thing under test'],
   ['outbound_message', 'the send queue - filled when a notification actually fires'],
@@ -19,7 +19,6 @@ const WAIVED = new Map([
   ['erasure_requests', 'the DSR spec submits one'],
   ['city_waitlist', 'the waitlist form submits one'],
   ['demand_signals', 'append-only; `demand-signals` writes rows and asserts the delta'],
-  ['society_leads', 'the society lead form submits one'],
   ['offer_history', 'append-only trail written when an offer changes state'],
   ['review_messages', 'written by the review-thread spec'],
   ['ticket_notes', 'written by staff inside the ticket spec'],
@@ -63,9 +62,6 @@ const WAIVED = new Map([
 // Pending tables need read fixtures; populated entries are reported stale.
 const PENDING = new Map([
   ['referral_codes', 'referrals: cannot redeem a code that does not exist'],
-  ['banners', 'CMS: the banner surface has nothing to render'],
-  ['announcements', 'CMS: ditto'],
-  ['cms_services', 'CMS: the services landing reads this'],
   ['service_requests', 'ops: the whole service-request console is empty'],
   ['service_request_parties', 'ops: hangs off service_requests'],
   ['service_request_messages', 'ops: hangs off service_requests'],
