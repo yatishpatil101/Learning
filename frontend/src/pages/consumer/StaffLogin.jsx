@@ -1,12 +1,12 @@
 import { useEffect, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router';
 import QRCode from 'qrcode';
-import { LogIn, ShieldCheck, Copy } from 'lucide-react';
+import { ArrowRight, Building2, Copy, KeyRound, Loader2, Lock, Mail, QrCode, ShieldCheck } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext.jsx';
 import { staffEnrol, staffLogin } from '../../services/authService.js';
 import { safeInAppPath } from '../../lib/authIntent.js';
 import { healStaleShell } from '../../lib/seamErrors.js';
-import StaffShell, { STAFF_FIELD } from '../../components/auth/StaffShell.jsx';
+import StaffShell, { StaffField, STAFF_SUBMIT } from '../../components/auth/StaffShell.jsx';
 import { portalBase } from '../../lib/adminModules.js';
 
 /* Password, then an authenticator code; a first sign-in sets the authenticator up and shows the
@@ -41,7 +41,7 @@ export default function StaffLogin() {
     setQr('');
     if (!enrolment) return undefined;
     let live = true;
-    QRCode.toDataURL(enrolment.otpauthUri, { margin: 1, width: 200 }).then(
+    QRCode.toDataURL(enrolment.otpauthUri, { margin: 2, width: 200 }).then(
       (url) => live && setQr(url),
       () => {},
     );
@@ -105,40 +105,41 @@ export default function StaffLogin() {
   };
 
   const errorLine = error && (
-    <p id="staff-login-error" role="alert" className="mb-3 text-center text-xs text-red-400">{error}</p>
+    <p id="staff-login-error" role="alert" className="text-red-400 text-xs text-center">{error}</p>
   );
+  const checking = <><Loader2 className="w-5 h-5 animate-spin" /> Checking…</>;
 
   if (step === 'codes') {
     return (
-      <StaffShell title="Save your recovery codes" subtitle="Each works once if you lose your phone. They won't be shown again.">
-        <ul id="staff-recovery-codes" tabIndex={-1} aria-label="Recovery codes" className="mb-4 grid grid-cols-2 gap-2 font-mono text-sm outline-none">
-          {recovery.codes.map((c) => <li key={c} className="rounded-lg bg-white/5 px-2 py-1.5 text-center">{c}</li>)}
-        </ul>
-        <button
-          type="button"
-          onClick={() => navigator.clipboard?.writeText(recovery.codes.join('\n')).then(() => setCopied('Copied'), () => setCopied('Copy failed — write them down'))}
-          className="dz-control mb-3 w-full justify-center gap-2"
-        >
-          <Copy className="h-4 w-4" /> <span aria-live="polite">{copied || 'Copy codes'}</span>
-        </button>
-        <button type="button" onClick={() => navigate(safeNext(recovery.user), { replace: true })} className="dz-control dz-control--action w-full justify-center gap-2">
-          I've saved them — continue
-        </button>
+      <StaffShell icon={KeyRound} title="Save your recovery codes" subtitle="Each works once if you lose your phone. They won't be shown again.">
+        <div className="space-y-5">
+          <ul id="staff-recovery-codes" tabIndex={-1} aria-label="Recovery codes" className="grid grid-cols-2 gap-2 font-mono text-sm text-teal-100 outline-none">
+            {recovery.codes.map((c) => <li key={c} className="rounded-lg bg-white/[.05] px-2 py-2 text-center tracking-wider">{c}</li>)}
+          </ul>
+          <button
+            type="button"
+            onClick={() => navigator.clipboard?.writeText(recovery.codes.join('\n')).then(() => setCopied('Copied'), () => setCopied('Copy failed — write them down'))}
+            className="send-otp-btn w-full py-3 rounded-xl text-teal-400 font-semibold text-sm flex items-center justify-center gap-2"
+          >
+            <Copy className="w-4 h-4" /> <span aria-live="polite">{copied || 'Copy codes'}</span>
+          </button>
+          <button type="button" onClick={() => navigate(safeNext(recovery.user), { replace: true })} className={STAFF_SUBMIT}>
+            I've saved them — continue <ArrowRight className="w-4 h-4" />
+          </button>
+        </div>
       </StaffShell>
     );
   }
 
   if (step === 'password') {
     return (
-      <StaffShell title="Sign in to your workspace" subtitle="Admin & service-team access only.">
-        <form onSubmit={submitPassword} noValidate>
-          <label htmlFor="staff-email" className="mb-2 block text-xs font-semibold text-gray-300">Work email</label>
-          <input id="staff-email" type="email" autoComplete="username" value={email} onChange={(e) => setEmail(e.target.value)} className={STAFF_FIELD + ' mb-4'} />
-          <label htmlFor="staff-password" className="mb-2 block text-xs font-semibold text-gray-300">Password</label>
-          <input id="staff-password" type="password" autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} className={STAFF_FIELD + ' mb-4'} />
+      <StaffShell icon={Building2} title="Sign in to your workspace" subtitle="Use your work email and password.">
+        <form key="password" onSubmit={submitPassword} className="space-y-5" noValidate>
+          <StaffField id="staff-email" label="Work email" icon={Mail} type="email" autoComplete="username" autoFocus enterKeyHint="next" placeholder="you@company.com" value={email} onChange={(e) => setEmail(e.target.value)} />
+          <StaffField id="staff-password" label="Password" icon={Lock} type="password" autoComplete="current-password" enterKeyHint="go" placeholder="Your password" value={password} onChange={(e) => setPassword(e.target.value)} />
           {errorLine}
-          <button type="submit" disabled={busy} className="dz-control dz-control--action w-full justify-center gap-2 disabled:cursor-not-allowed disabled:opacity-50">
-            <LogIn className="h-4 w-4" /> {busy ? 'Checking…' : 'Continue'}
+          <button type="submit" disabled={busy} className={STAFF_SUBMIT}>
+            {busy ? checking : <>Continue <ArrowRight className="w-4 h-4" /></>}
           </button>
         </form>
       </StaffShell>
@@ -148,32 +149,35 @@ export default function StaffLogin() {
   const enrolling = step === 'enrol';
   return (
     <StaffShell
+      icon={enrolling ? QrCode : ShieldCheck}
       title={enrolling ? 'Set up your authenticator' : 'Enter your code'}
       subtitle={enrolling ? 'Scan with Google Authenticator, Microsoft Authenticator or similar.' : 'From your authenticator app, or a recovery code.'}
     >
-      <form onSubmit={submitCode} noValidate>
+      <form key="code" onSubmit={submitCode} className="space-y-5" noValidate>
         {enrolling && (
-          <div className="mb-4 flex flex-col items-center gap-2">
-            {qr && <img src={qr} alt="Authenticator QR code" width="200" height="200" className="rounded-lg bg-white p-1" />}
-            <code id="staff-totp-secret" className="break-all text-center text-xs text-gray-400">{enrolment?.secret}</code>
+          <div className="flex flex-col items-center gap-3">
+            {qr && <img src={qr} alt="Authenticator QR code" width="176" height="176" className="rounded-2xl shadow-lg shadow-teal-500/20" />}
+            <p className="text-xs text-gray-500">Can't scan? Enter this key in the app</p>
+            <code id="staff-totp-secret" className="max-w-full break-all rounded-lg bg-white/[.05] px-3 py-2 text-center font-mono text-xs tracking-wider text-teal-100 select-all">{enrolment?.secret}</code>
           </div>
         )}
-        <label htmlFor="staff-code" className="mb-2 block text-xs font-semibold text-gray-300">
-          {enrolling ? '6-digit code from the app' : 'Code'}
-        </label>
-        <input
+        <StaffField
           id="staff-code"
+          label={enrolling ? '6-digit code from the app' : 'Code'}
           autoComplete="one-time-code"
+          autoFocus={!enrolling}
           inputMode={enrolling ? 'numeric' : 'text'}
           autoCapitalize="off"
+          enterKeyHint="done"
           maxLength={32}
+          placeholder={enrolling ? '000000' : '000000 or recovery code'}
           value={code}
           onChange={(e) => setCode(e.target.value)}
-          className={STAFF_FIELD + ' mb-4 text-center tracking-widest'}
+          className="text-center font-mono text-lg tracking-[0.3em] placeholder:tracking-normal placeholder:text-sm placeholder:font-sans"
         />
         {errorLine}
-        <button type="submit" disabled={busy} className="dz-control dz-control--action w-full justify-center gap-2 disabled:cursor-not-allowed disabled:opacity-50">
-          <ShieldCheck className="h-4 w-4" /> {busy ? 'Checking…' : enrolling ? 'Confirm & sign in' : 'Sign in'}
+        <button type="submit" disabled={busy} className={STAFF_SUBMIT}>
+          {busy ? checking : <>{enrolling ? 'Confirm & sign in' : 'Sign in'} <ArrowRight className="w-4 h-4" /></>}
         </button>
       </form>
     </StaffShell>

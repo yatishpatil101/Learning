@@ -6,6 +6,7 @@ import {
   revokeIdentityReview,
 } from '../../../services/identityReviewService.js';
 import { classNames } from '../../../lib/format.js';
+import DateField from '../../../components/ui/DateField.jsx';
 import {
   NOTE_REQUIRED_REASONS,
   STAFF_REASONS,
@@ -98,7 +99,6 @@ export default function KycActionRail({ detail, kase, user, canWrite, checklistL
     <div className="space-y-3">
       {claimNotice ? <div role="alert" className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-100">{claimNotice}</div> : null}
       {error ? <div role="alert" data-testid="ops-identity-decision-error" className="rounded-xl border border-rose-500/30 bg-rose-500/10 px-4 py-3 text-sm text-rose-200">{error}</div> : null}
-      {!canWrite ? <Note>You can view this case, but identity:write is required to decide it.</Note> : null}
       {canWrite && isOwnCase ? <Note>You cannot decide your own identity case.</Note> : null}
 
       {pending && claimBlocked ? (
@@ -154,7 +154,11 @@ export default function KycActionRail({ detail, kase, user, canWrite, checklistL
               </label>
               {approval.yearOnly
                 ? <Input data-testid="ops-identity-birth-year" label="Birth year" inputMode="numeric" maxLength={4} value={approval.birthYear} onChange={(v) => setApproval((a) => ({ ...a, birthYear: v.replace(/\D/g, '').slice(0, 4) }))} />
-                : <Input label="Date of birth" type="date" value={approval.dob} onChange={(dob) => setApproval((a) => ({ ...a, dob }))} />}
+                : (
+                  <div className="block text-sm text-gray-300">Date of birth
+                    <DateField value={approval.dob} min="1900-01-01" max={new Date().toISOString().slice(0, 10)} onChange={(dob) => setApproval((a) => ({ ...a, dob }))} ariaLabel="Date of birth" className={fieldClass} />
+                  </div>
+                )}
               {checklistLeft > 0 || !poseReady ? (
                 <p className="text-xs text-amber-300" data-testid="ops-identity-approve-hint">
                   {checklistLeft > 0 ? `Tick ${checklistLeft} more check${checklistLeft === 1 ? '' : 's'}` : 'Confirm the selfie pose'} to approve.
@@ -189,7 +193,7 @@ export default function KycActionRail({ detail, kase, user, canWrite, checklistL
             <Field label={detail.holderDobYearOnly ? 'Birth year' : 'Date of birth'} value={detail.holderDobYearOnly ? (detail.holderDob?.slice(0, 4) || '—') : (detail.holderDob || '—')} />
           </dl>
           {!canQaAct ? (
-            <Note className="mt-3">{isQaApprover ? 'You approved this — another reviewer must check it.' : isOwnCase ? 'You cannot QA your own identity case.' : 'identity:write is required to complete QA.'}</Note>
+            <Note className="mt-3">{isQaApprover ? 'You approved this — another reviewer must check it.' : 'You cannot QA your own identity case.'}</Note>
           ) : (
             <div className="mt-4 space-y-3">
               <button type="button" onClick={confirmQa} disabled={deciding} className="dz-btn dz-btn-success w-full">{deciding ? 'Saving…' : 'Confirm'}</button>

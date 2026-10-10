@@ -166,7 +166,6 @@ class AccountPermissionsGuardTest extends AbstractApiTest {
                         BackOfficePermissions.DASHBOARD_READ,
                         BackOfficePermissions.TICKETS_READ,
                         BackOfficePermissions.TICKETS_WRITE,
-                        BackOfficePermissions.ENQUIRIES_READ,
                         BackOfficePermissions.NOTES_READ,
                         BackOfficePermissions.NOTES_WRITE,
                         BackOfficePermissions.SERVICES_READ,
@@ -187,13 +186,13 @@ class AccountPermissionsGuardTest extends AbstractApiTest {
     }
 
 
-    /** The console's own keys ({@code enquiries}, {@code properties:verify}) are unmapped and grant nothing. */
+    /** The console's own keys ({@code kycReview}, {@code properties:verify}) are unmapped and grant nothing. */
     @Test
     @DisplayName("names the server does not enforce grant nothing, including the console's own")
     void unknownNamesGrantNothing() throws Exception {
         User scoped = save("9866020010", Roles.Wire.STAFF, Teams.RENTAL);
         scope(scoped.getId(), """
-                ["enquiries", "content", "properties:verify", "dashboard", "tickets"]""");
+                ["kycReview", "content", "properties:verify", "dashboard", "tickets"]""");
 
         assertThat(status(Routes.Admin.ANALYTICS_TRAFFIC, bearer(scoped))).isEqualTo(403);
         assertThat(status(Routes.Tickets.BASE, bearer(scoped))).isEqualTo(403);

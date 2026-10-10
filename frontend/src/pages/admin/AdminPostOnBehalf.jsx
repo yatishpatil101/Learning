@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router';
-import { ArrowLeft, ArrowRight, Check, CheckCircle2, Send } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Check, CheckCircle2, MessageCircle, Send } from 'lucide-react';
 import { createListingOnBehalf, ownerListingStanding } from '../../services/propertyService.js';
+import { chaseOwner, markOutreachSent } from '../../services/outreachService.js';
 import { addNote } from '../../services/noteService.js';
 import { classNames, parseAmount } from '../../lib/format.js';
 import { useToast } from '../../context/ToastContext.jsx';
@@ -30,7 +31,8 @@ export default function AdminPostOnBehalf() {
   const [submitting, setSubmitting] = useState(false);
   const [localityBusy, setLocalityBusy] = useState(false);
   const [success, setSuccess] = useState(false);
-  const [createdId, setCreatedId] = useState(null);
+  const [createdListing, setCreatedListing] = useState(null);
+  const [claimMessage, setClaimMessage] = useState(null);
   const [form, setForm] = useState(INITIAL_FORM);
   const [draft, setDraft] = useState(() => loadDraft());
   const [restored, setRestored] = useState(false);
@@ -178,7 +180,8 @@ export default function AdminPostOnBehalf() {
       const created = await createListingOnBehalf(form.ownerMobile, form.ownerName, listing);
       /* No client-side audit write: `OnBehalfListingService` records both rows itself, naming the
          staff member from their token, and the Staff Activity console reads those. */
-      setCreatedId(created.id);
+      setCreatedListing(created);
+      setClaimMessage(null);
       setSuccess(true);
       clearDraft();
       toast('Listing created \u2014 send the owner their claim link', 'success');
@@ -198,16 +201,53 @@ export default function AdminPostOnBehalf() {
     }
   }
 
+  // Opened synchronously inside the click so popup blockers allow it; navigated once the server records the message.
+  const sendClaimLink = async () => {
+    const handoff = window.open('', '_blank');
+    try {
+      const prepared = await chaseOwner(createdListing.uuid || createdListing.id, 'wa-onboard');
+      if (handoff) handoff.location = prepared.handoffLink;
+      setClaimMessage({ id: prepared.id, sent: false });
+    } catch (err) {
+      if (handoff) handoff.close();
+      toast(err?.message || 'Could not prepare the claim link', 'error');
+    }
+  };
+
+  const confirmClaimSent = async () => {
+    try {
+      await markOutreachSent(createdListing.uuid || createdListing.id, claimMessage.id);
+      setClaimMessage({ ...claimMessage, sent: true });
+    } catch (err) {
+      toast(err?.message || 'Could not mark the claim link as sent', 'error');
+    }
+  };
+
   if (success) {
     return (
       <div className="flex flex-col items-center justify-center py-20 text-center">
         <div className="mb-6 flex h-20 w-20 items-center justify-center rounded-full bg-teal-500/15"><CheckCircle2 className="h-10 w-10 text-teal-400" /></div>
-        <h2 className="text-2xl font-bold mb-2">Listing Sent to Owner</h2>
-        <p className="text-gray-400 mb-2 max-w-md">Saved under <span className="text-white font-medium">{form.ownerName}</span> (+91 {form.ownerMobile}). Send them the claim link on WhatsApp from Properties → Staff Posted; the listing can go live once they confirm it&apos;s theirs.</p>
-        <p className="text-sm text-gray-500 mb-8">Listing ID: {createdId}</p>
-        <div className="flex gap-3">
+        <h2 className="text-2xl font-bold mb-2">Listing created</h2>
+        <p className="text-gray-400 mb-2 max-w-md">Saved under <span className="text-white font-medium">{form.ownerName}</span> (+91 {form.ownerMobile}). It goes live once they open the claim link and confirm it&apos;s theirs.</p>
+        <p className="text-sm text-gray-500 mb-6">Listing ID: {createdListing?.id}</p>
+        <div className="mb-8">
+          {!claimMessage && (
+            <button onClick={sendClaimLink} className="inline-flex items-center gap-2 rounded-xl bg-emerald-500 px-5 py-2.5 text-sm font-semibold text-ink hover:bg-emerald-400 transition">
+              <MessageCircle className="h-4 w-4" /> Send claim link on WhatsApp
+            </button>
+          )}
+          {claimMessage && !claimMessage.sent && (
+            <button onClick={confirmClaimSent} className="inline-flex items-center gap-2 rounded-xl bg-emerald-500 px-5 py-2.5 text-sm font-semibold text-ink hover:bg-emerald-400 transition">
+              <Check className="h-4 w-4" /> I&apos;ve sent it
+            </button>
+          )}
+          {claimMessage?.sent && (
+            <p role="status" className="inline-flex items-center gap-2 text-sm font-medium text-emerald-300"><Check className="h-4 w-4" /> Claim link sent</p>
+          )}
+        </div>
+        <div className="flex flex-wrap justify-center gap-3">
           <button onClick={() => navigate('/admin/properties')} className="rounded-xl border border-white/10 bg-white/5 px-5 py-2.5 text-sm font-medium hover:bg-white/10 transition">View All Properties</button>
-          <button onClick={() => { setSuccess(false); setStep(1); setForm(INITIAL_FORM); setRestored(false); }} className="rounded-xl bg-teal-500 px-5 py-2.5 text-sm font-semibold text-ink hover:bg-teal-400 transition">Post Another</button>
+          <button onClick={() => { setSuccess(false); setStep(1); setForm(INITIAL_FORM); setRestored(false); setClaimMessage(null); }} className="rounded-xl bg-teal-500 px-5 py-2.5 text-sm font-semibold text-ink hover:bg-teal-400 transition">Post Another</button>
         </div>
       </div>
     );

@@ -14,6 +14,7 @@ import lombok.Getter;
 public class OutboundMessage {
 
     public static final String PREPARED = "prepared";
+    public static final String SENT = "sent";
 
     @jakarta.persistence.Id
     @jakarta.persistence.GeneratedValue
@@ -77,5 +78,12 @@ public class OutboundMessage {
         this.recipientMobile = recipientMobile;
         this.body = body;
         this.preparedBy = preparedBy;
+    }
+
+    public void markSent() {
+        if (sentAt == null) {
+            status = SENT;
+            sentAt = Instant.now();
+        }
     }
 }

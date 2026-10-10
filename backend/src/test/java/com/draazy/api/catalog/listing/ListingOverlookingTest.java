@@ -67,9 +67,7 @@ class ListingOverlookingTest extends AbstractApiTest {
         mvc.perform(patch("/me/listings/" + id).header("Authorization", authorization)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"overlooking\":\"" + overlooking + "\"}"))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.overlooking").value(overlooking))
-                .andExpect(jsonPath("$.facing").value("East"));
+                .andExpect(status().isOk());
 
         assertStored(id, overlooking, "East");
         mvc.perform(get("/me/listings/" + id).header("Authorization", authorization))
@@ -96,9 +94,7 @@ class ListingOverlookingTest extends AbstractApiTest {
 
         mvc.perform(patch("/me/listings/" + id).header("Authorization", authorization)
                         .contentType(MediaType.APPLICATION_JSON).content(body))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.overlooking").value("Garden"))
-                .andExpect(jsonPath("$.facing").value("West"));
+                .andExpect(status().isOk());
 
         assertStored(id, "Garden", "West");
     }

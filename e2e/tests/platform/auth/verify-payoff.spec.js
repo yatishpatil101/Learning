@@ -70,5 +70,6 @@ test('a listing posted by an unverified owner is born unverified', async ({ page
   });
 
   expect(res.status).toBe(201);
-  expect((await res.json()).ownerVerified).toBe(false);
+  const stored = await fetch(`${API}/me/listings/${(await res.json()).id}`, { headers });
+  expect((await stored.json()).ownerVerified).toBe(false);
 });

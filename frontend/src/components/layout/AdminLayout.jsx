@@ -13,14 +13,14 @@ import { useAuth } from '../../context/AuthContext.jsx';
 import { roleLabel } from '../../lib/auth.js';
 import { setAppPrefs } from '../../lib/localPrefs.js';
 import { useIsLightTheme } from '../../lib/themeColour.js';
-import { ADMIN_MODULES, canAccessModule, hasPermission, portalBase, portalPath } from '../../lib/adminModules.js';
+import { ADMIN_MODULES, canAccessModule, hasPermission, moduleForPath, portalBase, portalPath, runbooksFor } from '../../lib/adminModules.js';
+import { useHelpTree } from '../../lib/useHelp.js';
 import { AdminFlagsProvider, useAdminFlags } from '../../context/AdminFlagsContext.jsx';
 import AdminTopbarTools from './AdminTopbarTools.jsx';
 
 export default function AdminLayout() {
-  const { user } = useAuth();
   return (
-    <AdminFlagsProvider read={hasPermission(user, 'settings:read')}>
+    <AdminFlagsProvider>
       <AdminLayoutInner />
     </AdminFlagsProvider>
   );
@@ -38,6 +38,10 @@ function AdminLayoutInner() {
   const navigate = useNavigate();
   const { pathname } = useLocation();
   const light = useIsLightTheme();
+  const { articles } = useHelpTree();
+  const pageModule = moduleForPath(pathname)?.key;
+  const pageRunbook = pageModule && runbooksFor(articles, user).find((a) => a.modules?.includes(pageModule));
+  const runbookHref = portalPath(user, pageRunbook ? `/admin/runbooks/${pageRunbook.slug}` : '/admin/runbooks');
 
   const doLogout = () => {
     logout();
@@ -133,7 +137,7 @@ function AdminLayoutInner() {
             {/* New tab so checking an SLA mid-queue doesn't lose the
                 queue; AdminTopbarTools is flex-1, so no margin here. */}
             <a
-              href="/help/c/ops-playbook"
+              href={runbookHref}
               target="_blank"
               rel="noopener noreferrer"
               title={t('help.runbooks')}

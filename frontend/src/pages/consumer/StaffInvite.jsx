@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router';
-import { KeyRound } from 'lucide-react';
+import { ArrowRight, CheckCircle2, KeyRound, Loader2, Lock, Ticket } from 'lucide-react';
 import { redeemStaffInvite } from '../../services/authService.js';
-import StaffShell, { STAFF_FIELD } from '../../components/auth/StaffShell.jsx';
+import StaffShell, { StaffField, STAFF_SUBMIT } from '../../components/auth/StaffShell.jsx';
 
 /* A new colleague turns their invite into a password. The token may arrive in the URL fragment,
    which never reaches a server log, or be pasted from the message it came in. */
@@ -37,24 +37,21 @@ export default function StaffInvite() {
 
   if (done) {
     return (
-      <StaffShell title="Password set" subtitle="Sign in next — you'll set up your authenticator app.">
-        <Link to="/staff-login" className="dz-control dz-control--action w-full justify-center">Go to sign-in</Link>
+      <StaffShell icon={CheckCircle2} title="Password set" subtitle="Sign in next — you'll set up your authenticator app.">
+        <Link to="/staff-login" className={STAFF_SUBMIT}>Go to sign-in <ArrowRight className="w-4 h-4" /></Link>
       </StaffShell>
     );
   }
 
   return (
-    <StaffShell title="Set your password" subtitle="Choose a password for your Draazy staff account.">
-      <form onSubmit={submit} noValidate>
-        <label htmlFor="invite-token" className="mb-2 block text-xs font-semibold text-gray-300">Invite code</label>
-        <input id="invite-token" autoComplete="off" autoCapitalize="off" value={token} onChange={(e) => setToken(e.target.value)} className={STAFF_FIELD + ' mb-4'} />
-        <label htmlFor="invite-password" className="mb-2 block text-xs font-semibold text-gray-300">New password · 12+ characters</label>
-        <input id="invite-password" type="password" autoComplete="new-password" value={password} onChange={(e) => setPassword(e.target.value)} className={STAFF_FIELD + ' mb-4'} />
-        <label htmlFor="invite-repeat" className="mb-2 block text-xs font-semibold text-gray-300">Repeat password</label>
-        <input id="invite-repeat" type="password" autoComplete="new-password" value={repeat} onChange={(e) => setRepeat(e.target.value)} className={STAFF_FIELD + ' mb-4'} />
-        {error && <p id="staff-invite-error" role="alert" className="mb-3 text-center text-xs text-red-400">{error}</p>}
-        <button type="submit" disabled={busy} className="dz-control dz-control--action w-full justify-center gap-2 disabled:cursor-not-allowed disabled:opacity-50">
-          <KeyRound className="h-4 w-4" /> {busy ? 'Saving…' : 'Set password'}
+    <StaffShell icon={KeyRound} title="Set your password" subtitle="Choose a password for your Draazy staff account.">
+      <form onSubmit={submit} className="space-y-5" noValidate>
+        <StaffField id="invite-token" label="Invite code" icon={Ticket} autoComplete="off" autoCapitalize="off" placeholder="Paste the code you were sent" value={token} onChange={(e) => setToken(e.target.value)} />
+        <StaffField id="invite-password" label="New password · 12+ characters" icon={Lock} type="password" autoComplete="new-password" value={password} onChange={(e) => setPassword(e.target.value)} />
+        <StaffField id="invite-repeat" label="Repeat password" icon={Lock} type="password" autoComplete="new-password" enterKeyHint="done" value={repeat} onChange={(e) => setRepeat(e.target.value)} />
+        {error && <p id="staff-invite-error" role="alert" className="text-red-400 text-xs text-center">{error}</p>}
+        <button type="submit" disabled={busy} className={STAFF_SUBMIT}>
+          {busy ? <><Loader2 className="w-5 h-5 animate-spin" /> Saving…</> : <>Set password <ArrowRight className="w-4 h-4" /></>}
         </button>
       </form>
     </StaffShell>

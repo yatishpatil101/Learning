@@ -5,6 +5,9 @@ const provider = createProvider('team');
 /** Every internal account, live and suspended, in console shape. */
 export const listTeamMembers = async (...args) => (await provider()).listTeamMembers(...args);
 
+/** Active back-office accounts as { id, name, desks } for an assignee picker; no contact details. */
+export const listAssignees = async () => (await provider()).listAssignees();
+
 /** Creates return `{ member, inviteUrl }`; edits return the member. */
 export const saveTeamMember = async (...args) => (await provider()).saveTeamMember(...args);
 

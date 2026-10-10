@@ -10,12 +10,12 @@ test('the auth panels are city-aware, and honest about cities we have not launch
     await page.goto(path);
   };
 
-  await test.step('Pune shows the canonical stats the home page shows', async () => {
+  await test.step('Pune shows the launch facts the home page shows, and no invented counts', async () => {
     await inCity('Pune', '/signin');
     await expect(page.getByRole('heading', { name: /Find Your Perfect.*in Pune/i })).toBeVisible();
-    await expect(page.getByText('11,240+')).toBeVisible();
-    // The old hand-written 150+ must not creep back; the figures have one source.
-    await expect(page.getByText('150+')).toHaveCount(0);
+    await expect(page.getByText('Pune locality guides')).toBeVisible();
+    await expect(page.getByText('11,240+')).toHaveCount(0);
+    await expect(page.getByText('Ravi Patil')).toHaveCount(0);
   });
 
   await test.step('a city we have not launched in says so, and borrows no numbers', async () => {
@@ -23,7 +23,7 @@ test('the auth panels are city-aware, and honest about cities we have not launch
     await expect(page.getByRole('heading', { name: /Find Your Perfect.*in Mumbai/i })).toBeVisible();
     await expect(page.getByText(/launching in Mumbai soon/i)).toBeVisible();
     // The important half.
-    await expect(page.getByText('11,240+')).toHaveCount(0);
+    await expect(page.getByText('Pune locality guides')).toHaveCount(0);
   });
 
   await test.step('sign-up reflects the active city too', async () => {

@@ -226,7 +226,8 @@ class ListingFoundationTest extends AbstractApiTest {
                 .andExpect(jsonPath("$.status").value("approved"))
                 .andExpect(jsonPath("$.recheckPending").value(true))
                 .andExpect(jsonPath("$.recheckReason").value(field))
-                .andExpect(jsonPath("$.resubmittedAt").exists());
+                .andExpect(jsonPath("$.recheckRequestedAt").exists());
+        storedListing(o, p.getId()).andExpect(jsonPath("$.resubmittedAt").exists());
     }
 
     @Test
@@ -415,7 +416,8 @@ class ListingFoundationTest extends AbstractApiTest {
                         .header(HttpHeaders.AUTHORIZATION, bearer(o))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"possession\":\"ready-to-move\"}"))
-                .andExpect(status().isOk())
+                .andExpect(status().isOk());
+        storedListing(o, p.getId())
                 .andExpect(jsonPath("$.availableDate").doesNotExist())
                 .andExpect(jsonPath("$.formDetails.availableFrom").doesNotExist())
                 .andExpect(jsonPath("$.formDetails.ownership").value("Freehold"));
@@ -506,7 +508,8 @@ class ListingFoundationTest extends AbstractApiTest {
                         .header(HttpHeaders.AUTHORIZATION, bearer(plottedOwner))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"formDetails\":{\"plottedProject\":\"yes\"}}"))
-                .andExpect(status().isOk())
+                .andExpect(status().isOk());
+        storedListing(plottedOwner, plotted.getId())
                 .andExpect(jsonPath("$.formDetails.plottedProject").value("yes"));
     }
 
@@ -550,8 +553,8 @@ class ListingFoundationTest extends AbstractApiTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("approved"))
                 .andExpect(jsonPath("$.recheckPending").value(true))
-                .andExpect(jsonPath("$.recheckReason").value("societyId"))
-                .andExpect(jsonPath("$.ownershipVerified").value(false));
+                .andExpect(jsonPath("$.recheckReason").value("societyId"));
+        storedListing(societyOwner, societyListing.getId()).andExpect(jsonPath("$.ownershipVerified").value(false));
 
         User meterOwner = owner("9876541122");
         Property meterListing = approvedListing(meterOwner);
@@ -566,8 +569,8 @@ class ListingFoundationTest extends AbstractApiTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("approved"))
                 .andExpect(jsonPath("$.recheckPending").value(true))
-                .andExpect(jsonPath("$.recheckReason").value("electricityMeterNo"))
-                .andExpect(jsonPath("$.ownershipVerified").value(false));
+                .andExpect(jsonPath("$.recheckReason").value("electricityMeterNo"));
+        storedListing(meterOwner, meterListing.getId()).andExpect(jsonPath("$.ownershipVerified").value(false));
     }
 
     @Test
@@ -584,8 +587,8 @@ class ListingFoundationTest extends AbstractApiTest {
                         .content("{\"address\":\"Flat 902, C Wing\"}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.recheckPending").value(true))
-                .andExpect(jsonPath("$.recheckReason").value("address"))
-                .andExpect(jsonPath("$.ownershipVerified").value(false));
+                .andExpect(jsonPath("$.recheckReason").value("address"));
+        storedListing(o, p.getId()).andExpect(jsonPath("$.ownershipVerified").value(false));
 
         User ordinaryOwner = owner("9876541124");
         Property ordinary = approvedListing(ordinaryOwner);

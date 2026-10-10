@@ -2,13 +2,13 @@ import { History } from 'lucide-react';
 import { fmtAgo } from '../constants.js';
 
 /** `entry.by` is optional, so the separator is rendered with it instead of leaving stray punctuation. */
-export default function CommunicationLog({ commsOpen, setCommsOpen, commsLog }) {
+export default function CommunicationLog({ commsOpen, setCommsOpen, commsLog, loaded = true, onMarkSent }) {
   return (
     <div className="px-4 py-3">
       <button type="button" aria-expanded={commsOpen} onClick={() => setCommsOpen(!commsOpen)} className="flex w-full items-center justify-between text-sm font-semibold text-gray-200">
         <span className="flex items-center gap-2">
           <History className="h-4 w-4 text-indigo-400" /> Communication log
-          <span className="rounded-full bg-indigo-500/15 px-2 py-0.5 text-[10px] font-semibold text-indigo-300">{commsLog.length}</span>
+          {loaded ? <span className="rounded-full bg-indigo-500/15 px-2 py-0.5 text-[10px] font-semibold text-indigo-300">{commsLog.length}</span> : null}
         </span>
         <span className="text-xs font-medium text-teal-300">{commsOpen ? 'Hide' : 'Show timeline'}</span>
       </button>
@@ -30,13 +30,16 @@ export default function CommunicationLog({ commsOpen, setCommsOpen, commsLog }) 
                           <span>{fmtAgo(entry.at)}</span>
                         </div>
                       </div>
+                      {entry.markable && onMarkSent ? (
+                        <button type="button" onClick={() => onMarkSent(entry.id)} className="shrink-0 rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-1 text-[11px] font-semibold text-emerald-300 hover:bg-emerald-500/20 transition">Mark sent</button>
+                      ) : null}
                     </div>
                   </div>
                 );
               })}
             </div>
           ) : (
-            <div className="py-4 text-center text-sm text-gray-500">No communication history yet.</div>
+            <div className="py-4 text-center text-sm text-gray-500">{loaded ? 'No communication history yet.' : 'Loading history…'}</div>
           )}
         </div>
       )}

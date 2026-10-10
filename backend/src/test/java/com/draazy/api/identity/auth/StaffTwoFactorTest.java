@@ -109,6 +109,12 @@ class StaffTwoFactorTest extends AbstractApiTest {
         JsonNode body = read(confirmed);
         assertThat(body.get("accessToken").asText()).isNotBlank();
         assertThat(body.get("recoveryCodes")).hasSize(10);
+        JsonNode user = body.get("user");
+        assertThat(user.get("role").asText()).isEqualTo("staff");
+        assertThat(user.get("permissions").isArray()).isTrue();
+        assertThat(user.fieldNames()).toIterable()
+                .doesNotContain("verified", "city", "hideNumber", "listingsCount", "verifiedContactOnly")
+                .contains("id", "role", "permissions", "desks");
         assertThat(confirmed.getHeader(HttpHeaders.SET_COOKIE)).isNotBlank();
         assertThat(StaffSignIn.password(mvc, "first@example.com", PASSWORD).get("mfa").asText())
                 .isEqualTo("totp");

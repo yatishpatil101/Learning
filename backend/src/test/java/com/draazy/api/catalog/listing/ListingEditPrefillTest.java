@@ -121,9 +121,10 @@ class ListingEditPrefillTest extends AbstractApiTest {
         UUID id = create();
         mvc.perform(patch("/me/listings/" + id).header("Authorization", auth)
                         .contentType(MediaType.APPLICATION_JSON).content("{\"clearMaintenance\":true}"))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.maintenance").doesNotExist());
+                .andExpect(status().isOk());
         em.flush();
+        mvc.perform(get("/me/listings/" + id).header("Authorization", auth))
+                .andExpect(jsonPath("$.maintenance").doesNotExist());
         jdbc.update("update properties set status = 'approved' where id = ?", id);
         em.clear();
         mvc.perform(get("/properties/" + id)).andExpect(status().isOk())
@@ -135,7 +136,8 @@ class ListingEditPrefillTest extends AbstractApiTest {
         UUID id = create();
         mvc.perform(patch("/me/listings/" + id).header("Authorization", auth)
                         .contentType(MediaType.APPLICATION_JSON).content("{\"address\":\"Corrected address\"}"))
-                .andExpect(status().isOk())
+                .andExpect(status().isOk());
+        mvc.perform(get("/me/listings/" + id).header("Authorization", auth))
                 .andExpect(jsonPath("$.formDetails.flatNumber").doesNotExist())
                 .andExpect(jsonPath("$.formDetails.loanAvailable").value(false));
     }

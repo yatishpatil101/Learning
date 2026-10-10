@@ -142,7 +142,30 @@ class OwnerOutreachTest extends AbstractApiTest {
 
         String body = JsonPath.read(chase(staff, p, "wa-pricing", 200), "$.body");
 
-        assertThat(body).contains("11000").doesNotContain("{market_rate}");
+        assertThat(body).contains("\u20b911,000/sqft").contains("\u20b927,000").doesNotContain("{market_rate}");
+    }
+
+    @Test
+    @DisplayName("every served template renders with nothing left in braces when the listing has full context")
+    void everyTemplateResolves() throws Exception {
+        User owner = user("9853000019", "owner", "Vikas Patil");
+        User staff = user("9853000020", "staff", "Sweep Desk");
+        Property p = listing(owner, true, staff.getId().toString());
+        p.setLocalitySlug("kothrud");
+        properties.saveAndFlush(p);
+        saleFlat(owner, "kothrud", 10_000_000L);
+        saleFlat(owner, "kothrud", 11_000_000L);
+        saleFlat(owner, "kothrud", 12_000_000L);
+
+        List<String> ids = JsonPath.read(mvc.perform(get("/admin/message-templates")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(staff)))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString(), "$[*].id");
+
+        assertThat(ids).isNotEmpty();
+        for (String template : ids) {
+            String body = JsonPath.read(chase(staff, p, template, 200), "$.body");
+            assertThat(body).describedAs(template).doesNotContainPattern("\\{[a-z_]+\\}");
+        }
     }
 
     @Test

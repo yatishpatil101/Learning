@@ -58,11 +58,21 @@ public final class BackOfficePermissions {
     // Separate from `#NOTES_READ`: more people read a case than add to it.
     public static final String NOTES_WRITE = "notes:write";
 
-    // Admin only and separate from `#REPORTS_READ`.
-    // Rationale: docs/system/cross-cutting.md#back-office-permissions.
     public static final String FLATMATES_READ = "flatmates:read";
 
     public static final String FLATMATES_WRITE = "flatmates:write";
+
+    public static final String REFERRALS_READ = "referrals:read";
+
+    public static final String REFERRALS_WRITE = "referrals:write";
+
+    public static final String REVIEWS_READ = "reviews:read";
+
+    public static final String REVIEWS_WRITE = "reviews:write";
+
+    public static final String LOCALITIES_READ = "localities:read";
+
+    public static final String LOCALITIES_WRITE = "localities:write";
 
     public static final String PROPERTIES_READ = "properties:read";
 
@@ -127,6 +137,12 @@ public final class BackOfficePermissions {
             ops("notes", WRITE),
             ops("flatmates", READ),
             ops("flatmates", WRITE),
+            ops("referrals", READ),
+            ops("referrals", WRITE),
+            ops("reviews", READ),
+            ops("reviews", WRITE),
+            ops("localities", READ),
+            ops("localities", WRITE),
             adminOnly("audit", READ),
             adminOnly("settings", READ),
             adminOnly("settings", WRITE));
@@ -227,6 +243,18 @@ public final class BackOfficePermissions {
     public static final String REQUIRE_FLATMATES_READ = CALL + FLATMATES_READ + "')";
 
     public static final String REQUIRE_FLATMATES_WRITE = CALL + FLATMATES_WRITE + "')";
+
+    public static final String REQUIRE_REFERRALS_READ = CALL + REFERRALS_READ + "')";
+
+    public static final String REQUIRE_REFERRALS_WRITE = CALL + REFERRALS_WRITE + "')";
+
+    public static final String REQUIRE_REVIEWS_READ = CALL + REVIEWS_READ + "')";
+
+    public static final String REQUIRE_REVIEWS_WRITE = CALL + REVIEWS_WRITE + "')";
+
+    public static final String REQUIRE_LOCALITIES_READ = CALL + LOCALITIES_READ + "')";
+
+    public static final String REQUIRE_LOCALITIES_WRITE = CALL + LOCALITIES_WRITE + "')";
 
     public static final String REQUIRE_PROPERTIES_READ = CALL + PROPERTIES_READ + "')";
 

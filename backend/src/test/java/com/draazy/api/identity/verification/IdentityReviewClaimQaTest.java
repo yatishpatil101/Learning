@@ -5,6 +5,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -164,7 +165,7 @@ class IdentityReviewClaimQaTest extends AbstractApiTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.claimedByName").value("Ops Admin A"))
                 .andExpect(jsonPath("$.claimedByMe").value(true))
-                .andExpect(jsonPath("$.claimedAt").exists());
+                .andExpect(jsonPath("$.length()").value(2));
         Instant claimedAt = verifications.findById(id).orElseThrow().getClaimedAt();
         claim(first, id).andExpect(status().isOk());
         assertThat(verifications.findById(id).orElseThrow().getClaimedAt()).isEqualTo(claimedAt);
@@ -198,8 +199,8 @@ class IdentityReviewClaimQaTest extends AbstractApiTest {
                 .andExpect(jsonPath("$.error").value(ErrorCodes.IDENTITY_CASE_CLAIM_LIMIT));
 
         forceRelease(forceAdmin, first)
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.claimedByName").doesNotExist());
+                .andExpect(status().isNoContent())
+                .andExpect(content().string(""));
         assertThat(auditCount("identity.claim.force_released", first)).isEqualTo(1);
         claim(reviewer, fourth).andExpect(status().isOk());
     }
@@ -276,10 +277,9 @@ class IdentityReviewClaimQaTest extends AbstractApiTest {
         verifications.saveAndFlush(stale);
 
         release(first, id)
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.claimedByName").doesNotExist())
-                .andExpect(jsonPath("$.claimedAt").doesNotExist())
-                .andExpect(jsonPath("$.claimedByMe").value(false));
+                .andExpect(status().isNoContent())
+                .andExpect(content().string(""));
+        assertThat(verifications.findById(id).orElseThrow().getClaimedBy()).isNull();
     }
 
     @Test

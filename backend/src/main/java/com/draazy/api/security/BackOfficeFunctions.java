@@ -15,10 +15,17 @@ public final class BackOfficeFunctions {
     public static final String PROPERTY_VERIFICATION = "propertyVerification";
     public static final String LISTING_MODERATION = "listingModeration";
     public static final String POST_ON_BEHALF = "postOnBehalf";
+    public static final String FLATMATES = "flatmates";
+    public static final String LOCALITIES = "localities";
+    public static final String REVIEWS = "reviews";
     public static final String ANALYTICS = "analytics";
     public static final String SUPPORT = "support";
+    public static final String ENQUIRIES = "enquiries";
+    public static final String USERS = "users";
     public static final String CONTENT = "content";
+    public static final String SOCIETIES = "societies";
     public static final String REPORTS = "reports";
+    public static final String REFERRALS = "referrals";
 
     public static String desk(String desk) {
         return "desk:" + desk;
@@ -41,8 +48,15 @@ public final class BackOfficeFunctions {
             new Function(POST_ON_BEHALF, "Post on behalf", "Listings", List.of(
                     BackOfficePermissions.POSTONBEHALF_WRITE,
                     BackOfficePermissions.PROPERTIES_READ), null),
-            new Function(ANALYTICS, "Analytics", "Insights", List.of(
-                    BackOfficePermissions.ANALYTICS_READ), null),
+            new Function(FLATMATES, "Flatmates", "Listings", List.of(
+                    BackOfficePermissions.FLATMATES_READ,
+                    BackOfficePermissions.FLATMATES_WRITE), null),
+            new Function(LOCALITIES, "Localities", "Listings", List.of(
+                    BackOfficePermissions.LOCALITIES_READ,
+                    BackOfficePermissions.LOCALITIES_WRITE), null),
+            new Function(REVIEWS, "Review moderation", "Listings", List.of(
+                    BackOfficePermissions.REVIEWS_READ,
+                    BackOfficePermissions.REVIEWS_WRITE), null),
             deskFunction(Teams.RENTAL, "Rent Agreement"),
             deskFunction(Teams.LEGAL, "Property & Legal"),
             deskFunction(Teams.LOANS, "Home Loans"),
@@ -52,19 +66,27 @@ public final class BackOfficeFunctions {
             new Function(SUPPORT, "Support", "Support", List.of(
                     BackOfficePermissions.TICKETS_READ,
                     BackOfficePermissions.TICKETS_WRITE,
-                    BackOfficePermissions.ENQUIRIES_READ,
                     BackOfficePermissions.NOTES_READ,
                     BackOfficePermissions.NOTES_WRITE), null),
+            new Function(ENQUIRIES, "Enquiries", "Support", List.of(
+                    BackOfficePermissions.ENQUIRIES_READ,
+                    BackOfficePermissions.NOTES_WRITE), null),
+            new Function(USERS, "User lookup", "Support", List.of(
+                    BackOfficePermissions.USERS_READ), null),
+            new Function(REPORTS, "Reports", "Trust & safety", List.of(
+                    BackOfficePermissions.REPORTS_READ,
+                    BackOfficePermissions.REPORTS_WRITE), null),
+            new Function(REFERRALS, "Referrals", "Trust & safety", List.of(
+                    BackOfficePermissions.REFERRALS_READ,
+                    BackOfficePermissions.REFERRALS_WRITE), null),
             new Function(CONTENT, "Content", "Content", List.of(
                     BackOfficePermissions.CONTENT_READ,
-                    BackOfficePermissions.CONTENT_WRITE,
+                    BackOfficePermissions.CONTENT_WRITE), null),
+            new Function(SOCIETIES, "Societies", "Content", List.of(
                     BackOfficePermissions.SOCIETIES_READ,
                     BackOfficePermissions.SOCIETIES_WRITE), null),
-            new Function(REPORTS, "Reports", "Content", List.of(
-                    BackOfficePermissions.REPORTS_READ,
-                    BackOfficePermissions.REPORTS_WRITE,
-                    BackOfficePermissions.FLATMATES_READ,
-                    BackOfficePermissions.FLATMATES_WRITE), null));
+            new Function(ANALYTICS, "Analytics", "Insights", List.of(
+                    BackOfficePermissions.ANALYTICS_READ), null));
 
     private static final Map<String, Function> BY_NAME = byName();
     private static final Set<String> ALL_NAMES = Set.copyOf(BY_NAME.keySet());

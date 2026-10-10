@@ -1,8 +1,8 @@
 /* Admin tabs use server-resolved atoms from `user.permissions`; the console composes no union. */
 import {
-  BarChart3, Building2, Calculator, FileSignature, FileText, Gauge, Gift, Landmark, LayoutDashboard, LifeBuoy,
+  BarChart3, BookOpen, Building2, Calculator, FileSignature, FileText, Gauge, Gift, Landmark, LayoutDashboard, LifeBuoy,
   MessageSquare, Paintbrush, Scale, Settings, Truck, Users, Flag, IndianRupee, UserPlus,
-  MapPin, UsersRound,
+  MapPin, Plug, UsersRound, Eraser, ThumbsUp,
 } from 'lucide-react';
 
 // `value` is the server's desk slug (`desk:<value>` function); Home Loans has tickets, not service requests.
@@ -31,6 +31,7 @@ const DESK_MODULES = SERVICE_DESKS.map(({ atom = 'services:read', writeAtom = 's
 
 export const ADMIN_MODULES = [
   { key: 'dashboard', label: 'Dashboard', path: '/admin', icon: LayoutDashboard, end: true, base: true },
+  { key: 'runbooks', label: 'Runbooks', path: '/admin/runbooks', icon: BookOpen, base: true },
   { key: 'kycReview', label: 'KYC Review', path: '/admin/kyc-review', icon: UserPlus, atom: 'identity:write' },
   { key: 'analytics', label: 'Analytics', path: '/admin/analytics', icon: BarChart3, flagKey: 'analytics', atom: 'analytics:read' },
   { key: 'postOnBehalf', label: 'Post on Behalf', path: '/admin/post-on-behalf', icon: UserPlus, atom: 'postOnBehalf:write' },
@@ -40,15 +41,18 @@ export const ADMIN_MODULES = [
   ...DESK_MODULES,
   { key: 'support', label: 'Support queue', path: '/admin/support', icon: LifeBuoy, flagKey: 'support', atom: 'tickets:read', writeAtom: 'tickets:write' },
   { key: 'enquiries', label: 'Enquiries', path: '/admin/enquiries', icon: MessageSquare, atom: 'enquiries:read' },
-  { key: 'referrals', label: 'Referrals', path: '/admin/referrals', icon: Gift, atom: 'reports:write' },
+  { key: 'referrals', label: 'Referrals', path: '/admin/referrals', icon: Gift, atom: 'referrals:read', writeAtom: 'referrals:write' },
   { key: 'finance', label: 'Finance', path: '/admin/finance', icon: IndianRupee, flagKey: 'finance', adminOnly: true, atom: 'finance:read' },
   { key: 'content', label: 'Content', path: '/admin/content', icon: FileText, atom: 'content:read', writeAtom: 'content:write' },
-  { key: 'reports', label: 'Reports', path: '/admin/reports', icon: Flag, flagKey: 'reports', atom: 'reports:read', writeAtom: 'reports:write' },
+  { key: 'reports', label: 'Reports', path: '/admin/reports', icon: Flag, flagKey: 'reports', atom: ['reports:read', 'reviews:read'], writeAtom: 'reports:write' },
   { key: 'flatmates', label: 'Flatmates', path: '/admin/flatmates', icon: Users, flagKey: 'flatmates', atom: 'flatmates:read', writeAtom: 'flatmates:write' },
   { key: 'societies', label: 'Societies', path: '/admin/societies', icon: Building2, atom: 'societies:read', writeAtom: 'societies:write' },
-  { key: 'localities', label: 'Localities', path: '/admin/localities', icon: MapPin, atom: 'properties:moderate', writeAtom: 'properties:moderate' },
+  { key: 'localities', label: 'Localities', path: '/admin/localities', icon: MapPin, atom: 'localities:read', writeAtom: 'localities:write' },
   { key: 'team', label: 'Team & Access', path: '/admin/team', icon: UsersRound, atom: 'users:write' },
   { key: 'settings', label: 'Settings', path: '/admin/settings', icon: Settings, adminOnly: true, atom: 'settings:read', writeAtom: 'settings:write' },
+  { key: 'integrations', label: 'Integrations', path: '/admin/integrations', icon: Plug, adminOnly: true, atom: 'settings:read' },
+  { key: 'erasure', label: 'Erasure requests', path: '/admin/erasure-requests', icon: Eraser, adminOnly: true, atom: 'settings:read' },
+  { key: 'helpFeedback', label: 'Help feedback', path: '/admin/help-feedback', icon: ThumbsUp, adminOnly: true, atom: 'settings:read' },
 ];
 
 export const MODULE_BY_KEY = Object.fromEntries(ADMIN_MODULES.map((m) => [m.key, m]));
@@ -67,7 +71,7 @@ export function canAccessModule(user, key) {
   if (mod.base) return true;
   // Only staff are scoped to desks; the server lets admin and manager work every desk.
   if (mod.desk && user?.role === 'staff' && !(Array.isArray(user?.desks) && user.desks.includes(mod.desk))) return false;
-  return hasPermission(user, mod.atom);
+  return [].concat(mod.atom).some((atom) => hasPermission(user, atom));
 }
 
 /** Can this caller act inside a module, as opposed to only reading it? */
@@ -90,6 +94,18 @@ export const moduleLabel = (key) => MODULE_BY_KEY[key]?.label || key;
 // Staff work under /staff, manager and admin under /admin; module paths are written once as /admin.
 export const portalBase = (user) => (user?.role === 'staff' ? '/staff' : '/admin');
 export const portalPath = (user, path) => String(path).replace(/^\/(admin|staff)(?=[/?#]|$)/, portalBase(user));
+
+/** The module whose page `pathname` is on — the most specific path wins, so a desk beats the dashboard. */
+export function moduleForPath(pathname) {
+  const path = portalPath({ role: 'admin' }, pathname).replace(/\/+$/, '') || '/admin';
+  return ADMIN_MODULES
+    .filter((m) => path === m.path || (!m.end && path.startsWith(`${m.path}/`)))
+    .sort((a, b) => b.path.length - a.path.length)[0] || null;
+}
+
+/* A runbook with no `modules` is general guidance for everyone in the panel. */
+export const runbooksFor = (articles, user) => articles.filter((a) => a.category === 'ops-playbook'
+  && (!a.modules?.length || a.modules.some((key) => canAccessModule(user, key))));
 
 /* Labels fall back to the raw atom when a grantable module has no readable shell entry. */
 const ATOM_MODULE_LABELS = {

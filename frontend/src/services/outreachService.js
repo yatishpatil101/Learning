@@ -1,5 +1,5 @@
-// `status` is `prepared` on every row: this is WhatsApp click-to-chat, so the platform knows a
-// chaser was *written*, never that one was delivered. Surfaces must say "written", not "sent".
+// A chaser is `prepared` when written and `sent` only once staff attest they pressed send in
+// WhatsApp; the platform never witnesses delivery.
 
 // The count lives on the listing's `adminPipeline`; do not keep a local `reminderCount`. Ids are
 // UUIDs — pass `listing.uuid || listing.id`, or the listings that have slugs are the ones that 404.
@@ -24,4 +24,8 @@ export async function chaseOwner(propertyId, templateId) {
 /** Every chaser written to this listing's owner, newest first. */
 export async function listOwnerOutreach(propertyId) {
   return (await provider()).listOwnerOutreach(propertyId);
+}
+
+export async function markOutreachSent(propertyId, messageId) {
+  return (await provider()).markOutreachSent(propertyId, messageId);
 }

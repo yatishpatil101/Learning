@@ -2,10 +2,10 @@ import { test, expect, ACTORS, STAFF } from '../../fixtures/live.js';
 import { API, authHeaders } from '../../helpers/liveAuth.js';
 
 async function staffId(mobile) {
-  const res = await fetch(`${API}/users?role=staff&size=100`, { headers: await authHeaders(ACTORS.admin) });
+  const res = await fetch(`${API}/users?role=staff&q=${mobile}&size=5`, { headers: await authHeaders(ACTORS.admin) });
   expect(res.status).toBe(200);
   const body = await res.json();
-  const row = (body.content || body.items || []).find((u) => u.mobile === mobile);
+  const row = (body.content || body.items || []).find((u) => u.mobile === `${mobile.slice(0, 2)}XXXXX${mobile.slice(-3)}`);
   expect(row, `staff account ${mobile} exists`).toBeTruthy();
   return row.id;
 }
@@ -65,10 +65,25 @@ test.describe('back-office functions', () => {
       await expect(page.getByRole('checkbox', { name: /Rent Agreement/i })).toHaveCount(0);
     } finally {
       await setFunctions(manager.id, before.scoped ? (before.functions || before.permissions || []) : [
-        'kyc', 'propertyVerification', 'listingModeration', 'postOnBehalf',
+        'kyc', 'propertyVerification', 'listingModeration', 'postOnBehalf', 'flatmates', 'localities', 'reviews',
         'desk:rental', 'desk:legal', 'desk:loans', 'desk:interior', 'desk:packers', 'desk:valuation',
-        'support', 'content', 'reports', 'analytics',
+        'support', 'enquiries', 'users', 'reports', 'referrals', 'content', 'societies', 'analytics',
       ]);
+    }
+    expect(consoleErrors).toHaveLength(0);
+  });
+
+  test('the add-member checklist offers every catalogue function', async ({ page, login, consoleErrors }) => {
+    const res = await fetch(`${API}/admin/function-catalogue`, { headers: await authHeaders(ACTORS.admin) });
+    expect(res.status).toBe(200);
+    const catalogue = await res.json();
+    expect(catalogue.map((f) => f.name)).toEqual(expect.arrayContaining(['flatmates', 'referrals', 'analytics']));
+
+    await login.asAdmin();
+    await page.goto('/admin/team');
+    await page.getByRole('button', { name: /Add member/i }).click();
+    for (const fn of catalogue) {
+      await expect(page.getByRole('checkbox', { name: fn.label, exact: true })).toBeVisible();
     }
     expect(consoleErrors).toHaveLength(0);
   });
@@ -87,6 +102,26 @@ test.describe('back-office functions', () => {
     await login.asStaff('rental');
     await page.goto('/admin');
     await expect(page.getByRole('link', { name: 'Team Activity', exact: true })).toHaveCount(0);
+    expect(consoleErrors).toHaveLength(0);
+  });
+
+  test('flatmate moderation is its own function, separate from reports', async ({ page, login, consoleErrors }) => {
+    const id = await staffId(STAFF.rental);
+    const before = await readFunctions(id);
+    await setFunctions(id, ['reports']);
+    try {
+      await login.asStaff('rental');
+      await page.goto('/admin');
+      await expect(page.getByRole('link', { name: 'Reports', exact: true })).toBeVisible();
+      await expect(page.getByRole('link', { name: 'Flatmates', exact: true })).toHaveCount(0);
+
+      await setFunctions(id, ['flatmates']);
+      await page.goto('/admin');
+      await expect(page.getByRole('link', { name: 'Flatmates', exact: true })).toBeVisible();
+      await expect(page.getByRole('link', { name: 'Reports', exact: true })).toHaveCount(0);
+    } finally {
+      await setFunctions(id, before.functions || before.permissions || []);
+    }
     expect(consoleErrors).toHaveLength(0);
   });
 

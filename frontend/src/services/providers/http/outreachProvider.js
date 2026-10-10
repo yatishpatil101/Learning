@@ -10,8 +10,7 @@ const toTemplate = (row) => ({
   body: row?.body || '',
 });
 
-// `status` is `prepared` on every row — the transport is WhatsApp click-to-chat, so the server
-// composes and hands off and never witnesses a delivery. The UI must say "written", not "sent".
+// A row stays `prepared` until staff attest they pressed send in WhatsApp; the server never sees delivery.
 const toPrepared = (row) => ({
   id: row?.id ? String(row.id) : null,
   body: row?.body || '',
@@ -46,4 +45,10 @@ export async function chaseOwner(propertyId, templateId) {
 export async function listOwnerOutreach(propertyId) {
   const rows = await get(`/properties/${encodeURIComponent(propertyId)}/outreach`);
   return (Array.isArray(rows) ? rows : []).map(toOutreachEntry);
+}
+
+/** `postOnBehalf:write`. Staff attestation, idempotent. */
+export async function markOutreachSent(propertyId, messageId) {
+  return toOutreachEntry(await post(
+    `/properties/${encodeURIComponent(propertyId)}/outreach/${encodeURIComponent(messageId)}/sent`));
 }

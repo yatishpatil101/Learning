@@ -1,8 +1,5 @@
--- Dev-only staff and admin credentials: email <mobile>@staff.draazy.test, password Draazy-dev-pass1,
--- and an authenticator already enrolled with base32 secret JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP
--- (add it to any authenticator app). totp_secret is that secret sealed under the DEV default of
--- draazy.security.staff-totp-key, so it only decrypts on a backend running that default.
--- e2e also sets draazy.staff-totp.fixed-code, so 000000 passes there.
+-- Dev-only staff login: <mobile>@staff.draazy.test, Draazy-dev-pass1; e2e TOTP fixed-code 000000.
+-- totp_secret seals base32 JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP under the DEV default key; decrypts only there.
 
 -- Probe account for e2e/tests/admin/staff-two-factor.spec.js, which resets its authenticator.
 INSERT INTO public.users (id, name, mobile, role, team, status, city, mobile_verified, verified,
@@ -38,6 +35,9 @@ WITH ordered(function_name, sort_order) AS (
         ('propertyVerification', 20),
         ('listingModeration', 30),
         ('postOnBehalf', 40),
+        ('flatmates', 45),
+        ('localities', 46),
+        ('reviews', 47),
         ('desk:rental', 50),
         ('desk:legal', 60),
         ('desk:loans', 70),
@@ -45,8 +45,12 @@ WITH ordered(function_name, sort_order) AS (
         ('desk:packers', 90),
         ('desk:valuation', 100),
         ('support', 110),
+        ('enquiries', 112),
+        ('users', 114),
         ('content', 120),
-        ('reports', 130)
+        ('societies', 122),
+        ('reports', 130),
+        ('referrals', 132)
 ),
 staff_functions AS (
     SELECT u.id AS user_id,
@@ -57,9 +61,16 @@ staff_functions AS (
         'propertyVerification',
         'listingModeration',
         'postOnBehalf',
+        'flatmates',
+        'localities',
+        'reviews',
         'support',
+        'enquiries',
+        'users',
         'content',
+        'societies',
         'reports',
+        'referrals',
         'desk:' || u.team
     )
     WHERE u.role = 'staff'

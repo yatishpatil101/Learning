@@ -25,6 +25,8 @@ public class BackOfficeAccessController {
             MANAGER_OR_ADMIN + " and " + BackOfficePermissions.REQUIRE_USERS_READ;
     private static final String ACCESS_WRITE =
             MANAGER_OR_ADMIN + " and " + BackOfficePermissions.REQUIRE_USERS_WRITE;
+    private static final String ASSIGNEES_READ =
+            MANAGER_OR_ADMIN + " and " + BackOfficePermissions.REQUIRE_TICKETS_READ;
 
     private final BackOfficeAccessService service;
 
@@ -44,6 +46,13 @@ public class BackOfficeAccessController {
         return service.roster(principal);
     }
 
+    /** The ticket board's assignee picker; {@code users:read} is not needed to hand a ticket to a colleague. */
+    @GetMapping(Routes.Admin.TEAM_ASSIGNEES)
+    @PreAuthorize(ASSIGNEES_READ)
+    public List<TeamAssignee> assignees(@CurrentUser AuthPrincipal principal) {
+        return service.assignees(principal);
+    }
+
     /** {@code GET /users/{id}/permissions} — what is stored, and what it resolves to. */
     @GetMapping(Routes.Users.PERMISSIONS)
     @PreAuthorize(ACCESS_READ)
@@ -51,7 +60,8 @@ public class BackOfficeAccessController {
         return service.read(principal, id);
     }
 
-    /** {@code PUT /users/{id}/permissions} replaces the whole list and returns the stored result, as effective access is its intersection with the role baseline. */
+    /** {@code PUT} replaces the whole list and returns the stored result, as effective access is its
+     * intersection with the role baseline. */
     @PutMapping(Routes.Users.PERMISSIONS)
     @PreAuthorize(ACCESS_WRITE)
     public BackOfficeAccessResponse replace(@CurrentUser AuthPrincipal principal,
@@ -59,7 +69,8 @@ public class BackOfficeAccessController {
         return service.replace(principal, id, body == null ? List.of() : body.functionsOrPermissions());
     }
 
-    /** {@code List<String>} because the catalogue is served separately; names are validated in the service, where the account's role (the per-role ceiling) is known. */
+    /** Plain strings because the catalogue is served separately; the service validates names, as only it
+     * knows the account's role ceiling. */
     public record PermissionsRequest(List<String> functions, List<String> permissions) {
         List<String> functionsOrPermissions() {
             return functions == null ? permissions : functions;

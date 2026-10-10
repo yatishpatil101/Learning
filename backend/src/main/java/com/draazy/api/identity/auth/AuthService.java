@@ -20,11 +20,8 @@ import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-/**
- * Orchestrates mobile-OTP login, refresh and logout, and mints every session (staff sign-in calls
- * {@link #issueFor} once its second factor passes), owning none of the crypto itself. Session refusals,
- * rollback rules and the enumeration-oracle reasoning: docs/flows/consumer/auth.md
- */
+/** Mints every session but owns none of the crypto; staff sign-in calls {@link #issueFor} after its second factor.
+ * Refusals, rollback rules and enumeration-oracle reasoning: docs/flows/consumer/auth.md */
 @Service
 public class AuthService {
 
@@ -50,10 +47,7 @@ public class AuthService {
         this.platformSettings = platformSettings;
     }
 
-    /**
-     * Dual-mode mobile-OTP login: no OTP ⇒ send a code; OTP present ⇒ verify, find-or-create, issue.
-     * Every listed {@code noRollbackFor} type is load-bearing — see docs/flows/consumer/auth.md.
-     */
+    /** Every listed {@code noRollbackFor} type is load-bearing: see docs/flows/consumer/auth.md. */
     @Transactional(noRollbackFor = {UnauthorizedException.class, RateLimitedException.class,
             ForbiddenException.class, OtpSender.DeliveryFailedException.class})
     public AuthResponse login(LoginRequest request) {
@@ -75,10 +69,7 @@ public class AuthService {
         return issueFor(user);
     }
 
-    /**
-     * Rotate a refresh token and mint a new access token. {@code noRollbackFor} the 401 so the two
-     * revocations on this path survive it — see docs/flows/consumer/auth.md.
-     */
+    /** {@code noRollbackFor} the 401 so the two revocations on this path survive it: see the auth flow doc. */
     @Transactional(noRollbackFor = UnauthorizedException.class)
     public AuthResponse refresh(String presentedToken) {
         RefreshTokenService.Rotation rotation = refreshTokens.rotate(presentedToken);
@@ -92,7 +83,7 @@ public class AuthService {
         refuseIfCannotYetAuthenticate(user);
         String access = jwtService.issueAccessToken(user);
         return AuthResponse.tokens(access, rotation.refreshToken(),
-                jwtService.accessTtl().toSeconds(), selfProfile.of(user));
+                jwtService.accessTtl().toSeconds(), selfProfile.forSession(user));
     }
 
     /** Best-effort session kill (contract {@code POST /auth/logout}): revoke the user's refresh family. */
@@ -101,10 +92,7 @@ public class AuthService {
         refreshTokens.revokeAllForUser(userId);
     }
 
-    /**
-     * Return the live account for a just-verified mobile, creating a passwordless {@code buyer} on
-     * first sign-in. {@code signupsEnabled} is enforced here, and only here — see the auth flow doc.
-     */
+    /** {@code signupsEnabled} is enforced here, and only here: see the auth flow doc. */
     private User findOrProvision(String mobile) {
         User user = users.findByMobile(mobile).map(existing -> {
             if (existing.isArchived()) {
@@ -140,22 +128,15 @@ public class AuthService {
         // SelfProfile, not the bare mapper: the client caches the embedded user as its session
         // identity, and a sign-in missing the back-office atoms leaves the console sidebar empty.
         return AuthResponse.tokens(access, refresh,
-                jwtService.accessTtl().toSeconds(), selfProfile.of(user));
+                jwtService.accessTtl().toSeconds(), selfProfile.forSession(user));
     }
 
-    /**
-     * The independent conditions that stop an account obtaining a session — suspension, then invite
-     * activation. Order and 403 choice: the auth flow doc.
-     */
     void refuseIfCannotYetAuthenticate(User user) {
         refuseIfSuspended(user);
         refuseIfInviteIsStillOpen(user);
     }
 
-    /**
-     * V77: a suspended account may not obtain a session. Checked first, and deliberately unspecific —
-     * the reason lives in {@code audit_log}. See docs/flows/consumer/auth.md.
-     */
+    /** Deliberately unspecific: the reason lives in {@code audit_log}. See docs/flows/consumer/auth.md. */
     private void refuseIfSuspended(User user) {
         if (UserStatuses.SUSPENDED.equals(user.getStatus())) {
             throw new ForbiddenException(
@@ -164,9 +145,6 @@ public class AuthService {
         }
     }
 
-    /**
-     * V71: an account whose holder has not yet redeemed their invite may not obtain a token.
-     */
     private void refuseIfInviteIsStillOpen(User user) {
         if (invites.existsByUserIdAndRedeemedAtIsNull(user.getId())) {
             throw new ForbiddenException(

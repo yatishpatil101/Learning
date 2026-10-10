@@ -40,6 +40,19 @@ for (const { key, path } of TAB_MODULES) {
   });
 }
 
+test('tab flags also hide a module from a manager sidebar', async ({ page, login }) => {
+  await login.asManager();
+  await expect(sidebar(page).locator('a[href="/admin/support"]')).toBeVisible();
+  try {
+    await setAdminFlags({ tab: { support: false } });
+    await page.reload();
+    await expect(sidebar(page).locator('a[href="/admin/properties"]')).toBeVisible();
+    await expect(sidebar(page).locator('a[href="/admin/support"]')).toHaveCount(0);
+  } finally {
+    await setAdminFlags({ tab: { support: true } });
+  }
+});
+
 const PAGE_MODULES = [
   { section: 'services', path: '/admin/home-loans', off: 'Services module is disabled.' },
   { section: 'content', path: '/admin/content', off: 'Content module is disabled.' },

@@ -7,6 +7,7 @@ import com.draazy.api.common.audit.AuditService;
 import com.draazy.api.common.error.ConflictException;
 import com.draazy.api.common.error.NotFoundException;
 import com.draazy.api.common.trust.MessageSender;
+import com.draazy.api.common.trust.Notifier;
 import com.draazy.api.common.trust.OutreachCounts;
 import com.draazy.api.common.web.Ids;
 import com.draazy.api.engagement.messaging.OutboundMessage;
@@ -74,13 +75,26 @@ public class OwnerOutreachService {
                 caller.userId(),
                 variables(property, owner, caller)));
 
-            if ("sent".equals(prepared.status()) && prepared.body().contains(baseUrl + "/signin")) {
-                property.recordClaimLinkSent();
-            }
-
         audit.record(caller, "property.outreach", "property", property.getId().toString(),
                 "template", templateId, "owner", owner.getId().toString(), "message", prepared.id().toString());
         return prepared;
+    }
+
+    // Staff attest after pressing send in their own WhatsApp; the server never sees delivery.
+    @Transactional
+    public OwnerOutreachEntry markSent(AuthPrincipal caller, String propertyId, String messageId) {
+        Property property = load(propertyId);
+        OutboundMessage message = Ids.parseUuid(messageId)
+                .flatMap(ledger::findById)
+                .filter(m -> SUBJECT.equals(m.getSubjectType()) && property.getId().equals(m.getSubjectId()))
+                .orElseThrow(() -> NotFoundException.of("Message"));
+        message.markSent();
+        if (message.getBody().contains(claimLink(property))) {
+            property.recordClaimLinkSent();
+        }
+        audit.record(caller, "property.outreach.sent", "property", property.getId().toString(),
+                "message", message.getId().toString());
+        return OwnerOutreachEntry.of(message);
     }
 
     @Transactional(readOnly = true)
@@ -115,13 +129,17 @@ public class OwnerOutreachService {
         vars.put("owner_mobile", owner.getMobile());
         vars.put("title", property.getTitle());
         vars.put("locality", property.getLocality());
-        vars.put("price", property.getPrice() != null ? String.valueOf(property.getPrice()) : null);
+        vars.put("price", property.getPrice() != null ? Notifier.indianGrouping(property.getPrice()) : null);
         vars.put("market_rate", marketRate(property));
         vars.put("listing_id", property.getId().toString());
         vars.put("staff_name", staffName(caller));
-        vars.put("claim_link", baseUrl + "/signin?claim=" + property.getId());
+        vars.put("claim_link", claimLink(property));
         vars.put("listing_link", baseUrl + "/property/" + property.getId());
         return vars;
+    }
+
+    private String claimLink(Property property) {
+        return baseUrl + "/signin?claim=" + property.getId();
     }
 
     private String marketRate(Property property) {
@@ -129,7 +147,7 @@ public class OwnerOutreachService {
         if (!StringUtils.hasText(slug)) {
             return null;
         }
-        return localities.marketRate(slug).map(String::valueOf).orElse(null);
+        return localities.marketRate(slug).map(Notifier::indianGrouping).orElse(null);
     }
 
     // Read from the row, not the token, so name changes take effect immediately.

@@ -52,7 +52,7 @@
 
 ### 5.2 Fees + Move-in Pack
 - Fees are the flat `settings.fees` map (seed: `ownerPlanYearly 999`, `ownerProYearly 2499`,
-  `rentAgreementPlatform 500`, `seekerPlusTopup 199`, `featuredListing 999`, `gstPercent 18`).
+  `rentAgreementPlatform 500`, `seekerPlusTopup 199`, `gstPercent 18`).
   `setFee(k, v) = Number(v) || 0`; keys containing "percent" render a `%` suffix (else a rupee prefix). Labels are humanized.
   `saveFees()` -> `updateSettings({ fees })` + audit "Updated platform charges & fee schedule". These feed Finance math.
 - **Move-in Pack** (`settings.movePack`): `{ enabled, items:{ movers, clean, agreement, paint, verify, internet } }`.
@@ -91,7 +91,8 @@ dead manager label, not this real schema role.
   lacks are 403, since either hands over that account. Monitors
   staff via Staff Activity and Team Performance.
 - **staff:** granted **functions** (`kyc`, `propertyVerification`, `listingModeration`,
-  `postOnBehalf`, `desk:*`, `support`, `content`, `reports`, `analytics`); one person may hold many.
+  `postOnBehalf`, `flatmates`, `localities`, `reviews`, `desk:*`, `support`, `enquiries`, `users`,
+  `reports`, `referrals`, `content`, `societies`, `analytics`); one person may hold many.
   The server derives atoms from them. No stored functions means dashboard only. Analytics
   (`analytics:read`: Analytics page, scorecard, SLA, traffic) is never granted by default. A staff
   dashboard is `GET /admin/my-work`: only the caller's own handled counts and the queues of the

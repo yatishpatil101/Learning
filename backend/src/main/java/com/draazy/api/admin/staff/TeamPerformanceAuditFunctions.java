@@ -32,17 +32,29 @@ final class TeamPerformanceAuditFunctions {
         if ("user.provision_on_behalf".equals(action) || "property.create_on_behalf".equals(action)) {
             return BackOfficeFunctions.POST_ON_BEHALF;
         }
-        if (starts(action, "ticket.") || starts(action, "enquiry.")
-                || starts(action, "visit.contact.") || starts(action, "deal.contact.")
+        if (starts(action, "ticket.") || starts(action, "visit.contact.") || starts(action, "deal.contact.")
                 || starts(action, "identity.dispute.")) {
             return BackOfficeFunctions.SUPPORT;
         }
-        if (starts(action, "content.") || starts(action, "city.")
-                || starts(action, "society.")) {
+        if (starts(action, "enquiry.")) {
+            return BackOfficeFunctions.ENQUIRIES;
+        }
+        if (starts(action, "content.") || starts(action, "city.")) {
             return BackOfficeFunctions.CONTENT;
         }
-        if (starts(action, "report.") || starts(action, "review.")
-                || starts(action, "flatmate.")) {
+        if (starts(action, "society.")) {
+            return BackOfficeFunctions.SOCIETIES;
+        }
+        if (starts(action, "flatmate.")) {
+            return BackOfficeFunctions.FLATMATES;
+        }
+        if (starts(action, "review.")) {
+            return BackOfficeFunctions.REVIEWS;
+        }
+        if (starts(action, "referral.")) {
+            return BackOfficeFunctions.REFERRALS;
+        }
+        if (starts(action, "report.")) {
             return BackOfficeFunctions.REPORTS;
         }
         return null;

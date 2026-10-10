@@ -1,5 +1,6 @@
 import { test, expect, ACTORS } from '../../fixtures/live.js';
 import { API, authHeaders, identityChallengeToken, signIn, uniqueMobile } from '../../helpers/liveAuth.js';
+import { pickDate } from '../../helpers/datePicker.helper.js';
 
 const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAARElEQVR4AeyROw0AIAxEL5WADzSw4AcRaGLBDzqKg7uhS4c2eVOTy33snemMtrYzDMErASBBB/0OMNTKCSIoi+pfEYAPAAD//68o26gAAAAGSURBVAMAR8QwUeUtYucAAAAASUVORK5CYII=', 'base64');
 const MANAGER = ACTORS.manager;
@@ -97,7 +98,7 @@ async function approveFromUi(page, owner, holderName = owner.claims.name) {
   if (owner.accountName && owner.accountName.trim().toLowerCase() !== holderName.trim().toLowerCase()) {
     await expect(page.getByText(`Account name: ${owner.accountName} → will become ${holderName}`)).toBeVisible();
   }
-  await page.getByLabel('Date of birth').fill(owner.claims.dob);
+  await pickDate(page, '[aria-label="Date of birth"]:visible', owner.claims.dob);
   await page.getByTestId('ops-identity-pose-confirmed').check();
   await tickChecklist(page);
   const approved = page.waitForResponse((response) => response.request().method() === 'POST' && /\/moderation\/identity-reviews\/[^/]+\/approve$/.test(new URL(response.url()).pathname));
@@ -167,8 +168,8 @@ async function openMockReview(page, { user = mockUser(), review = mockCase(), cl
     }
     if (method === 'POST' && isClaim) {
       if (claimStatus === 200) {
-        current = { ...current, claimedByName: user.name, claimedByMe: true, claimedAt: Date.now() };
-        await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(current) });
+        current = { ...current, claimedByName: user.name, claimedByMe: true };
+        await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ claimedByName: user.name, claimedByMe: true }) });
         return;
       }
       await route.fulfill({ status: 409, contentType: 'application/json', body: JSON.stringify({ error: 'identity_case_claim_limit', message: 'claim limit' }) });
@@ -224,7 +225,7 @@ test('mocked requested pose must be confirmed before approval', async ({ page })
   await expect(page.getByText("Requested pose: Turned to their left (nose toward the photo's right edge)")).toBeVisible();
   await page.getByLabel('Document number').fill('1234');
   await page.getByLabel('Holder name').fill('Mock Subject');
-  await page.getByLabel('Date of birth').fill('1990-01-01');
+  await pickDate(page, '[aria-label="Date of birth"]:visible', '1990-01-01');
   await tickChecklist(page);
   await expect(page.getByRole('button', { name: 'Approve review', exact: true })).toBeDisabled();
   await page.getByTestId('ops-identity-pose-confirmed').check();
@@ -238,7 +239,7 @@ test('mocked number mismatch can be overridden and is shown in QA', async ({ pag
   await page.getByRole('button', { name: /97XXXXX001/ }).click();
   await page.getByLabel('Document number').fill('EETAB9999F');
   await page.getByLabel('Holder name').fill('Mock Subject');
-  await page.getByLabel('Date of birth').fill('1990-01-01');
+  await pickDate(page, '[aria-label="Date of birth"]:visible', '1990-01-01');
   await page.getByTestId('ops-identity-pose-confirmed').check();
   await tickChecklist(page);
   await page.getByRole('button', { name: 'Approve review', exact: true }).click();
@@ -315,7 +316,7 @@ test('claims lock a pending case for other reviewers and approval overwrites the
   await adminPage.getByLabel('Document number').fill(owner.claims.number);
   await adminPage.getByLabel('Holder name').fill('Claimed Holder');
   await expect(adminPage.getByText('Account name: Original Account Name → will become Claimed Holder')).toBeVisible();
-  await adminPage.getByLabel('Date of birth').fill('1992-05-10');
+  await pickDate(adminPage, '[aria-label="Date of birth"]:visible', '1992-05-10');
   await adminPage.getByTestId('ops-identity-pose-confirmed').check();
   await tickChecklist(adminPage);
   const approved = adminPage.waitForResponse((response) => response.request().method() === 'POST' && /\/moderation\/identity-reviews\/[^/]+\/approve$/.test(new URL(response.url()).pathname));

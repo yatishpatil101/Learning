@@ -86,6 +86,66 @@ class BackOfficeFunctionAuthorizationTest extends AbstractApiTest {
     }
 
     @Test
+    void flatmatesAndReportsAreSeparate() throws Exception {
+        User reports = staff("9866060006", "[\"reports\"]");
+        User flatmates = staff("9866060007", "[\"flatmates\"]");
+
+        mvc.perform(get(Routes.Moderation.FLATMATE_MODERATION_SUMMARY)
+                        .header(HttpHeaders.AUTHORIZATION, bearer(flatmates)))
+                .andExpect(status().isOk());
+        mvc.perform(get(Routes.Moderation.FLATMATE_MODERATION_SUMMARY)
+                        .header(HttpHeaders.AUTHORIZATION, bearer(reports)))
+                .andExpect(status().isForbidden());
+
+        mvc.perform(get(Routes.Moderation.REPORTS)
+                        .header(HttpHeaders.AUTHORIZATION, bearer(reports)))
+                .andExpect(status().isOk());
+        mvc.perform(get(Routes.Moderation.REPORTS)
+                        .header(HttpHeaders.AUTHORIZATION, bearer(flatmates)))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    void eachSplitFunctionOpensOnlyItsOwnDesk() throws Exception {
+        String[][] cases = {
+                {"referrals", "reports", Routes.Referrals.BASE},
+                {"localities", "listingModeration", Routes.Localities.ADMIN},
+                {"reviews", "listingModeration", Routes.Moderation.ADMIN_REVIEWS},
+                {"enquiries", "support", Routes.Moderation.ADMIN_ENQUIRIES},
+                {"societies", "content", Routes.AdminSocieties.SUMMARY},
+                {"users", "support", Routes.Users.BASE},
+        };
+        long mobile = 9866060010L;
+        for (String[] c : cases) {
+            User holder = staff(String.valueOf(mobile++), "[\"" + c[0] + "\"]");
+            User former = staff(String.valueOf(mobile++), "[\"" + c[1] + "\"]");
+            mvc.perform(get(c[2]).header(HttpHeaders.AUTHORIZATION, bearer(holder)))
+                    .andExpect(status().isOk());
+            mvc.perform(get(c[2]).header(HttpHeaders.AUTHORIZATION, bearer(former)))
+                    .andExpect(status().isForbidden());
+        }
+    }
+
+    @Test
+    void enquiriesHolderCanFileTheRespondedNoteButUsersLookupCannot() throws Exception {
+        User holder = staff("9866060040", "[\"enquiries\"]");
+        User lookup = staff("9866060041", "[\"users\"]");
+        String url = Routes.Moderation.NOTES_FOR_ENTITY.replace("{entityType}", "listing")
+                .replace("{entityId}", "22222222-2222-2222-2222-222222222222");
+
+        mvc.perform(post(url)
+                        .header(HttpHeaders.AUTHORIZATION, bearer(holder))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"text\":\"Responded to enquiry.\",\"action\":\"responded\"}"))
+                .andExpect(status().isCreated());
+        mvc.perform(post(url)
+                        .header(HttpHeaders.AUTHORIZATION, bearer(lookup))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"text\":\"Responded to enquiry.\",\"action\":\"responded\"}"))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
     void staffWithMultipleDesksSeesTheirUnionOnly() throws Exception {
         User actor = staff("9866060005", "[\"support\",\"desk:rental\",\"desk:legal\"]");
         Ticket rental = tickets.saveAndFlush(new Ticket("Rental", Teams.RENTAL, null, null, null,

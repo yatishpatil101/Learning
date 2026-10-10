@@ -14,9 +14,16 @@ const FUNCTIONS = {
   propertyVerification: { label: 'Property verification', path: '/admin/properties' },
   listingModeration: { label: 'Listing moderation', path: '/admin/properties' },
   postOnBehalf: { label: 'Post on behalf', path: '/admin/post-on-behalf' },
+  flatmates: { label: 'Flatmates', path: '/admin/flatmates' },
+  localities: { label: 'Localities', path: '/admin/localities' },
+  reviews: { label: 'Review moderation', path: '/admin/reports?tab=reviews' },
   support: { label: 'Support', path: '/admin/support' },
+  enquiries: { label: 'Enquiries', path: '/admin/enquiries' },
+  users: { label: 'User lookup', path: '/admin/users' },
   content: { label: 'Content', path: '/admin/content' },
+  societies: { label: 'Societies', path: '/admin/societies' },
   reports: { label: 'Reports', path: '/admin/reports' },
+  referrals: { label: 'Referrals', path: '/admin/referrals' },
   analytics: { label: 'Analytics', path: '/admin/analytics' },
 };
 
@@ -94,7 +101,7 @@ export default function StaffWorkDashboard() {
                     <div className="truncate text-xs text-gray-400">{label}</div>
                     <div className={classNames('text-2xl font-bold', q.open ? 'text-amber-400' : 'text-white')}>{fmtNum(q.open)}</div>
                     <div className="mt-1 text-xs text-gray-500">
-                      {q.oldestWaitingSince ? `Oldest ${timeAgo(q.oldestWaitingSince)}` : 'All clear'}
+                      {q.oldestWaitingSince ? `Oldest ${timeAgo(q.oldestWaitingSince)}` : (q.open ? 'Waiting' : 'All clear')}
                     </div>
                   </>
                 );

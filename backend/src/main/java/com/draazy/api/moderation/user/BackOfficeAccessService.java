@@ -32,6 +32,8 @@ import tools.jackson.databind.ObjectMapper;
 @Service
 public class BackOfficeAccessService {
 
+    private static final String DESK_PREFIX = BackOfficeFunctions.desk("");
+
     private final UserRepository users;
     private final BackOfficeGrantRepository grants;
     private final AccountPermissions accountPermissions;
@@ -75,7 +77,8 @@ public class BackOfficeAccessService {
                 List.copyOf(accountPermissions.desksFor(target.getRole(), target.getId())));
     }
 
-    /** Functions are filled on the same terms as {@link #read}: an administrator reads any non-administrator, a manager only staff and itself. */
+    /** Filled on the same terms as {@link #read}: an administrator reads any non-administrator,
+     * a manager only staff and itself. */
     @Transactional(readOnly = true)
     public List<TeamMemberResponse> roster(AuthPrincipal actor) {
         List<User> accounts = users.findBackOfficeAccounts();
@@ -88,6 +91,18 @@ public class BackOfficeAccessService {
                 account.getEmail(), account.getRole(), account.getStatus(), account.isArchived(),
                 account.getCreatedAt(),
                 readable(actor, account) ? functionsOf(account, stored.get(account.getId())) : List.of()))
+                .toList();
+    }
+
+    /** The picker's view of {@link #roster}: active accounts only, and nothing but a name and the desks they work. */
+    @Transactional(readOnly = true)
+    public List<TeamAssignee> assignees(AuthPrincipal actor) {
+        return roster(actor).stream()
+                .filter(member -> "active".equals(member.status()))
+                .map(member -> new TeamAssignee(member.id(), member.name(), member.functions().stream()
+                        .filter(f -> f.startsWith(DESK_PREFIX))
+                        .map(f -> f.substring(DESK_PREFIX.length()))
+                        .toList()))
                 .toList();
     }
 
@@ -106,7 +121,7 @@ public class BackOfficeAccessService {
                 : List.copyOf(BackOfficeFunctions.defaultForRole(target.getRole()));
     }
 
-    /** Wholesale because a merge could not express "take this away"; an empty list is legal and means "dashboard only", unlike no document at all. */
+    /** Wholesale as a merge cannot express "take this away"; an empty list is legal and means dashboard only. */
     @Transactional
     public BackOfficeAccessResponse replace(AuthPrincipal actor, String id,
             List<String> requested) {

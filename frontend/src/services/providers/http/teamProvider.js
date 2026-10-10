@@ -15,10 +15,15 @@ const toMember = (u) => ({
   moduleAccess: [],
   functions: u?.functions || [],
   status: u?.status === 'active' && !u?.archived ? 'active' : 'suspended',
+  archived: Boolean(u?.archived),
   createdAt: u?.createdAt || u?.joinedAt || null,
 });
 
 export const listTeamMembers = async () => (await get('/admin/team', undefined, { ttl: PAGE_LOAD_TTL })).map(toMember);
+
+/** The ticket picker's directory: active accounts by name and desks only. */
+export const listAssignees = async () => (await get('/admin/team/assignees', undefined, { ttl: PAGE_LOAD_TTL }))
+  .map((a) => ({ id: a.id, name: a.name || '', desks: Array.isArray(a.desks) ? a.desks : [] }));
 
 export async function saveTeamMember(member, previous = null) {
   if (!member?.id) {
@@ -53,10 +58,10 @@ export async function saveTeamMember(member, previous = null) {
 }
 
 /* Status writes return no documented body; callers reload instead of reading a stale shape. */
-export async function setTeamMemberStatus(id, status) {
-  const path = `/users/${encodeURIComponent(id)}`;
-  if (status === 'active') return patch(`${path}/restore`);
-  return patch(`${path}/archive`, { reason: 'Suspended from the admin console' });
+export async function setTeamMemberStatus(member, status) {
+  const path = `/users/${encodeURIComponent(member.id)}`;
+  if (status === 'suspended') return patch(`${path}/suspend`, { reason: 'Suspended from the admin console' });
+  return patch(member.archived ? `${path}/restore` : `${path}/reactivate`);
 }
 
 /** No body back. Both sign the account out everywhere; 403 on yourself, 409 on a non-staff account. */

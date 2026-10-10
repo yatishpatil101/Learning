@@ -223,7 +223,7 @@ test('the desk asks only the critical facts, and each one reaches the server', a
   await expect(page.getByText('Zztest Desk Heights, Wakad')).toBeVisible();
 
   await page.getByRole('button', { name: /Send to Owner/i }).click();
-  await expect(page.getByRole('heading', { name: 'Listing Sent to Owner' })).toBeVisible({ timeout: 15000 });
+  await expect(page.getByRole('heading', { name: 'Listing created' })).toBeVisible({ timeout: 15000 });
 
   // Read back the figures the owner will be asked to approve.
   const stored = await onlyListing(ownerMobile);
@@ -261,7 +261,7 @@ test('locality and society take Google suggestions, and a picked society binds t
   await page.getByRole('button', { name: /Next/i }).click();
   await expect(page.getByText(`${society}, Pashan`)).toBeVisible();
   await page.getByRole('button', { name: /Send to Owner/i }).click();
-  await expect(page.getByRole('heading', { name: 'Listing Sent to Owner' })).toBeVisible({ timeout: 15000 });
+  await expect(page.getByRole('heading', { name: 'Listing created' })).toBeVisible({ timeout: 15000 });
 
   const stored = await onlyListing(ownerMobile);
   expect(stored.locality).toBe('Pashan');
@@ -292,13 +292,49 @@ test('a deposit typed under rent is not filed against a sale', async ({ page, lo
 
   await page.getByRole('button', { name: /Next/i }).click();
   await page.getByRole('button', { name: /Send to Owner/i }).click();
-  await expect(page.getByRole('heading', { name: 'Listing Sent to Owner' })).toBeVisible({ timeout: 15000 });
+  await expect(page.getByRole('heading', { name: 'Listing created' })).toBeVisible({ timeout: 15000 });
 
   const stored = await onlyListing(ownerMobile);
   // Check the deal too; "no deposit" is trivial if a rent listing merely lost deposit.
   expect(stored.deal).toBe('buy');
   // Nought, from the server.
   expect(Number(stored.deposit ?? 0)).toBe(0);
+});
+
+test('the desk hands the owner a claim link over WhatsApp, and records it only once staff say it was sent', async ({ page, context, login }) => {
+  const ownerMobile = uniqueMobile();
+  await context.route('https://wa.me/**', (route) => route.fulfill({ status: 200, contentType: 'text/html', body: '' }));
+  await login.asAdmin();
+  await page.goto('/admin/post-on-behalf');
+
+  await ownerAndProperty(page, { name: 'Claim Owner', mobile: ownerMobile, carpetArea: '900' });
+  await page.getByRole('button', { name: /Next/i }).click();
+  await pickPlaceholderLocality(page, 'Baner');
+  await page.getByRole('button', { name: /Next/i }).click();
+  await page.locator('#pob-price').fill('25000');
+  await page.getByRole('button', { name: /Next/i }).click();
+  await page.getByRole('button', { name: /Send to Owner/i }).click();
+  await expect(page.getByRole('heading', { name: 'Listing created' })).toBeVisible({ timeout: 15000 });
+
+  const outreach = page.waitForResponse((r) => /\/outreach$/.test(r.url()) && r.request().method() === 'POST');
+  const popup = page.waitForEvent('popup');
+  await page.getByRole('button', { name: 'Send claim link on WhatsApp' }).click();
+  const prepared = await (await outreach).json();
+  const handoff = await popup;
+  await handoff.waitForURL(/wa\.me/);
+  expect(new URL(handoff.url()).pathname).toBe(`/91${ownerMobile}`);
+  expect(new URL(handoff.url()).searchParams.get('text')).toMatch(/\/signin\?claim=[0-9a-f-]{36}/);
+  await handoff.close();
+  expect(prepared.status).toBe('prepared');
+
+  const sent = page.waitForResponse((r) => r.url().endsWith(`/outreach/${prepared.id}/sent`));
+  await page.getByRole('button', { name: "I've sent it" }).click();
+  expect((await sent).status()).toBe(200);
+  await expect(page.getByRole('status').filter({ hasText: 'Claim link sent' })).toBeVisible();
+
+  const [mine] = await myListings(ownerMobile);
+  const log = await (await fetch(`${API}/properties/${mine.id}/outreach`, { headers: await admin() })).json();
+  expect(log.find((row) => row.id === prepared.id)?.status).toBe('sent');
 });
 
 // This covers the wizard's client-side paths that no API assertion can see.
@@ -338,7 +374,7 @@ test('the sidebar reaches the wizard, step one will not be skipped, and the mone
 
   await page.getByRole('button', { name: /Next/i }).click();
   await page.getByRole('button', { name: /Send to Owner/i }).click();
-  await expect(page.getByRole('heading', { name: 'Listing Sent to Owner' })).toBeVisible({ timeout: 15000 });
+  await expect(page.getByRole('heading', { name: 'Listing created' })).toBeVisible({ timeout: 15000 });
 
   const stored = await onlyListing(ownerMobile);
   expect(Number(stored.price)).toBe(25000);
@@ -455,7 +491,7 @@ test('a commercial listing files its type and shell, and asks nothing the owner 
 
   await page.getByRole('button', { name: /Next/i }).click();
   await page.getByRole('button', { name: /Send to Owner/i }).click();
-  await expect(page.getByRole('heading', { name: 'Listing Sent to Owner' })).toBeVisible({ timeout: 15000 });
+  await expect(page.getByRole('heading', { name: 'Listing created' })).toBeVisible({ timeout: 15000 });
 
   const stored = await onlyListing(ownerMobile);
   const c = stored.commercial;

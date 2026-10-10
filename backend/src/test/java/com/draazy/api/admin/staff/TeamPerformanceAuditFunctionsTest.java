@@ -33,6 +33,17 @@ class TeamPerformanceAuditFunctionsTest {
                 "report.triage", "report", null))
                 .isEqualTo(BackOfficeFunctions.REPORTS);
         assertThat(TeamPerformanceAuditFunctions.functionFor(
+                "flatmate.adminUpdate", "flatmate_post", null))
+                .isEqualTo(BackOfficeFunctions.FLATMATES);
+        assertThat(TeamPerformanceAuditFunctions.functionFor("review.status", "review", null))
+                .isEqualTo(BackOfficeFunctions.REVIEWS);
+        assertThat(TeamPerformanceAuditFunctions.functionFor("referral.approve", "referral", null))
+                .isEqualTo(BackOfficeFunctions.REFERRALS);
+        assertThat(TeamPerformanceAuditFunctions.functionFor("society.merge", "society", null))
+                .isEqualTo(BackOfficeFunctions.SOCIETIES);
+        assertThat(TeamPerformanceAuditFunctions.functionFor("enquiry.contact.reveal", "contactRequest", null))
+                .isEqualTo(BackOfficeFunctions.ENQUIRIES);
+        assertThat(TeamPerformanceAuditFunctions.functionFor(
                 "service-request.status", "service_request", "rental"))
                 .isEqualTo(BackOfficeFunctions.desk("rental"));
         assertThat(TeamPerformanceAuditFunctions.functionFor(

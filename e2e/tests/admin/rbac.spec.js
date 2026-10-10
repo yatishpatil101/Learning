@@ -10,7 +10,7 @@ const ALL_TABS = [
   'Properties', 'Users', 'Rent Agreement', 'Property & Legal', 'Home Loans', 'Interior & Renovation',
   'Packers & Movers', 'Property Valuation', 'Support queue', 'Enquiries',
   'Referrals', 'Finance', 'Content', 'Reports', 'Flatmates', 'Societies', 'Localities',
-  'Team & Access', 'Settings',
+  'Team & Access', 'Settings', 'Integrations',
 ];
 
 test('an administrator sees every module in the console', async ({ page, login, consoleErrors }) => {

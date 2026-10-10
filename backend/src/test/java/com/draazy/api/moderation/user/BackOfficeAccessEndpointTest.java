@@ -131,7 +131,7 @@ class BackOfficeAccessEndpointTest extends AbstractApiTest {
 
         assertThat(putPermissions(admin, target, "{\"functions\":[\"properties:verify\"]}"))
                 .isEqualTo(422);
-        assertThat(putPermissions(admin, target, "{\"functions\":[\"enquiries\"]}"))
+        assertThat(putPermissions(admin, target, "{\"functions\":[\"kycReview\"]}"))
                 .isEqualTo(422);
         assertThat(jdbc.queryForObject(
                 "SELECT count(*) FROM back_office_permissions WHERE user_id = ?::uuid",

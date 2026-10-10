@@ -1,4 +1,5 @@
 import Select from '../../../../../components/ui/Select.jsx';
+import DateField from '../../../../../components/ui/DateField.jsx';
 import { DOC_TYPES, istDate } from './vocabulary.js';
 
 const CAPTION = 'mb-1 block text-xs font-medium text-gray-400';
@@ -26,10 +27,9 @@ export default function RecordEvidenceForm({
               disabled={Boolean(pending) || !canDecide} options={DOC_TYPES} onChange={onChangeDocType} />
           </div>
           <div>
-            <label htmlFor={`${id}-date`} className={CAPTION}>Document issue date</label>
-            <input id={`${id}-date`} type="date" required value={form.issueDate} max={istDate()}
-              aria-describedby={`${id}-date-help`} className="dz-input"
-              onChange={(event) => setForm((previous) => ({ ...previous, issueDate: event.target.value }))} />
+            <span className={CAPTION}>Document issue date</span>
+            <DateField id={`${id}-date`} value={form.issueDate} max={istDate()} ariaLabel="Document issue date"
+              className="dz-input" onChange={(issueDate) => setForm((previous) => ({ ...previous, issueDate }))} />
           </div>
         </div>
         {needsSubject && (

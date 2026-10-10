@@ -37,7 +37,7 @@ const ADMIN_ROLE_OPTS = [
 const ROLE_TONE = { admin: CHIP_TONE.violet, manager: CHIP_TONE.teal, staff: CHIP_TONE.sky };
 
 const TEAM_TABS = [
-  { key: 'all', label: 'All members', match: () => true, note: 'Every back-office account. Suspend is the removal: there is no hard delete.' },
+  { key: 'all', label: 'All members', match: () => true, note: 'Every back-office account. There is no hard delete; Suspend cuts an account off.' },
   { key: 'staff', label: 'Ops staff', match: (m) => m.role === 'staff' && m.status === 'active', note: 'Staff open only the functions ticked on their record.' },
   { key: 'managers', label: 'Managers', match: (m) => m.role !== 'staff' && m.status === 'active', note: 'Administrator and managers run the admin console.' },
   { key: 'suspended', label: 'Suspended', match: (m) => m.status !== 'active', note: 'Signed out and refused sign-in until reactivated.' },
@@ -45,7 +45,6 @@ const TEAM_TABS = [
 const PAGE_SIZE = 20;
 const Dot = () => <span className="text-gray-600" aria-hidden="true">·</span>;
 
-const FUNCTION_GROUPS = ['Verification', 'Listings', 'Service desks', 'Support', 'Content'];
 const digits10 = (m) => String(m || '').replace(/\D/g, '').slice(-10);
 
 const changedFrom = (before, after) => {
@@ -85,9 +84,8 @@ function CheckGrid({ items, isOn, onToggle }) {
 function FunctionChecklist({ functions, selected, onToggle }) {
   return (
     <div className="space-y-3">
-      {FUNCTION_GROUPS.map((group) => {
+      {[...new Set(functions.map((fn) => fn.group))].map((group) => {
         const items = functions.filter((fn) => fn.group === group);
-        if (!items.length) return null;
         return (
           <section key={group}>
             <div className="mb-1.5 text-xs font-semibold text-gray-400">{group}</div>
@@ -171,7 +169,8 @@ export default function AdminTeam() {
       id: m.id, name: m.name || '', mobile: m.mobile || '', email: m.email || '',
       role: m.role || 'staff', functions: null, loadedFunctions: null, functionsError: null,
     });
-    if (m.role !== 'staff') {
+    // An empty roster entry is ambiguous (none granted, or the roster withheld them), so only that case re-reads.
+    if (m.role !== 'staff' || m.functions?.length) {
       setMemberModal((prev) => (prev && prev.id === m.id ? { ...prev, functions: [...(m.functions || [])], loadedFunctions: [...(m.functions || [])] } : prev));
       return;
     }
@@ -251,7 +250,7 @@ export default function AdminTeam() {
   const toggleMemberStatus = async (m) => {
     const next = m.status === 'active' ? 'suspended' : 'active';
     try {
-      await setTeamMemberStatus(m.id, next);
+      await setTeamMemberStatus(m, next);
     } catch (err) {
       return failed(err);
     }
@@ -322,7 +321,7 @@ export default function AdminTeam() {
         <button type="button" onClick={() => openEditMember(m)} className={BTN.ghost}><Pencil className="h-3.5 w-3.5" /> Edit</button>
       ) : null}
       /* No Remove action. There is no `DELETE /users/{id}` in the contract — this platform is
-         soft-delete only, so Suspend *is* the removal (it archives the account). */
+         soft-delete only, and Suspend is the way to cut an account off. */
       icons={canManageMember(m) ? (
         <>
           {signInButtons(m)}

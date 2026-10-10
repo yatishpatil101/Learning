@@ -68,8 +68,11 @@ class ListingLocalityBindingTest extends AbstractApiTest {
     void aTypedNameIsStoredAsTheCanonicalLiveLocality() throws Exception {
         locality("zzlw-live", "Zzlw Live", false);
 
-        create(owner(), "zzlw live", null)
+        User o = owner();
+        String created = create(o, "zzlw live", null)
                 .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+        storedListing(o, com.jayway.jsonpath.JsonPath.read(created, "$.id"))
                 .andExpect(jsonPath("$.locality").value("Zzlw Live"))
                 .andExpect(jsonPath("$.localitySlug").value("zzlw-live"));
     }
@@ -85,8 +88,11 @@ class ListingLocalityBindingTest extends AbstractApiTest {
     void aPickedSlugWinsOverTheTypedName() throws Exception {
         locality("zzlw-picked", "Zzlw Picked", false);
 
-        create(owner(), "whatever", "zzlw-picked")
+        User o = owner();
+        String created = create(o, "whatever", "zzlw-picked")
                 .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+        storedListing(o, com.jayway.jsonpath.JsonPath.read(created, "$.id"))
                 .andExpect(jsonPath("$.localitySlug").value("zzlw-picked"))
                 .andExpect(jsonPath("$.locality").value("Zzlw Picked"));
     }

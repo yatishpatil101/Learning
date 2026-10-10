@@ -9,6 +9,7 @@ const repo = join(here, '..', '..');
 
 const RULES = join(repo, 'backend/src/main/java/com/draazy/api/catalog/listing/ListingEditRules.java');
 const SERVICE = join(repo, 'backend/src/main/java/com/draazy/api/catalog/listing/ListingService.java');
+const MODERATION = join(repo, 'backend/src/main/java/com/draazy/api/catalog/listing/ListingModerationService.java');
 const LIFECYCLE = join(repo, 'backend/src/main/java/com/draazy/api/catalog/property/PropertyLifecycle.java');
 const TEST = join(repo, 'backend/src/test/java/com/draazy/api/catalog/listing/ListingFoundationTest.java');
 
@@ -94,7 +95,7 @@ sameSet(serverStaysLive, oracle('STAYS_LIVE'), 'ListingEditRules.apply stays-liv
    `updateAsModerator` deliberately does not, and mirroring `apply` alone would not catch an inversion. */
 console.log('  3. update() reverts or queues a re-check; updateAsModerator() does neither');
 
-/* Position no longer proves unconditional execution; status guards can wrap these branches. */
+/* Position does not prove unconditional execution, since status guards can wrap these branches. */
 const atDepthZero = (s) => {
   let out = s;
   let prev;
@@ -132,7 +133,7 @@ ok(
   + ' unconditionally, so a price edit can now be free. That is a moderation hole, not a'
   + ' simplification (Q14). The owner note may be conditional; the re-check may not.',
 );
-const moderatorBody = (serviceSrc.split('public Property updateAsModerator(')[1] || '').split('\n    }')[0];
+const moderatorBody = (read(MODERATION).split('public Property updateAsModerator(')[1] || '').split('\n    }')[0];
 ok(
   moderatorBody.includes('apply(p, in);'),
   'updateAsModerator no longer asks ListingEditRules what the edit costs, so a staff edit to a foundation'

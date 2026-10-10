@@ -11,6 +11,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.draazy.api.catalog.property.PropertyMapper;
+import com.draazy.api.common.trust.PendingLeadLookup;
 import com.draazy.api.common.error.GlobalExceptionHandler;
 import com.draazy.api.security.AuthPrincipal;
 import java.util.List;
@@ -43,7 +44,7 @@ class ListingGalleryPolicyTest {
     void setUp() {
         SecurityContextHolder.getContext().setAuthentication(new UsernamePasswordAuthenticationToken(
                 new AuthPrincipal(OWNER, "owner", null, true, false), null, List.of()));
-        mvc = MockMvcBuilders.standaloneSetup(new MeListingsController(listings, mock(PropertyMapper.class)))
+        mvc = MockMvcBuilders.standaloneSetup(new MeListingsController(listings, mock(PropertyMapper.class), mock(PendingLeadLookup.class)))
                 .setCustomArgumentResolvers(new AuthenticationPrincipalArgumentResolver())
                 .setControllerAdvice(new GlobalExceptionHandler())
                 .build();

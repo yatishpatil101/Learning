@@ -116,6 +116,8 @@ test('the timeline shows the ledger, and no longer invents the rest', async ({ p
   // A delta, not an absolute.
   const entries = page.getByTestId('comms-entry');
   await page.getByRole('button', { name: /Communication log/ }).click();
+  // The count badge appears once the timeline has loaded, which now happens on expand.
+  await expect(page.getByRole('button', { name: /Communication log \d+/ })).toBeVisible();
   const before = await entries.count();
 
   await page.getByRole('button', { name: TEMPLATE_NAME }).click();
@@ -144,6 +146,13 @@ test('the timeline shows the ledger, and no longer invents the rest', async ({ p
 
   // `preparedBy` is a uuid; actor resolution belongs to the admin-only audit log.
   expect(timeline.join('\n')).not.toMatch(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}/i);
+
+  // "Sent" appears only once the operator attests it.
+  const marked = page.waitForResponse((r) => r.url().endsWith(`/outreach/${prepared.id}/sent`));
+  await entries.first().getByRole('button', { name: 'Mark sent' }).click();
+  expect((await marked).status()).toBe(200);
+  await expect(entries.first()).toContainText(`Sent \u2014 ${TEMPLATE_NAME}`);
+  await expect(entries.first().getByRole('button', { name: 'Mark sent' })).toHaveCount(0);
 });
 
 // The browser picks a template; the server decides membership from `lastConfirmedAt`.

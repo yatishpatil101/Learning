@@ -1,5 +1,5 @@
 // The admin Ctrl+K palette and the bell, against the live API.
-import { test, expect, ACTORS } from '../../fixtures/live.js';
+import { test, expect, ACTORS, STAFF } from '../../fixtures/live.js';
 import { API, authHeaders, uploadedListingPhotos, uniqueMobile } from '../../helpers/liveAuth.js';
 
 const UNIQUE_PAGE_TERM = 'Referrals';
@@ -81,6 +81,17 @@ async function search(page, term) {
   await expect(palette(page)).toBeVisible();
 }
 
+test('on a phone the search icon reveals the box and the palette answers', async ({ page, login }) => {
+  await page.setViewportSize({ width: 390, height: 800 });
+  await login.asAdmin();
+  await page.goto('/admin');
+  await expect(page.getByLabel('Global search')).toBeHidden();
+  await page.getByRole('button', { name: 'Search', exact: true }).click();
+  await expect(page.getByLabel('Global search')).toBeFocused();
+  await search(page, UNIQUE_PAGE_TERM);
+  await expect(chip(page, 'All')).toHaveText('All (1)');
+});
+
 test('Ctrl+K opens the palette, page results navigate, Escape clears the term, and only the four categories are offered', async ({ page, login, consoleErrors }) => {
   await login.asAdmin();
   await test.step('Ctrl+K still opens the palette and page results navigate on live builds', async () => {
@@ -133,6 +144,18 @@ test('Ctrl+K opens the palette, page results navigate, Escape clears the term, a
   });
 });
 
+test('the palette finds a staff runbook from the help content, and opens it', async ({ page, login, consoleErrors }) => {
+  await login.asAdmin();
+  await openAdmin(page);
+  await search(page, 'verification slas');
+
+  await palette(page).getByRole('button', { name: /^Verification SLAs\s*Runbooks/ }).click();
+
+  await page.waitForURL('**/admin/runbooks/verification-sla');
+  await expect(page.getByTestId('runbook-article').getByRole('heading', { name: 'Verification SLAs', level: 2 })).toBeVisible();
+  expect(consoleErrors).toHaveLength(0);
+});
+
 test('the palette finds a posted listing and a registered person, and the bell counts a real pending listing', async ({ page, login, consoleErrors }) => {
   await test.step('a listing posted over the API is found by the palette, and opens on the desk', async () => {
     const token = tag();
@@ -163,7 +186,7 @@ test('the palette finds a posted listing and a registered person, and the bell c
     await openAdmin(page);
     await search(page, token);
 
-    // Prefix, because that is what `GET /users` matches — see the header. A term from the middle of
+    // Prefix, because that is what `GET /users` matches â€” see the header. A term from the middle of
     // the name would find this account in a mock build and nothing at all here.
     await expect(chip(page, 'People')).toHaveText('People (1)');
     await expect(palette(page).getByRole('button', { name: new RegExp(name) })).toHaveCount(1);
@@ -171,12 +194,10 @@ test('the palette finds a posted listing and a registered person, and the bell c
 
     expect(consoleErrors).toHaveLength(0);
   });
-  await test.step('the bell counts a real pending listing, and is not blind on a live build', async () => {
+  await test.step('the bell lists a real pending listing without calling it unread, and is not blind on a live build', async () => {
     await pendingListing(tag());
 
     await openAdmin(page);
-
-    await expect(page.getByTestId('notif-unread-dot')).toBeVisible();
     await page.getByRole('button', { name: 'Notifications' }).click();
 
     // The count comes from `GET /admin/bell`, and the row we just posted is in it.
@@ -188,6 +209,43 @@ test('the palette finds a posted listing and a registered person, and the bell c
 
     expect(consoleErrors).toHaveLength(0);
   });
+});
+
+test("a manager's staff change reaches the admin's own bell under For you, and opening it marks it read", async ({ page, login, consoleErrors }) => {
+  const adminHeaders = await authHeaders(ACTORS.admin);
+  const staff = await api('GET', `/users?role=staff&q=${STAFF.valuation}&size=5`, adminHeaders);
+  const colleague = staff.body.content[0];
+  expect(colleague, 'the seeded valuation staffer').toBeTruthy();
+
+  const edited = await api('PATCH', `/users/${colleague.id}`, await authHeaders(ACTORS.manager), { name: colleague.name });
+  expect(edited.status, JSON.stringify(edited.body)).toBe(200);
+
+  const inbox = await api('GET', '/notifications?size=100', adminHeaders);
+  const notice = inbox.body.content.find((n) => n.type === 'team.manager-action' && !n.read);
+  expect(notice?.body).toBe(`Edited staff account: ${colleague.name}`);
+
+  await login.asAdmin();
+  await openAdmin(page);
+  await expect(page.getByTestId('notif-unread-dot'), 'an unread notification lights the dot').toBeVisible();
+  await page.getByRole('button', { name: 'Notifications' }).click();
+  await expect(bell(page).getByText(/^For you \(\d+\)$/)).toBeVisible();
+
+  await bell(page).getByRole('button', { name: /Manager changed team access/ }).first().click();
+  await expect(page).toHaveURL(/\/team/);
+  await expect.poll(async () => {
+    const after = await api('GET', '/notifications?size=100', adminHeaders);
+    return after.body.content.find((n) => n.id === notice.id)?.read;
+  }, { message: 'opening the row must mark it read on the server' }).toBe(true);
+
+  await api('PATCH', `/users/${colleague.id}`, await authHeaders(ACTORS.manager), { name: colleague.name });
+  await page.reload();
+  await page.getByRole('button', { name: 'Notifications' }).click();
+  await bell(page).getByRole('button', { name: 'Mark all read' }).click();
+  await expect(bell(page).getByText(/^For you \(\d+\)$/)).toHaveCount(0);
+  await expect.poll(async () => (await api('GET', '/notifications/unread-count', adminHeaders)).body)
+    .toMatchObject({ count: 0 });
+
+  expect(consoleErrors).toHaveLength(0);
 });
 
 // The two below came off `admin/command-palette.spec.js` when that file was retired.

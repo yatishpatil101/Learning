@@ -8,8 +8,8 @@ async function openTeam(page) {
   await expect(page.getByRole('heading', { name: 'Team & Access' })).toBeVisible();
 }
 
-/** Finds a member's row across pages: 16+ accounts exceed the page size of 20 and the server promises no total order within a role,
- * so a person can land on either page between runs. */
+/** Finds a member's row across pages: 16+ accounts exceed the page size of 20 and the server promises no
+ * total order within a role, so a person can land on either page between runs. */
 async function memberRow(page, name) {
   await expect(page.getByTestId('queue-row').first()).toBeVisible();
   const row = page.getByTestId('queue-row').filter({ hasText: new RegExp(name) });
@@ -68,9 +68,9 @@ test('creating staff shows the one-time invite link dialog', async ({ page, logi
   await page.getByRole('button', { name: /Done/ }).click();
 
   const admin = await authHeaders(ACTORS.admin);
-  const res = await fetch(`${API}/users?role=staff&size=100`, { headers: admin });
+  const res = await fetch(`${API}/users?role=staff&q=${mobile}&size=5`, { headers: admin });
   const body = await res.json();
-  const created = (body.content || body.items || []).find((u) => u.email === email);
+  const created = (body.content || body.items || [])[0];
   if (created) {
     await fetch(`${API}/users/${created.id}/archive`, {
       method: 'PATCH', headers: admin, body: JSON.stringify({ reason: 'UI invite probe finished' }),
@@ -85,7 +85,7 @@ test('members can be suspended but not hard-deleted', async ({ page, login, cons
 
   const row = await memberRow(page, 'Isha Mehta');
   await expect(row.getByRole('button', { name: /^Suspend$/ })).toBeVisible();
-  // There is no DELETE /users/{id} anywhere in the contract; archive is the removal.
+  // There is no DELETE /users/{id} anywhere in the contract; the platform is soft-delete only.
   await expect(row.getByRole('button', { name: /^Remove$/ })).toHaveCount(0);
 
   expect(consoleErrors).toHaveLength(0);
@@ -162,9 +162,9 @@ test('a manager creates staff, cannot pick Manager, and cannot act on the admin 
   await expect(page.getByRole('heading', { name: 'Invite link' })).toBeVisible();
 
   const admin = await authHeaders(ACTORS.admin);
-  const res = await fetch(`${API}/users?role=staff&size=100`, { headers: admin });
+  const res = await fetch(`${API}/users?role=staff&q=${mobile}&size=5`, { headers: admin });
   const body = await res.json();
-  const created = (body.content || body.items || []).find((u) => u.email === email);
+  const created = (body.content || body.items || [])[0];
   if (created) {
     await fetch(`${API}/users/${created.id}/archive`, {
       method: 'PATCH', headers: admin, body: JSON.stringify({ reason: 'Manager invite probe finished' }),
