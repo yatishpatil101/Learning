@@ -49,6 +49,29 @@ test('sign-up offers exactly one primary action at a time', async ({ page }) => 
   await expect(page.getByRole('button', { name: /^Send OTP$/i })).toHaveCount(0);
 });
 
+test('sign-up with a taken email says so, and the retry finishes without a new OTP', async ({ page }) => {
+  // Refused once: the code is spent by the time the profile save is refused.
+  let refused = false;
+  await page.route('**/api/auth/me', (route) => {
+    if (refused || route.request().method() !== 'PATCH') return route.fallback();
+    refused = true;
+    return route.fulfill({ status: 409, contentType: 'application/json', body: JSON.stringify({ error: 'conflict', message: 'Email already in use' }) });
+  });
+  await page.goto(`/signup?mobile=${uniqueMobile()}&new=1`);
+  await page.locator('#signup-name').fill('Taken Email');
+  await page.locator('#signup-email').fill('taken@example.com');
+  await page.locator('input[type="checkbox"]').check();
+  await page.getByRole('button', { name: /^Send OTP$/i }).click();
+  await page.getByLabel('OTP digit 1').click();
+  for (const digit of E2E_OTP) await page.keyboard.type(digit);
+  await page.getByRole('button', { name: /Create Account/i }).click();
+
+  await expect(page.getByText('This email is already used by another account. Use a different one or leave it blank.')).toBeVisible();
+  await page.locator('#signup-email').fill('');
+  await page.getByRole('button', { name: /Create Account/i }).click();
+  await expect(page).toHaveURL(/\/listings/, { timeout: 20000 });
+});
+
 test('the auth pages have no dead links, resolve their legal links and focus their first field', async ({ page }) => {
   await page.goto('/signin');
   await expect(page.locator('#signin-mobile')).toBeFocused();

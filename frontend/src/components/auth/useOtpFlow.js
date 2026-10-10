@@ -49,8 +49,8 @@ export function useOtpFlow(dispatch = inertDispatch) {
     timer.current = setInterval(tick, 1000);
   }, [tick]);
 
-  /** Resolves `true` only if a code was actually sent. On failure `sendError` holds an i18n key,
-      not a sentence — pass it through `t()`. */
+  /** Resolves `true` only if a code was actually sent. On failure `sendError` holds
+      `{ messageKey, count? }`, not a sentence — pass it through `t()`. */
   const send = useCallback(async (mobile) => {
     const mine = session.current;
     setSending(true);
@@ -117,8 +117,8 @@ export function useOtpFlow(dispatch = inertDispatch) {
 
   useEffect(() => () => clearInterval(timer.current), []);
 
-  /* `setSendError` is deliberately NOT returned: `sendError` is an i18n key by contract, and a
-     sentence written into it would render as itself rather than going red. */
+  /* `setSendError` is deliberately NOT returned: `sendError` is a translatable message by contract,
+     and a sentence written into it would never reach `t()`. */
   return {
     otpSent, sending, otp, setOtp, otpError, setOtpError, sendError,
     send, resend, reset, seconds, canResend: otpSent && seconds === 0,

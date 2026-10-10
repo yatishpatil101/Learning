@@ -151,6 +151,7 @@ code actually work here?**
 |---|---|---|
 | `account_archived` | 401 | An ordinary 401 on the OTP route is about the code, so the answer is another code. This one is terminal — every fresh code verifies and lands here again, sending the user round that loop until their send budget is gone. |
 | `signups_closed` | 403 | Terminal in the same way, and equally not about the code. A plain 403 is answered by signing in as somebody permitted, which is precisely the move these refusals do not accept. |
+| `account_suspended` | 403 | Terminal too, and sharing `forbidden` with the bot-defence refusal on `POST /auth/login` would tell a suspended user to reload the page. The message names the remedy for the audience: support for consumers, an administrator for staff. |
 | `verification_required` | 403 | The *only* legitimate verification-driven 403 on the contact path (ADR-019, badge-not-gate). A missing L2 badge never blocks anything else, so the client can safely treat this code — and only this code — as "offer the identity-verification prompt". |
 | `review_not_eligible` | 422 | No permission fixes it, only going to see the flat does. A review is worth reading only if the person writing it went there. |
 | `contact_quota_exhausted` | 422 | Not 403: signing in again does not conjure contacts. Not 429: a 429 promises the request succeeds if you wait, and this quota is a lifetime total. What fixes it is subscribing or referring. |

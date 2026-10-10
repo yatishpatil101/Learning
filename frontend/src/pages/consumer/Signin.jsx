@@ -16,6 +16,7 @@ import RotatingNoun from '../../components/RotatingNoun.jsx';
 import { useCity } from '../../context/CityContext.jsx';
 import { useAppFlags } from '../../context/AppFlagsContext.jsx';
 import { resolveAuthIntent, postAuthDest } from '../../lib/authIntent.js';
+import { isValidName } from '../../lib/auth.js';
 import { classifyOtpVerifyError } from '../../lib/otpVerifyError.js';
 import { healStaleShell } from '../../lib/seamErrors.js';
 import { cityHasData } from '../../lib/geoConfig.js';
@@ -160,11 +161,9 @@ export default function Signin() {
 
   const saveProfile = async (e) => {
     e.preventDefault();
-    /* Both ends, matching `UserUpdate`'s `@Size(min = 2, max = 80)`: this step has no way out, so a bound the server
-       enforces and the form does not strands the user. */
     const errs = {};
     const nameVal = name.trim();
-    if (nameVal.length < 2 || nameVal.length > 80) errs.name = true;
+    if (!isValidName(nameVal)) errs.name = true;
     const emailVal = email.trim();
     if (emailVal && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailVal)) errs.email = true;
     setProfileErrs(errs);
@@ -252,7 +251,7 @@ export default function Signin() {
           {/* This alert remains mounted from the first OTP request through verification, so all delivery and
              verification failures reach the same assistive-technology channel. */}
 
-            <p role="alert" id="signin-otp-status" className={otp.otpError || otp.sendError || verifyMessage ? 'text-red-400 text-xs text-center' : 'sr-only'}>{otp.otpError ? t('auth.errOtp') : (otp.sendError ? t(otp.sendError) : verifyMessage)}</p>
+            <p role="alert" id="signin-otp-status" className={otp.otpError || otp.sendError || verifyMessage ? 'text-red-400 text-xs text-center' : 'sr-only'}>{otp.otpError ? t('auth.errOtp') : (otp.sendError ? t(otp.sendError.messageKey, { count: otp.sendError.count }) : verifyMessage)}</p>
 
           {!otp.otpSent ? (
               /* Renders nothing unless VITE_TURNSTILE_SITE_KEY is set, and the send button is not gated on a token —

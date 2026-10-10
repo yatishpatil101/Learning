@@ -19,7 +19,7 @@ async function ownerWithListing() {
   const base = uniqueMobile();
   const mobile = `${base.slice(0, -1)}${actorSequence++ % 10}`;
   const headers = await authHeaders(mobile);
-  const named = await api('PATCH', '/auth/me', headers, { name: `Zztest Finance Owner ${Date.now()}` });
+  const named = await api('PATCH', '/auth/me', headers, { name: 'Zztest Finance Owner' });
   expect(named.status, 'naming the finance owner').toBe(200);
 
   const created = await api('POST', '/me/listings', headers, {

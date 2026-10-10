@@ -6,6 +6,7 @@ import { useAuth } from '../../context/AuthContext.jsx';
 import { staffEnrol, staffLogin } from '../../services/authService.js';
 import { safeInAppPath } from '../../lib/authIntent.js';
 import { healStaleShell } from '../../lib/seamErrors.js';
+import { staffAuthError } from '../../lib/staffAuthError.js';
 import StaffShell, { StaffField, STAFF_SUBMIT } from '../../components/auth/StaffShell.jsx';
 import { portalBase } from '../../lib/adminModules.js';
 
@@ -61,7 +62,7 @@ export default function StaffLogin() {
         setEnrolment(null);
       }
       setCode('');
-      setError(err?.message || 'Something went wrong. Please try again.');
+      setError(staffAuthError(err, step));
       healStaleShell(err);
     } finally {
       setBusy(false);
@@ -89,7 +90,7 @@ export default function StaffLogin() {
   const submitCode = (e) => {
     e.preventDefault();
     if (!code.trim()) {
-      setError('Enter the code.');
+      setError('Enter the 6-digit code from your authenticator app.');
       return;
     }
     run(async () => {

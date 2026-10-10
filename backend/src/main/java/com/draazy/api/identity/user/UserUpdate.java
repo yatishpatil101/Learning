@@ -7,8 +7,9 @@ import jakarta.validation.constraints.Size;
 // Deliberately narrow: identity/trust fields are server-owned and not accepted here.
 public record UserUpdate(
 
-        // Server-side because the sign-in path collects name and the column has no length.
-        @Size(min = 2, max = 80) @Pattern(regexp = ".*\\S.*") String name,
+        // Server-side because the column has no length; must match the frontend isValidName.
+        // Any script's letters (\p{M} keeps Devanagari vowel signs) plus space . ' -
+        @Size(min = 2, max = 80) @Pattern(regexp = "\\p{L}[\\p{L}\\p{M} .'-]*") String name,
         @Email String email,
         String avatar,
         String city,

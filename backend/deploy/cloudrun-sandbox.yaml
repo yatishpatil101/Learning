@@ -177,6 +177,18 @@ spec:
             - name: CASHFREE_NOTIFY_URL
               value: https://sandbox.draazy.com/api/webhooks/cashfree/payment
 
+            # Staff invite and password-reset emails. From-address defaults to noreply@draazy.com,
+            # whose domain must show DKIM and CNAME Verified in ZeptoMail or every send is refused.
+            - name: ZEPTOMAIL_ENABLED
+              value: 'true'
+            - name: ZEPTOMAIL_FROM_NAME
+              value: Draazy Sandbox
+            - name: ZEPTOMAIL_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: draazy-sandbox-zeptomail-api-key
+                  key: latest
+
             # `R2FileStorage` refuses to start unless all six are non-blank, and a secretKeyRef to a
             # missing secret is a hard boot error — so a gap here crash-loops rather than fails late.
             - name: STORAGE_ENABLED

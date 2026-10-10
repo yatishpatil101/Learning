@@ -84,9 +84,9 @@ async function exchange(path, opts) {
   const { auth = true, withStatus = false } = opts;
   const res = await send(path, opts, auth ? readAccessToken() : null);
 
-  // An expired access token is the expected steady state: refresh and replay once. The path and
-  // token guards keep this off `/auth/refresh` itself — see docs/flows/consumer/auth.md.
-  if (res.status === 401 && auth && path !== REFRESH_PATH && readAccessToken()) {
+  // Refresh and replay once (never for `/auth/refresh` itself: docs/flows/consumer/auth.md). A wrong-code
+  // 401 carries `attemptsRemaining` and is not replayed, since that would spend a second guess.
+  if (res.status === 401 && auth && path !== REFRESH_PATH && readAccessToken() && !(await isWrongCode(res))) {
     const token = await refreshAccessToken();
     if (token) return toResult(await send(path, opts, token), withStatus);
     // Reached only when the server actually refused; an unreachable server throws instead, so this
@@ -386,6 +386,10 @@ async function toResult(res, withStatus = false) {
     // headers, so a browser on another origin can read the body and nothing else.
     retryAfterSeconds: payload?.retryAfterSeconds,
   });
+}
+
+async function isWrongCode(res) {
+  return (await parseBody(res.clone()))?.attemptsRemaining != null;
 }
 
 async function parseBody(res) {

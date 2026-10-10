@@ -18,6 +18,7 @@ import { resolveAuthIntent, postAuthDest } from '../../lib/authIntent.js';
 import { classifyOtpVerifyError } from '../../lib/otpVerifyError.js';
 import { healStaleShell } from '../../lib/seamErrors.js';
 import { redeemReferral } from '../../services/referralService.js';
+import { isValidName } from '../../lib/auth.js';
 import { track } from '../../lib/pmf.js';
 
 const BENEFITS = [
@@ -64,7 +65,7 @@ function LeftPanel() {
 
 export default function Signup() {
   const { t } = useTranslation();
-  const { register } = useAuth();
+  const { register, update } = useAuth();
   const navigate = useNavigate();
   const [params] = useSearchParams();
   const intent = resolveAuthIntent(params);
@@ -90,6 +91,8 @@ export default function Signup() {
      cleared on the next keystroke — the whole point is that more typing cannot help. */
   const [otpSpent, setOtpSpent] = useState(false);
   const [otpCanBeRenewed, setOtpCanBeRenewed] = useState(true);
+  // Set when the code was accepted but the profile save failed: the retry patches, it never re-verifies.
+  const signedIn = useRef(null);
   const { city } = useCity();
   const cityKnown = cityHasData(city);
   const mobileIntro = (
@@ -102,7 +105,7 @@ export default function Signup() {
 
   const validateBase = () => {
     const e = {};
-    if (name.trim().length < 2) e.name = true;
+    if (!isValidName(name.trim())) e.name = true;
     const emailVal = email.trim();
     if (emailVal && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailVal)) e.email = true;
     if (!mobile.valid) e.mobile = true;
@@ -125,13 +128,19 @@ export default function Signup() {
     setCreating(true);
     setCreateError(null);
     try {
-      const wasNew = await register({
-        name: name.trim() || 'Draazy User',
-        mobile: mobile.value,
-        email: email.trim(),
-        role,
-        otp: otp.otp,
-      });
+      const typedEmail = email.trim();
+      const wasNew = signedIn.current
+        ? (await update({
+          ...(signedIn.current.verified ? {} : { name: name.trim() }),
+          ...(typedEmail ? { email: typedEmail } : {}),
+        }), signedIn.current.wasNew)
+        : await register({
+          name: name.trim() || 'Draazy User',
+          mobile: mobile.value,
+          email: typedEmail,
+          role,
+          otp: otp.otp,
+        });
       setDone(true);
       const ref = params.get('ref');
       if (wasNew) track('signup_completed', { role, referred: Boolean(ref) });
@@ -147,10 +156,12 @@ export default function Signup() {
         1000,
       );
     } catch (err) {
-      /* A validation rejection names the field to fix, so its server text is kept verbatim; every
-         other refusal is translated. Split on status, since some carry no count. */
-      if (err?.isValidation) {
-        setCreateError(err.message || t('common.somethingWentWrong'));
+      /* Read the STATUS, never `err.message`: the server speaks English and this form is trilingual. */
+      if (err?.signedIn) signedIn.current = err.signedIn;
+      if (signedIn.current) {
+        const key = err?.status === 409 ? 'auth.errEmailTaken'
+          : err?.isValidation ? 'auth.errCheckDetails' : 'common.somethingWentWrong';
+        setCreateError(t(key));
         return;
       }
       const { messageKey, count, terminal, resendable } = classifyOtpVerifyError(err);
@@ -196,7 +207,7 @@ export default function Signup() {
             <label htmlFor="signup-name" className="block text-sm font-medium text-gray-300 mb-2">{t('auth.fullName')} <span className="text-rose-400">*</span></label>
             <div className="relative">
               <User className="w-4 h-4 text-gray-500 absolute left-3.5 top-1/2 -translate-y-1/2" />
-              <input id="signup-name" autoFocus autoComplete="name" enterKeyHint="next" value={name} onChange={(e) => { setName(e.target.value); setErrs((x) => ({ ...x, name: false })); }} type="text" placeholder={t('auth.fullNamePlaceholder')} className={'w-full pl-10 pr-4 py-3.5 bg-white/5 border rounded-xl text-white text-sm placeholder-gray-500 focus:outline-none transition-all ' + (errs.name ? 'border-red-400' : 'border-white/10 focus:border-teal-400')} />
+              <input id="signup-name" autoFocus autoComplete="name" enterKeyHint="next" maxLength={80} value={name} onChange={(e) => { setName(e.target.value); setErrs((x) => ({ ...x, name: false })); }} type="text" placeholder={t('auth.fullNamePlaceholder')} className={'w-full pl-10 pr-4 py-3.5 bg-white/5 border rounded-xl text-white text-sm placeholder-gray-500 focus:outline-none transition-all ' + (errs.name ? 'border-red-400' : 'border-white/10 focus:border-teal-400')} />
             </div>
             {errs.name ? <p className="text-red-400 text-xs mt-1.5 ml-1">{t('auth.errName')}</p> : null}
           </div>
@@ -212,11 +223,11 @@ export default function Signup() {
 
           <div className="slide-up slide-up-delay-3">
             <label htmlFor="signup-mobile" className="block text-sm font-medium text-gray-300 mb-2">{t('auth.mobileNumber')} <span className="text-rose-400">*</span></label>
-            <MobileField id="signup-mobile" enterKeyHint="send" value={mobile.value} onChange={(v) => { if (v !== mobile.value && otp.otpSent) { otp.reset(); setCreateError(null); setOtpSpent(false); setOtpCanBeRenewed(true); } mobile.setValue(v); setErrs((x) => ({ ...x, mobile: false })); }} error={errs.mobile} disabled={otp.sending || creating} placeholder={t('auth.mobilePlaceholder')} />
+            <MobileField id="signup-mobile" enterKeyHint="send" value={mobile.value} onChange={(v) => { if (v !== mobile.value && otp.otpSent) { otp.reset(); signedIn.current = null; setCreateError(null); setOtpSpent(false); setOtpCanBeRenewed(true); } mobile.setValue(v); setErrs((x) => ({ ...x, mobile: false })); }} error={errs.mobile} disabled={otp.sending || creating} placeholder={t('auth.mobilePlaceholder')} />
             {errs.mobile ? <p className="text-red-400 text-xs mt-1.5 ml-1">{t('auth.errMobile')}</p> : null}
           </div>
 
-          <p id="signup-otp-status" role="alert" className={otp.otpError || otp.sendError || createError ? 'text-red-400 text-xs text-center' : 'sr-only'}>{otp.otpError ? t('auth.errOtp') : (otp.sendError ? t(otp.sendError) : createError)}</p>
+          <p id="signup-otp-status" role="alert" className={otp.otpError || otp.sendError || createError ? 'text-red-400 text-xs text-center' : 'sr-only'}>{otp.otpError ? t('auth.errOtp') : (otp.sendError ? t(otp.sendError.messageKey, { count: otp.sendError.count }) : createError)}</p>
 
           <div>
             <label className="tap-target sm:min-h-0 sm:min-w-0 flex items-start gap-2.5 cursor-pointer group">

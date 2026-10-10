@@ -1,20 +1,17 @@
-/**
- * Turn a failed OTP verification into a translatable message key, classified on the machine `code`
- * and never the status — the statuses collide in both directions (docs/flows/consumer/auth.md).
- */
+// Classified on the machine `code`, never the status: the statuses collide (docs/flows/consumer/auth.md).
 import { PROVIDER_LOAD_FAILED, isDefinitelyOffline } from './seamErrors.js';
+import { busyMessage } from './otpSendError.js';
 
 /** Terminal refusal messages and whether a fresh code is a meaningful remedy. */
 const TERMINAL = {
   account_archived: { messageKey: 'auth.errAccountArchived', resendable: false },
+  account_suspended: { messageKey: 'auth.errAccountSuspended', resendable: false },
   signups_closed: { messageKey: 'auth.errSignupsClosed', resendable: false },
   otp_attempts_exhausted: { messageKey: 'auth.errOtpExhausted', resendable: true },
+  staff_sign_in_required: { messageKey: 'auth.errUseStaffSignIn', resendable: false },
 };
 
-/**
- * `terminal` means the code in hand is spent or the account cannot sign in at all, so the submit
- * control should be blocked; `resendable` says whether a fresh code is a meaningful remedy.
- */
+/** `terminal` blocks submit: the code in hand is spent or the account cannot sign in at all. */
 export function classifyOtpVerifyError(err) {
   /* The server never saw this submit, so the code in hand is untouched. `terminal` only when a
      reload is the remedy — an offline device should retry, not be locked out. */
@@ -42,7 +39,7 @@ export function classifyOtpVerifyError(err) {
   // A 401 with no count is a code the server does not hold: expired (5-minute TTL) or already
   // spent. Retrying loops the user against a code that can never succeed, so it is terminal too.
   if (err?.status === 401) return { messageKey: 'auth.errOtpGone', terminal: true, resendable: true };
-  if (err?.status === 429) return { messageKey: 'auth.errOtpBusy', terminal: false };
+  if (err?.status === 429) return { ...busyMessage(err.retryAfterSeconds), terminal: false };
   if (err?.status === 403) return { messageKey: 'auth.errSignInBlocked', terminal: true, resendable: false };
   // No status at all means the request was never answered — the guess is untouched, so retry.
   return { messageKey: err?.status ? 'common.somethingWentWrong' : 'connectivity.listUnreachable',

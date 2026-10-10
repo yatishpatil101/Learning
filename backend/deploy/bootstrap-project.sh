@@ -200,7 +200,7 @@ gcloud iam service-accounts add-iam-policy-binding "$DEPLOYER" \
 
 # ---------------------------------------------------------------------------------------------
 say "Secret Manager"
-# All twelve must exist before the first `services replace`; use printf '%s', as a trailing newline
+# All thirteen must exist before the first `services replace`; use printf '%s', as a trailing newline
 # joins the value and reads later as a bad password.
 SECRETS=(
   "draazy-sandbox-db-password:Supabase database password"
@@ -215,6 +215,7 @@ SECRETS=(
   "draazy-sandbox-r2-access-key-id:R2 access key id, from a token scoped to the two sandbox buckets"
   "draazy-sandbox-r2-secret-access-key:R2 secret access key (shown once at token creation)"
   "draazy-sandbox-google-places-server-key:Google Places API (New) server key, restricted to that API"
+  "draazy-sandbox-zeptomail-api-key:ZeptoMail Send Mail token (CPaaS → Agents → agent → SMTP/API)"
 )
 
 for entry in "${SECRETS[@]}"; do

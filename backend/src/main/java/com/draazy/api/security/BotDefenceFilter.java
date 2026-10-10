@@ -21,9 +21,14 @@ public class BotDefenceFilter extends OncePerRequestFilter {
     // Turnstile tokens are a few hundred characters.
     private static final int MAX_TOKEN_LENGTH = 4096;
 
-    // Every entry is an unauthenticated `permitAll` write in `SecurityConfig`.
+    // One refusal for every reason, deliberately: missing token, rejected token and unreachable provider
+    // must read the same.
+    public static final String REFUSAL =
+            "This request could not be verified as human. Please reload the page and try again.";
+
+    // Every entry is an unauthenticated `permitAll` write in `SecurityConfig`. `POST /auth/login` checks its
+    // send step in `AuthController`: only the body names the step, and verify must not re-spend the token.
     private static final Set<String> CHALLENGED = Set.of(
-            Routes.Auth.LOGIN,
             Routes.Cities.WAITLIST,
             Routes.ServiceWaitlist.BASE);
 
@@ -40,25 +45,23 @@ public class BotDefenceFilter extends OncePerRequestFilter {
             FilterChain chain) throws ServletException, IOException {
 
         // Check enforcement first so dev and tests pay only one boolean read.
-        if (!defence.enforced() || !isChallenged(request)) {
+        if (!defence.enforced() || !isChallenged(request) || verified(defence, request)) {
             chain.doFilter(request, response);
             return;
         }
+        log.debug("Bot defence refused a challenged write");
+        SecurityErrors.write(response, 403, ErrorCodes.FORBIDDEN, REFUSAL);
+    }
 
+    /** Whether the request carries a token the provider confirms; always {@code true} when not enforced. */
+    public static boolean verified(BotDefence defence, HttpServletRequest request) {
+        if (!defence.enforced()) {
+            return true;
+        }
         String token = request.getHeader(TOKEN_HEADER);
-        if (token == null || token.isBlank() || token.length() > MAX_TOKEN_LENGTH) {
-
-            // Missing tokens are rejected; otherwise omitting the header would bypass the gate.
-            reject(response);
-            return;
-        }
-
-        if (!defence.verify(token, request.getRemoteAddr())) {
-            reject(response);
-            return;
-        }
-
-        chain.doFilter(request, response);
+        // A missing token is a refusal; otherwise omitting the header would bypass the gate.
+        return token != null && !token.isBlank() && token.length() <= MAX_TOKEN_LENGTH
+                && defence.verify(token, request.getRemoteAddr());
     }
 
     // Share the path normaliser with rate limits so route matching cannot drift.
@@ -68,13 +71,5 @@ public class BotDefenceFilter extends OncePerRequestFilter {
                 && CHALLENGED.contains(
                         WriteRateLimitFilter.normalisedPath(
                                 request.getContextPath(), request.getRequestURI()));
-    }
-
-    // One refusal for every reason, deliberately.
-    // Missing token, rejected token and unreachable provider produce a byte-identical response.
-    private static void reject(HttpServletResponse response) throws IOException {
-        log.debug("Bot defence refused a challenged write");
-        SecurityErrors.write(response, 403, ErrorCodes.FORBIDDEN,
-                "This request could not be verified as human. Please reload the page and try again.");
     }
 }

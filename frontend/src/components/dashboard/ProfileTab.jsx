@@ -8,7 +8,7 @@ import Modal from '../ui/Modal.jsx';
 import VerifyIdentityRedirect from '../auth/VerifyIdentityRedirect.jsx';
 import { useAuth } from '../../context/AuthContext.jsx';
 import { useVerification } from '../../context/VerificationContext.jsx';
-import { initial, roleLabel, firstName } from '../../lib/auth.js';
+import { initial, roleLabel, firstName, isValidName } from '../../lib/auth.js';
 import {
   getAppPrefs, setAppPrefs,
 } from '../../lib/localPrefs.js';
@@ -169,9 +169,7 @@ export default function ProfileTab({ user, update, toast, isOwner }) {
   const save = async () => {
     const name = form.name.trim();
     const email = form.email.trim();
-    /* Matches `UserUpdate`'s `@Size(min = 2, max = 80)`: without it the server's refusal surfaces as the generic
-       catch below, with no mention of the field at fault. */
-    if (!nameLocked && (name.length < 2 || name.length > 80)) { toast('Please enter your name (2 to 80 characters)', 'error'); return; }
+    if (!nameLocked && !isValidName(name)) { toast("Name can only have letters, spaces and . ' - (2 to 80 characters)", 'error'); return; }
     if (email && !EMAIL_RE.test(email)) { toast('Enter a valid email address', 'error'); return; }
     try {
       await update({ ...(nameLocked ? {} : { name }), email, city: form.city });
@@ -311,7 +309,7 @@ export default function ProfileTab({ user, update, toast, isOwner }) {
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <label className="text-sm">
             <span className="mb-1.5 block text-gray-400">Full name</span>
-            <input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} disabled={nameLocked} className={fld + (nameLocked ? ' opacity-60 cursor-not-allowed' : '')} />
+            <input value={form.name} maxLength={80} autoComplete="name" onChange={(e) => setForm({ ...form, name: e.target.value })} disabled={nameLocked} className={fld + (nameLocked ? ' opacity-60 cursor-not-allowed' : '')} />
             {nameLocked ? <p className="mt-1 text-[11px] text-amber-300">Locked while verified</p> : null}
           </label>
           <div className="text-sm">

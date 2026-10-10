@@ -45,7 +45,7 @@ test.describe.serial('the probe account', () => {
     await page.locator('#staff-email').fill(staffEmail(PROBE.mobile));
     await page.locator('#staff-password').fill('not-the-password');
     await page.getByRole('button', { name: 'Continue' }).click();
-    await expect(page.locator('#staff-login-error')).toBeVisible();
+    await expect(page.locator('#staff-login-error')).toHaveText('Wrong email or password. Check both and try again.');
     await expect(page.locator('#staff-code')).toHaveCount(0);
   });
 
@@ -102,13 +102,36 @@ test('reissuing an invite refuses yourself and consumers, and works on a colleag
   });
 });
 
-test('the invite page refuses a bad code with the server message', async ({ page, consoleErrors }) => {
+test('the invite page refuses a bad code in plain words', async ({ page, consoleErrors }) => {
   await page.goto('/staff-invite#not-a-real-token');
   await expect(page.locator('#invite-token')).toHaveValue('not-a-real-token');
   await page.locator('#invite-password').fill('a-long-enough-password');
   await page.locator('#invite-repeat').fill('a-long-enough-password');
   await page.getByRole('button', { name: 'Set password' }).click();
-  await expect(page.locator('#staff-invite-error')).toBeVisible();
+  await expect(page.locator('#staff-invite-error')).toHaveText('This invite code is invalid or has expired. Ask an admin to send you a new one.');
   // The refused redeem is the one expected network error on this page.
   expect(consoleErrors.filter((e) => !/40[0-9]/.test(String(e)))).toHaveLength(0);
+});
+
+/* Mocked: a lockout and a proxy 502 are announced in plain words with the wait, never as the
+   server's or the transport's own text. */
+test('staff sign-in refusals say what to do next', async ({ page }) => {
+  const replies = [
+    { status: 429, body: { error: 'staff_sign_in_locked', message: 'Sign-in for this account is paused for 14 minute(s).', status: 429, retryAfterSeconds: 840 } },
+    { status: 502, body: null },
+  ];
+  await page.route('**/api/auth/staff-login', (route) => {
+    const { status, body } = replies.shift();
+    return route.fulfill({ status, contentType: 'application/json', body: body ? JSON.stringify(body) : '' });
+  });
+  await page.goto('/staff-login');
+  await page.locator('#staff-email').fill('someone@draazy.test');
+  await page.locator('#staff-password').fill('any-password');
+  const error = page.locator('#staff-login-error');
+
+  await page.getByRole('button', { name: 'Continue' }).click();
+  await expect(error).toHaveText('Too many tries. Wait 14 minutes and try again.');
+
+  await page.getByRole('button', { name: 'Continue' }).click();
+  await expect(error).toHaveText('Something went wrong on our side. Try again in a minute.');
 });

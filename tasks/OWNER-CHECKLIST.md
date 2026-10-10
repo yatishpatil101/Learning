@@ -12,7 +12,7 @@ Things code can't close: secrets, deploy steps, real-device checks, human fact-c
 - [ ] Cashfree: real `TEST…`/`cfsk_…` in `draazy-sandbox-cashfree-app-id`/`-secret-key`; one RA payment + one subscription with the console open (order, modal, callback, signature, settlement, CSP `form-action`)
 - [ ] R2: startup line, one identity submit, one listing photo, bucket `Access-Control-Allow-Origin`
 - [ ] `draazy-sandbox-google-places-server-key`; read Google's lat/lng caching terms
-- [ ] `ZEPTOMAIL_API_KEY` + `ZEPTOMAIL_ENABLED=true`
+- [ ] ZeptoMail: secret `draazy-sandbox-zeptomail-api-key` (Send Mail token) before the next deploy, or the revision won't start; `draazy.com` DKIM + CNAME Verified; then create one staff account and check the invite lands
 - [ ] VAPID key pair (`npx web-push generate-vapid-keys`): secrets `draazy-sandbox-push-vapid-private-key` / `-public-key`, and repo var `VITE_VAPID_PUBLIC_KEY` (same public key) — web push is wired (B41), deploy fails without the secrets
 - [ ] WhatsApp daily digest template: submit to Meta as `UTILITY` (body in `docs/DEPLOY.md` §3), then set `WHATSAPP_DIGEST_TEMPLATE_NAME` — until approved no digest is sent
 - [ ] Rotate `backend/.env.local` secrets if in doubt (surfaced 2026-08-09)

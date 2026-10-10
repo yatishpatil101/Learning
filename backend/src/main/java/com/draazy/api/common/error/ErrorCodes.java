@@ -23,6 +23,9 @@ public final class ErrorCodes {
 
     public static final String ACCOUNT_ARCHIVED = "account_archived";
 
+    // 403 at sign-in or refresh; its own code so clients can tell it from a bot-defence refusal.
+    public static final String ACCOUNT_SUSPENDED = "account_suspended";
+
     public static final String SIGNUPS_CLOSED = "signups_closed";
 
     public static final String PURCHASES_PAUSED = "purchases_paused";

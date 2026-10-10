@@ -146,3 +146,25 @@ test('the consent button needs a full 10-digit owner mobile, the modal records c
   track('groups', created.id, tenantToken);
   expect(created.ownerConsent).toBe(true);
 });
+
+test('a wrong owner code says how many tries are left, not a blanket "did not match"', async ({ page }) => {
+  const tenantMobile = uniqueMobile();
+  await apiLogin(tenantMobile);
+  await signedInAs(page, tenantMobile);
+  await page.goto(`${BASE}/flatmates`);
+  await expect(page.getByRole('button', { name: /Move in now/i })).toBeVisible({ timeout: 20_000 });
+  await postAsGroup(page);
+  await haveAFlat(page);
+  await page.getByText(/registered rent agreement/i).click();
+  await page.getByPlaceholder(/2 girls/i).fill(`Consent wrong ${Date.now().toString(36)}`);
+  await pickPlaceholderLocality(page);
+  await page.getByPlaceholder(/owner.*mobile|seeking a replacement/i).fill(uniqueMobile());
+  await page.getByRole('button', { name: /Verify owner consent/i }).click();
+  await page.getByRole('button', { name: /Send OTP to owner/i }).click();
+
+  const wrong = E2E_OTP === '111111' ? '222222' : '111111';
+  for (let i = 0; i < 6; i++) await page.getByLabel(`OTP digit ${i + 1}`).fill(wrong[i]);
+  await page.getByRole('button', { name: /Confirm consent/i }).click();
+  // One wrong guess of the 3 allowed: a 401 refresh-and-replay would spend two and show "1".
+  await expect(page.getByText("That code isn't right. 2 attempts left.", { exact: true })).toBeVisible();
+});

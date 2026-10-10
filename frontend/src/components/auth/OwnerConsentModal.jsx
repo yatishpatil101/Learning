@@ -4,12 +4,13 @@ import { useTranslation } from 'react-i18next';
 import Icon from '../Icon.jsx';
 import OtpBoxes from './OtpBoxes.jsx';
 import { useOtpFlow } from './useOtpFlow.js';
+import { classifyOtpVerifyError } from '../../lib/otpVerifyError.js';
 import { requestOwnerConsent } from '../../services/flatmateService.js';
 import useScrollLock from '../../hooks/useScrollLock.js';
 /* Owner-consent OTP ping. */
 
 export default function OwnerConsentModal({ ownerMobile, title, locality, onClose, onVerified }) {
-  /* The surrounding copy is English, but `otp.sendError` is an i18n key by contract. */
+  /* The surrounding copy is English, but `otp.sendError` is a translatable message by contract. */
   const { t } = useTranslation();
   const owner = String(ownerMobile || '').replace(/\D/g, '').slice(0, 10);
   const [verifying, setVerifying] = useState(false);
@@ -36,11 +37,15 @@ export default function OwnerConsentModal({ ownerMobile, title, locality, onClos
       const { consentRecorded } = await requestOwnerConsent({
         ownerMobile: owner, otp: otp.otp, title, locality,
       });
-      if (!consentRecorded) throw new Error('consent not recorded');
+      if (!consentRecorded) {
+        setFailed(t('common.somethingWentWrong'));
+        return;
+      }
       onVerified?.();
       onClose();
     } catch (err) {
-      setFailed(err?.body?.message || 'That code did not match. Ask the owner to read it out again.');
+      const { messageKey, count } = classifyOtpVerifyError(err);
+      setFailed(t(messageKey, { count }));
       otp.setOtpError(true);
     } finally {
       setVerifying(false);
@@ -77,7 +82,7 @@ export default function OwnerConsentModal({ ownerMobile, title, locality, onClos
               <span className="inline-flex items-center gap-1 text-[11px] text-teal-300"><Icon name="badge-check" className="w-3.5 h-3.5" /> Owner</span>
             </div>
             {otp.sendError && (
-              <p className="text-red-400 text-xs mt-2">{t(otp.sendError)}</p>
+              <p className="text-red-400 text-xs mt-2">{t(otp.sendError.messageKey, { count: otp.sendError.count })}</p>
             )}
           </div>
 

@@ -2,6 +2,8 @@ import { useEffect, useState } from 'react';
 import { Link } from 'react-router';
 import { ArrowRight, CheckCircle2, KeyRound, Loader2, Lock, Ticket } from 'lucide-react';
 import { redeemStaffInvite } from '../../services/authService.js';
+import { healStaleShell } from '../../lib/seamErrors.js';
+import { staffAuthError } from '../../lib/staffAuthError.js';
 import StaffShell, { StaffField, STAFF_SUBMIT } from '../../components/auth/StaffShell.jsx';
 
 /* A new colleague turns their invite into a password. The token may arrive in the URL fragment,
@@ -21,15 +23,16 @@ export default function StaffInvite() {
   const submit = async (e) => {
     e.preventDefault();
     if (!token.trim()) return setError('Paste the invite code you were sent.');
-    if (password.length < 12 || new TextEncoder().encode(password).length > 72) return setError('Use 12 to 72 characters.');
-    if (password !== repeat) return setError("The passwords don't match.");
+    if (password.length < 12 || new TextEncoder().encode(password).length > 72) return setError('Password must be 12 to 72 characters long.');
+    if (password !== repeat) return setError("Passwords don't match. Type the same password in both boxes.");
     setBusy(true);
     setError(null);
     try {
       await redeemStaffInvite({ token: token.trim(), password });
       setDone(true);
     } catch (err) {
-      setError(err?.message || 'Something went wrong. Please try again.');
+      setError(staffAuthError(err, 'invite'));
+      healStaleShell(err);
     } finally {
       setBusy(false);
     }

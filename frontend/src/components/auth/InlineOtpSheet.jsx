@@ -12,6 +12,7 @@ import { useOtpFlow } from './useOtpFlow.js';
 import { sendOtp as sendOtpSvc } from '../../services/authService.js';
 import { classifyOtpVerifyError } from '../../lib/otpVerifyError.js';
 import { healStaleShell } from '../../lib/seamErrors.js';
+import { isValidName } from '../../lib/auth.js';
 import useBackToClose from '../../hooks/useBackToClose.js';
 
 const INLINE_OTP_FORM_ID = 'inline-otp-form';
@@ -107,7 +108,7 @@ export default function InlineOtpSheet({ open, reason = 'contact', title: titleT
     const next = {};
     const nameVal = name.trim();
     const emailVal = email.trim();
-    if (nameVal.length < 2 || nameVal.length > 80) next.name = true;
+    if (!isValidName(nameVal)) next.name = true;
     if (emailVal && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailVal)) next.email = true;
     setProfileErrs(next);
     if (Object.keys(next).length) return;
@@ -135,7 +136,7 @@ export default function InlineOtpSheet({ open, reason = 'contact', title: titleT
   };
 
   const status = otp.otpError || otp.sendError || verifyMessage
-    ? (otp.otpError ? t('auth.errOtp') : (otp.sendError ? t(otp.sendError) : verifyMessage))
+    ? (otp.otpError ? t('auth.errOtp') : (otp.sendError ? t(otp.sendError.messageKey, { count: otp.sendError.count }) : verifyMessage))
     : '';
 
   const submit = (e) => {

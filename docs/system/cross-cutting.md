@@ -533,7 +533,9 @@ Three filters are added and **the order is load-bearing**:
    order would leave every authenticated caller sharing an address-keyed bucket.
 3. `BotDefenceFilter` — challenges the small set of writes anyone on the internet may post to. Last
    of the three because it is the only one that can make a network call, so a flood should already
-   have been refused by the counter.
+   have been refused by the counter. `POST /auth/login` is challenged by `AuthController` instead, on
+   its send step only: the filter cannot see which step a body is, and the verify step must not need
+   a second single-use token.
 
 `MaintenanceModeFilter` is added after `BotDefenceFilter`: the two cheap in-memory defences refuse a
 flood before this one asks the database anything, and it has to sit after the JWT filter because it

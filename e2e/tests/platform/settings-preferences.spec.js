@@ -39,6 +39,18 @@ test.describe('Dashboard settings', () => {
     });
   });
 
+  test('Full name refuses digits and symbols before anything is sent', async ({ page }) => {
+    // A fresh account: the fixture buyer is ID-verified, which locks the name.
+    await signIn(page, uniqueMobile());
+    await page.goto('/dashboard#profile');
+    const patches = [];
+    page.on('request', (r) => { if (r.method() === 'PATCH' && r.url().includes('/auth/me')) patches.push(r.url()); });
+    await page.getByLabel('Full name').fill('6516%^&$*@#^');
+    await page.getByRole('button', { name: 'Save changes' }).click();
+    await expect(page.getByText("Name can only have letters, spaces and . ' - (2 to 80 characters)")).toBeVisible();
+    expect(patches).toEqual([]);
+  });
+
   test('Light mode is the default, keeps teal fills, and a switch to dark persists on this device', async ({ page, login }) => {
     await login.asBuyer();
     await page.goto('/dashboard#profile');

@@ -239,9 +239,7 @@ test('a session survives web storage being wiped, as it must on Safari after sev
    30-day cookie to someone who refused one. See `docs/flows/consumer/auth.md`. */
 test('the same rescue does not promote a session the user declined to have remembered', async ({ page, context }) => {
   const mobile = uniqueMobile();
-  /* Driven inline because `signIn` always leaves "Remember this device" at its default, which is
-     this test's whole subject; the consent seeding is copied from it to keep the bar from
-     intercepting the click. */
+  // Driven inline because `signIn` always leaves "Remember this device" at its default, this test's subject.
   await page.addInitScript(() => {
     localStorage.setItem('dz_cookie_consent_v1', JSON.stringify({
       necessary: true, functional: true, analytics: true, marketing: false, version: 1, ts: Date.now(),
@@ -429,15 +427,13 @@ test('the source mobile is locked while sending an OTP', async ({ page }) => {
   await expect(page.getByLabel('OTP digit 1')).toBeVisible();
 });
 
-/* The refusal is announced in the app's OWN words, classified off the status: this form is
-   trilingual and the server's `message` is English-only prose written for a developer. The
-   sentence below is `auth.errOtpBusy`; asserting the server's copy here is what let
-   `[services] could not load the "auth" provider.` reach a real user's phone. */
+/* The app's own words, classified off the status: the form is trilingual and the server's `message`
+   is English developer prose (`auth.errOtpBusySeconds` is asserted below). */
 test('an OTP delivery refusal is announced through the form alert', async ({ page }) => {
   await page.route('**/api/auth/login', (route) => route.fulfill({
     status: 429,
     contentType: 'application/json',
-    body: JSON.stringify({ error: 'rate_limited', message: 'OTP delivery is temporarily unavailable.', status: 429 }),
+    body: JSON.stringify({ error: 'rate_limited', message: 'OTP delivery is temporarily unavailable.', status: 429, retryAfterSeconds: 47 }),
   }));
 
   await page.goto('/signin');
@@ -445,17 +441,15 @@ test('an OTP delivery refusal is announced through the form alert', async ({ pag
   await page.getByRole('button', { name: /Send OTP/i }).click();
 
   const alert = page.locator('#signin-otp-status');
-  await expect(alert).toHaveText('Too many requests just now. Wait a few seconds and try again.');
+  // The wait is the server's, so the user is told how long rather than "a few seconds".
+  await expect(alert).toHaveText('Too many tries. Wait 47 seconds and try again.');
   // The developer diagnostic must not be what the user reads.
   await expect(alert).not.toContainText('OTP delivery is temporarily unavailable.');
   await expect(page.getByLabel('OTP digit 1')).toHaveCount(0);
 });
 
-/* A provider module that will not arrive cannot be retried: the host memoises the rejected
-   specifier, so that domain is dead for the life of the document and every further click fails the
-   same way. Aborting the request is the honest simulation of the common cause — a redeploy whose
-   hashed chunks this tab's cached shell no longer names. The remedy is a new document, so the app
-   takes it rather than asking a user mid-sign-in to. */
+/* The host memoises a rejected module specifier, so retrying cannot help; aborting simulates a redeploy
+   whose hashed chunks the cached shell still names, and the remedy is a new document. */
 test('a shell that can no longer load its own code reloads itself, and only once', async ({ page }) => {
   await page.route('**/authProvider.js*', (route) => route.abort());
 
@@ -502,7 +496,39 @@ test('a failed OTP resend supersedes a terminal verification message in the form
   await expect(resend).toBeEnabled();
   await resend.click();
   // Same classification as the first send: the 429 becomes `auth.errOtpBusy`, not the server's prose.
-  await expect(page.locator('#signin-otp-status')).toHaveText('Too many requests just now. Wait a few seconds and try again.');
+  await expect(page.locator('#signin-otp-status')).toHaveText('Too many tries. Wait a minute and try again.');
+});
+
+test('a suspended account is told so, and a bot-check refusal is told to reload, though both are 403s', async ({ page }) => {
+  await test.step('bot defence refuses the send step', async () => {
+    await page.route('**/api/auth/login', (route) => route.fulfill({
+      status: 403, contentType: 'application/json',
+      body: JSON.stringify({ error: 'forbidden', message: 'This request could not be verified as human.', status: 403 }),
+    }));
+    await page.goto('/signin');
+    await page.locator('#signin-mobile').fill(uniqueMobile());
+    await page.getByRole('button', { name: /Send OTP/i }).click();
+    await expect(page.getByText("We couldn't sign you in. Reload the page and try again. If it keeps happening, contact support.")).toBeVisible();
+  });
+
+  await test.step('a suspension refuses the verify step', async () => {
+    await page.unrouteAll();
+    await page.route('**/api/auth/login', (route) => {
+      const verify = JSON.parse(route.request().postData() || '{}').otp;
+      return route.fulfill({
+        status: verify ? 403 : 200, contentType: 'application/json',
+        body: JSON.stringify(verify
+          ? { error: 'account_suspended', message: 'This account is suspended.', status: 403 }
+          : { otpSent: true, resendAfterSeconds: 0 }),
+      });
+    });
+    await page.goto('/signin');
+    await page.locator('#signin-mobile').fill(uniqueMobile());
+    await page.getByRole('button', { name: /Send OTP/i }).click();
+    await fillOtp(page, WRONG_OTP);
+    await page.getByRole('button', { name: /Verify & Sign In/i }).click();
+    await expect(page.locator('#signin-otp-status')).toHaveText('This account is suspended. Contact support if you think this is a mistake.');
+  });
 });
 
 /* 47s is a value neither side would pick: 30 was the old client constant and 60 the deployed gap, so

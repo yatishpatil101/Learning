@@ -17,7 +17,7 @@ async function api(method, path, headers, body) {
 async function owner() {
   const mobile = uniqueMobile();
   const headers = await authHeaders(mobile);
-  const updated = await api('PATCH', '/auth/me', headers, { name: `Zztest Lifecycle ${Date.now()}` });
+  const updated = await api('PATCH', '/auth/me', headers, { name: 'Zztest Lifecycle' });
   expect(updated.status).toBe(200);
   return { mobile, headers };
 }

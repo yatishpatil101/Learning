@@ -175,9 +175,9 @@ class BotDefenceFilterTest {
         }
 
         @Test
-        @DisplayName("challenges the login door and the city waitlist, not only the service waitlist")
+        @DisplayName("challenges both waitlists, not only the service waitlist")
         void challengesEveryPublicWrite() throws Exception {
-            for (String path : new String[] {Routes.Auth.LOGIN, Routes.Cities.WAITLIST}) {
+            for (String path : new String[] {Routes.Cities.WAITLIST, Routes.ServiceWaitlist.BASE}) {
                 MockHttpServletResponse each = new MockHttpServletResponse();
                 MockFilterChain eachChain = new MockFilterChain();
                 new BotDefenceFilter(enforcing()).doFilter(post(path), each, eachChain);
@@ -185,6 +185,14 @@ class BotDefenceFilterTest {
                 assertThat(eachChain.getRequest()).as(path).isNull();
                 assertThat(each.getStatus()).as(path).isEqualTo(403);
             }
+        }
+
+        @Test
+        @DisplayName("leaves the login door to AuthController, which challenges only its send step")
+        void leavesLoginToItsController() throws Exception {
+            run(enforcing(), post(Routes.Auth.LOGIN));
+
+            assertThat(reachedApplication()).isTrue();
         }
 
         @Test

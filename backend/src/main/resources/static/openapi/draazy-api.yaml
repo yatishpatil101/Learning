@@ -165,7 +165,11 @@ paths:
             `signups_closed` is returned only after a valid OTP from an unknown mobile is verified
             while onboarding is closed. It is terminal for that mobile: requesting another code or
             retrying the same one cannot create an account. A caller that already has an account
-            must instead sign in with its registered number.
+            must instead sign in with its registered number. `account_suspended` is equally
+            terminal, after a valid OTP. The send step (no `otp`) answers `forbidden` when bot
+            defence is enforced and the `CF-Turnstile-Response` header is missing or rejected;
+            reloading the page for a fresh challenge is the remedy. The verify step is never
+            challenged.
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }

@@ -402,6 +402,8 @@ single-use token. The final clause asks "did we think we had a session?". It can
 refresh token, which is an `HttpOnly` cookie we are not allowed to see; the access token stands in
 for it, because the two are written and cleared together. Being wrong is cheap in the only direction
 it can be wrong — a stale access token with no cookie behind it costs one 401 on `/auth/refresh`.
+A 401 whose body carries `attemptsRemaining` is a wrong OTP on a signed-in call (owner consent, for
+example), not an expired token. It is never replayed, because a replay would spend a second guess.
 
 **Clearing the session follows an answer, never the absence of one.** `refreshAccessToken` resolves
 `null` only when the server actually refused, and throws when it could not be reached at all, so an

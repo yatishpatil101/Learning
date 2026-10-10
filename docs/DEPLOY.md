@@ -330,6 +330,8 @@ the admin's copy-link dialog is unchanged and stays the fallback.
 | `ZEPTOMAIL_FROM_NAME` | Default `Draazy` |
 | `ZEPTOMAIL_BASE_URL` | Default `https://cpaas.zoho.in` (India DC; the account lives on `cpaas.zoho.in`) |
 
+Sandbox has it on in `cloudrun-sandbox.yaml`, reading the key from Secret Manager entry
+`draazy-sandbox-zeptomail-api-key` with from-name `Draazy Sandbox`; the secret must exist before deploy.
 The boot fails if the flag is on and the key or from-address is blank. Send failures log
 `ZeptoMail send to ***@domain failed: <status> code=TM_xxxx SERR_xxx`; `SERR_157` is a bad token.
 

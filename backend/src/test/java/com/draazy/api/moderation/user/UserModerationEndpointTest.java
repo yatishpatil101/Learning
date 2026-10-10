@@ -25,6 +25,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
+import org.springframework.mock.web.MockHttpServletResponse;
 
 // Suspend, verified badge and review-flag actions. Load-bearing: aSuspendedAccountCannotSignIn —
 // writing status='suspended' without AuthService reading it would only produce a badge.
@@ -108,10 +109,15 @@ class UserModerationEndpointTest extends AbstractApiTest {
                         .content("{\"reason\":\"under review\"}"))
                 .andExpect(status().isOk());
 
-        assertThat(otpLogin(target.getMobile()))
+        MockHttpServletResponse refused = otpLoginResponse(target.getMobile());
+        assertThat(refused.getStatus())
                 .as("403 after the OTP is verified, so the refusal tells them nothing they did "
                         + "not already know")
                 .isEqualTo(403);
+        assertThat(refused.getContentAsString())
+                .as("its own code, so the client does not mistake it for a bot-defence refusal")
+                .contains("\"error\":\"account_suspended\"")
+                .contains("Contact support");
     }
 
     @Test
@@ -790,6 +796,10 @@ class UserModerationEndpointTest extends AbstractApiTest {
     }
 
     private int otpLogin(String mobile) throws Exception {
+        return otpLoginResponse(mobile).getStatus();
+    }
+
+    private MockHttpServletResponse otpLoginResponse(String mobile) throws Exception {
 
         flushSoRawSqlCanSeeIt();
         jdbc.update("DELETE FROM otp_codes WHERE mobile = ?", mobile);
@@ -809,7 +819,7 @@ class UserModerationEndpointTest extends AbstractApiTest {
         return mvc.perform(post(Routes.Auth.LOGIN)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"mobile\":\"%s\",\"otp\":\"424242\"}".formatted(mobile)))
-                .andReturn().getResponse().getStatus();
+                .andReturn().getResponse();
     }
 
     private static String sha256Hex(String value) throws Exception {

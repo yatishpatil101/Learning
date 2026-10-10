@@ -139,9 +139,9 @@ public class AuthService {
     /** Deliberately unspecific: the reason lives in {@code audit_log}. See docs/flows/consumer/auth.md. */
     private void refuseIfSuspended(User user) {
         if (UserStatuses.SUSPENDED.equals(user.getStatus())) {
-            throw new ForbiddenException(
-                    "This account has been suspended. Contact support if you think that is a "
-                            + "mistake.");
+            throw new ForbiddenException(ErrorCodes.ACCOUNT_SUSPENDED, Roles.isBackOffice(user.getRole())
+                    ? "This account is suspended. Ask an administrator to restore it."
+                    : "This account is suspended. Contact support if you think this is a mistake.");
         }
     }
 
