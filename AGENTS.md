@@ -43,7 +43,7 @@ On conflict, rules rank: safety/correctness > task-type routing > planning/check
 - **Elegance** — any change touching more than one function or adding an abstraction: ask whether something simpler works. Skip for mechanical edits.
 - **Subagents** — only when >150 new lines, >3 files, or independent parallel workstreams AND no single targeted fix solves it. One responsibility each; on failure, stop and report — never apply partial output, record it in `tasks/todo.md` as PARTIAL.
 - **Subagent model** — planning, architecture and review/verification → `claude-opus-5.5`; execution (writing code, builds, tests, exploration) → `claude-sonnet-5.5`. Custom agents pin this in `~/.copilot/agents/*.agent.md` frontmatter; for built-ins pass `model`: `rubber-duck`/`code-review` → opus, `general-purpose`/`task`/`explore` → sonnet.
-- **Lessons** — record every user correction in `tasks/lessons.md`. It is 873 lines, so grep it for the symptom rather than reading it whole; `tasks/NOW.md` carries the pointer. This file beats a conflicting lesson: quote both, then follow this file.
+- **Lessons** — record every user correction in `tasks/lessons.md`. It is one line per rule, so grep it for the symptom rather than reading it whole; `tasks/NOW.md` carries the pointer. This file beats a conflicting lesson: quote both, then follow this file.
 - **Tasks** — plan to `tasks/todo.md` as checkable items, tick them as you go. Create either file with a header if missing. A finished slice gets **one index line** there, never a narrative — git is the archive.
 - **Principles** — simplest change that fully solves it · fix root causes, no temporary hacks · touch only what's necessary.
 
@@ -64,6 +64,8 @@ Never write:
 - commented-out code — delete it
 
 **Budget: 1–2 lines, above the code.** If a block seems to need a paragraph, it needs a better name or a split instead. Unsure → leave it out: an absent comment costs nothing, a stale one misleads for years.
+
+**Enforced, not remembered.** `node scripts/check-comments.mjs --staged` must exit 0 before every commit, amend or history rewrite — no exceptions, no "only my lines". It checks whole touched files (blocks over 2 lines, comment lines over 120 chars, changelog wording) and skips the Do-not-touch files below. Before handing back unpushed work, also run it over the range: `node scripts/check-comments.mjs origin/<branch>..HEAD`.
 
 ## File-Touch Hygiene — every file you edit
 
@@ -96,7 +98,7 @@ Prefer `grep_search` over `semantic_search` when you know the identifier; over ~
 **user-data change** = code that reads/writes/transmits/displays PII, credentials, session tokens, contact-gate logic, or per-user data.
 
 1. **Review** — `react-reviewer` (`.jsx`) → `code-reviewer` (general) → `security-reviewer` (auth or user-data only). Agent unavailable → review manually and mark PENDING AGENT REVIEW in `tasks/todo.md`.
-2. **Simplify** — confirm File-Touch Hygiene ran on every file in the diff, then `ponytail-review` on diffs touching more than one function, then `code-simplifier`, STRICT no-behavior-change. Unavailable → note the skip.
+2. **Simplify — every commit, no size threshold** — confirm File-Touch Hygiene ran on every file in the diff and `check-comments.mjs --staged` passes, then `ponytail-review` and `code-simplifier` over the staged diff, STRICT no-behavior-change; apply the cuts before committing, not in a later cleanup pass. Unavailable → note the skip in `tasks/todo.md`.
 3. **Playwright** — per fix, run `e2e\run-fast.ps1` (the specs its changes reach; `-Files <paths>` when the tree holds another session's work, `-Failed` to rerun failures). Before a commit, run `e2e\run-fast.ps1 -Full`, which runs the whole suite in parallel across isolated shards. Not complete until green, and fix root causes, not tests. A failure not already in `tasks/todo.md` → flag as potentially pre-existing before proceeding; record confirmed ones there and don't count them against the task.
 4. **Specs** — every completed feature or behaviour change ships a new or updated `e2e/*.spec.js` plus an `e2e/COVERAGE.md` entry. No coverage → document the gap in `tasks/todo.md` and mark PENDING VERIFICATION.
 5. **Re-index the graph** — file added, renamed, or deleted under `backend/`, `frontend/src` or the migrations → `.\scripts\graphify.ps1 update`. Skip if only contents changed.

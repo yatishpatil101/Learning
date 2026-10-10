@@ -3,38 +3,35 @@
 > **Read this file first and nothing else.** It is the whole orientation a new session needs. Hard
 > cap: 60 lines. It holds *state*, never narrative — every line is either a standing rule, a pointer,
 > or a number with the date it was taken. Rewrite it at the end of a session; do not append to it.
-> Last written: **2026-10-05** against `c89da3a5` (e2e sweep handoff).
+> Last written: **2026-10-10** against `73347c07` (API slimming + backlog-zero handoff).
 
 ## Lane
 
 | | |
 |---|---|
 | Branch | `feature/backend-integration` — the mock-retirement lane |
-| Commit policy | Commit at each green milestone. **Never push. The user pushes manually.** |
-| Working tree | Dirty by design; 1,917 entries on 2026-10-05, shared with other sessions/agent slices |
+| Commit policy | **Never commit or push — the user commits and pushes manually.** |
+| Working tree | Dirty by design; 1,131 entries on 2026-10-10, shared with the session "Admin granting flatmate access" |
 
 ## The queue
 
-`tasks/todo.md` `## Next up`: ledger queue empty; next listed slice is **Flatmate room edit** (existing
-room has backend PATCH but no UI edit; My Listings hard-codes flatmate group/post status as approved).
-**Back-office functions Parts A–F (2026-10-05): implemented + security/React review fixes, UNCOMMITTED.**
-Staff hold functions (V90 converts stored atoms, never widens; no doc = dashboard only); admin never
-narrowed; shared `/admin` shell filtered by atom; manager Team Performance page. Backend targeted
-green, full 3105/0 before review fixes; build/lint/route checks green; e2e not run (user runs it,
-incl. `e2e/tests/admin/back-office-functions.spec.js`). Follow-ups: `tasks/todo.md` `## In flight`.
-Dev/e2e staff creds live in `db/seed-staff` (local + e2e only): `<mobile>@staff.draazy.test` /
-`Draazy-dev-pass1`, authenticator secret `JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP`; admin is `9000000000`,
-manager is `9000000001`. Several other slices in `## In flight` are also green and UNCOMMITTED, incl. the
-**e2e redundancy sweep** (2026-10-05: executions 2,541 → 1,436; its pre-existing-failure list is there).
+API slimming S00–S25, dead-endpoint removal and the 279-item backlog triage are done and UNCOMMITTED.
+`tasks/todo.md` `## Open` holds only the other session's items (A01/C01 agent review, C03 back-office
+gaps) — leave them to it. Owner-only work (VAPID pair, prod CMS FAQs, real phones) is in
+[OWNER-CHECKLIST.md](OWNER-CHECKLIST.md). Next: user reviews and commits; then a clean `-Full` while
+no other session is editing `frontend/src`.
+Dev/e2e staff creds live in `db/seed-staff` (local + e2e only): admin `9000000000`, manager `9000000001`.
 
 ## Open work — pointers, not restatements
 
 | What | Where | Size |
 |---|---|---|
-| Open slices, red gates diagnosed not-mine | [tasks/todo.md](todo.md) `## In flight`; loose items `## Needs attention` | 848 lines on 2026-10-05 — grep |
-| Numbered decisions (all closed) | [tasks/DECISIONS-NEEDED.md](DECISIONS-NEEDED.md) | 94 lines on 2026-10-04 |
-| Durable rules and house style | [tasks/lessons.md](lessons.md) | 863 lines on 2026-10-04 — grep, do not read whole |
-| Backend tech debt | [docs/system/tech-debt.md](../docs/system/tech-debt.md) | 112 lines on 2026-10-04 |
+| Open items, waiting-by-design, shipped index | [tasks/todo.md](todo.md) | 333 lines on 2026-10-10 — grep |
+| Numbered decisions (all closed) | [tasks/DECISIONS-NEEDED.md](DECISIONS-NEEDED.md) | 135 lines on 2026-10-10 |
+| Durable rules and house style | [tasks/lessons.md](lessons.md) | 199 lines on 2026-10-10 — grep |
+| Owner-only actions | [tasks/OWNER-CHECKLIST.md](OWNER-CHECKLIST.md) | 34 lines on 2026-10-10 |
+| SEO lane (other session) | [tasks/seo-aio-geo-plan.md](seo-aio-geo-plan.md) | 350 lines on 2026-10-10 |
+| Backend tech debt | [docs/system/tech-debt.md](../docs/system/tech-debt.md) | highest **D264** on 2026-10-10 |
 
 ## Standing constraints
 
@@ -53,8 +50,7 @@ manager is `9000000001`. Several other slices in `## In flight` are also green a
 
 | Fact | Value | Taken |
 |---|---|---|
-| Next free Flyway slot | **V91** (V90 used by back-office functions) | 2026-10-05 |
-| Tech-debt register | 56 `D` references in `docs/system/tech-debt.md`, highest **D264** | 2026-10-04 |
-| e2e spec files | 356 under `e2e` (1,391 live + 45 no-backend tests) | 2026-10-05 |
-| Backend suite (full) | 3,087 run, 0 real failures (DB "too many clients" errors, green on rerun) | 2026-10-03 — stale, re-run before commit |
-| Full e2e sweep | 1,435 tests / 49 failed → 42 on `-Failed` rerun, all pre-existing (dirty shared tree) | 2026-10-05 |
+| Next free Flyway slot | **V105** (V104 = back-office holders; V95 is a gap, leave it) | 2026-10-10 |
+| e2e spec files | 387 under `e2e` | 2026-10-10 |
+| Backend suite (full) | 2,766 run, 0 failed (361 classes, ~4 min) | 2026-10-10 |
+| Full e2e sweep | ~40 red in `-Full` (Vite reloads from concurrent edits); all 115 green on targeted rerun | 2026-10-10 |
