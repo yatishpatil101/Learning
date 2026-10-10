@@ -20,40 +20,24 @@ import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-/**
- * Fails the build when an empty source file appears anywhere in the repository: an empty spec is a
- * test that passes by having nothing to run. Scans the whole tree, since the generator is not Java.
- */
+/** Scans the whole tree, not just Java: the generator that writes empty specs is not Java. */
 @DisplayName("Source tree — no empty source files (tech-debt D39, D75)")
 class SourceTreeHygieneTest {
 
-    /**
-     * The module directory: Surefire runs with it as the working directory. The repo root is
-     * resolved from it rather than assumed — see {@link #repoRoot()}.
-     */
     private static final Path MODULE = Path.of("").toAbsolutePath();
 
-    /**
-     * Extensions where a zero-byte file is always a mistake. An allowlist, because a blocklist must
-     * anticipate every marker file that is <em>meant</em> to be empty ({@code .gitkeep}, etc.).
-     */
+    /** An allowlist: a blocklist would have to anticipate every marker file meant to be empty, like .gitkeep. */
     private static final Set<String> SOURCE_EXTENSIONS = Set.of(
             ".java", ".js", ".jsx", ".ts", ".tsx", ".mjs", ".cjs",
             ".sql", ".py", ".css", ".scss", ".html", ".json", ".yaml", ".yml", ".md");
 
-    /**
-     * Never walked into: build output, dependencies, VCS and IDE scratch. {@code persist} is the
-     * frontend's gitignored runtime store, which nobody wrote by hand and nobody can fix.
-     */
+    /** persist is the frontend's gitignored runtime store: nobody wrote it by hand and nobody can fix it. */
     private static final Set<String> PRUNED = Set.of(
-            "node_modules", "target", "target-cli", "bin", "dist", "build", "coverage",
+            "node_modules", "target", "bin", "dist", "build", "coverage",
             ".git", ".idea", ".vscode", ".gradle", ".venv", "__pycache__",
-            "test-results", "playwright-report", ".copilot", ".claude", "persist");
+            "test-results", "playwright-report", ".shards", ".copilot", ".claude", "persist");
 
-    /**
-     * Files that must contain mojibake to do their job, so the encoding guard skips them.
-     * An exempt file is one this guard has stopped protecting, so the list stays short.
-     */
+    /** An exempt file is one this guard has stopped protecting, so the list stays short. */
     private static final Set<String> MOJIBAKE_EXEMPT = Set.of(
             "e2e/scripts/fix-mojibake.mjs");
 
@@ -87,10 +71,7 @@ class SourceTreeHygieneTest {
                 .isEmpty();
     }
 
-    /**
-     * Fails on mojibake or a UTF-8 BOM: both are fingerprints of the same bad write (PowerShell
-     * {@code Set-Content}). Round-trip detection, since a pattern list only catches known damage.
-     */
+    /** Round-trip detection, since a pattern list only catches known damage. */
     @Test
     @DisplayName("no mojibake or UTF-8 BOM in any source file (tech-debt D19)")
     void noMojibakeOrBom() {
@@ -119,10 +100,8 @@ class SourceTreeHygieneTest {
                 .isEmpty();
     }
 
-    /**
-     * Runs stop at every ASCII character, and that bound is load-bearing: a UTF-8 sequence never
-     * contains a byte below {@code 0x80}, so an absorbing run would let one bad character mask all.
-     */
+    /** Runs stop at every ASCII character: a UTF-8 sequence never contains a byte below 0x80,
+     * so an absorbing run would let one bad character mask all. */
     private static boolean hasMojibake(String text) {
         int i = 0;
         while (i < text.length()) {
@@ -159,10 +138,8 @@ class SourceTreeHygieneTest {
         return false;
     }
 
-    /**
-     * CP1252 differs from Latin-1 only in {@code 0x80}-{@code 0x9F}, and those 27 typographic
-     * characters are precisely the ones that make mojibake recognisable.
-     */
+    /** CP1252 differs from Latin-1 only in 0x80-0x9F, the typographic characters that make mojibake
+     * recognisable. */
     private static int cp1252Byte(char c) {
         if (c < 0x80 || (c >= 0xA0 && c <= 0xFF)) {
             return c;
@@ -176,10 +153,8 @@ class SourceTreeHygieneTest {
             "\u20AC\0\u201A\u0192\u201E\u2026\u2020\u2021\u02C6\u2030\u0160\u2039\u0152\0\u017D\0"
             + "\0\u2018\u2019\u201C\u201D\u2022\u2013\u2014\u02DC\u2122\u0161\u203A\u0153\0\u017E\u0178";
 
-    /**
-     * "Declares nothing" only for {@code .java}: no portable way to tell a comment-only script from
-     * a deliberate one. {@code package-info.java} is exempt from that half, but not from zero-byte.
-     */
+    /** Only .java is checked for "declares nothing": no portable way to tell a comment-only script
+     * from a deliberate one. */
     private static boolean isEmpty(Path file, String text) {
         if (text == null) {
             // A file that cannot be read as UTF-8 is not a source file this guard has an opinion
@@ -205,10 +180,7 @@ class SourceTreeHygieneTest {
         return stripped.isEmpty();
     }
 
-    /**
-     * The repository root, identified by the {@code .git} directory rather than by counting
-     * {@code ..} hops, so the guard survives the module being nested more deeply.
-     */
+    /** Found via the .git directory rather than counting ".." hops, so it survives deeper module nesting. */
     private static Path repoRoot() {
         for (Path p = MODULE; p != null; p = p.getParent()) {
             if (Files.isDirectory(p.resolve(".git"))) {
@@ -225,7 +197,8 @@ class SourceTreeHygieneTest {
             Files.walkFileTree(root, new SimpleFileVisitor<>() {
                 @Override
                 public FileVisitResult preVisitDirectory(Path dir, BasicFileAttributes attrs) {
-                    return PRUNED.contains(dir.getFileName().toString())
+                    String name = dir.getFileName().toString();
+                    return PRUNED.contains(name) || name.startsWith("target-")
                             ? FileVisitResult.SKIP_SUBTREE
                             : FileVisitResult.CONTINUE;
                 }

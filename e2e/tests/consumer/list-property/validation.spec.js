@@ -110,6 +110,14 @@ test('the photos step rejects contact details in the description, and the previe
     await expect(error).toBeVisible();
   });
 
+  await test.step('a number broken up by commas, the letter O or filler words is rejected inline', async () => {
+    for (const text of ['Call 98765,43210 now', 'Call 9876 O 54321', 'Call 98765 dot 43210']) {
+      await description.fill(text);
+      await page.getByRole('button', { name: /Submit Property/i }).click();
+      await expect(error, text).toBeVisible();
+    }
+  });
+
   await test.step('the preview sheet shows the key facts and each Edit returns to its step', async () => {
     await description.fill('');
     const bestTime = page.getByRole('radiogroup', { name: 'Best time to call' });

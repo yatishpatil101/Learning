@@ -1,4 +1,5 @@
 import { createRequire } from 'node:module';
+import { readFileSync } from 'node:fs';
 import { test, expect } from '../fixtures/live.js';
 import { authHeaders, uploadedListingPhotos, ownerIdOf, signedInAsNew } from '../helpers/liveAuth.js';
 import { LIST_PROPERTY_DRAFT_KEY } from '../helpers/listingForm.helper.js';
@@ -201,10 +202,8 @@ test.describe('upload preparation in the real browser', () => {
     }
   });
 
-  test('converts a real HEIC into a browser-readable JPEG under 1 MB', async ({ page, request }) => {
-    const response = await request.get('https://raw.githubusercontent.com/strukturag/libheif/v1.22.2/examples/example.heic');
-    expect(response.ok()).toBe(true);
-    const input = await response.body();
+  test('converts a real HEIC into a browser-readable JPEG under 1 MB', async ({ page }) => {
+    const input = readFileSync(new URL('../fixtures/example.heic', import.meta.url));
     expect(input.length).toBe(718114);
     const result = await prepare(page, input, 'phone.heic', 'image/heic');
     expect(result.error).toBeUndefined();

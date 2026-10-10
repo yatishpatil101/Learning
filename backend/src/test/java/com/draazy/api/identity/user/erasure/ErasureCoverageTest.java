@@ -6,6 +6,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.draazy.api.identity.auth.Tokens;
 import com.draazy.api.identity.user.User;
 import com.draazy.api.identity.user.UserRepository;
 import com.draazy.api.support.AbstractApiTest;
@@ -133,8 +134,13 @@ class ErasureCoverageTest extends AbstractApiTest {
         map.put("help_article_feedback.comment", Outcome.ROW_REMOVED);
         map.put("help_article_feedback.ip_hash", Outcome.ROW_REMOVED);
 
-        map.put("rent_agreement_tenant_consents.tenant_mobile", Outcome.ROW_REMOVED);
-        map.put("rent_agreement_tenant_consents.tenant_name", Outcome.ROW_REMOVED);
+        map.put("personal_documents.file_name", Outcome.ROW_REMOVED);
+
+
+        map.put("service_request_draft_approvals.party_key", Outcome.ROW_REMOVED);
+        map.put("service_request_draft_approvals.party_label", Outcome.ROW_REMOVED);
+        map.put("service_request_draft_approvals.mobile_hash", Outcome.ROW_REMOVED);
+        map.put("service_request_draft_approvals.mobile_masked", Outcome.ROW_REMOVED);
 
         return map;
     }
@@ -178,15 +184,11 @@ class ErasureCoverageTest extends AbstractApiTest {
         // person must not move a flat off the map for everyone still living in it.
         map.put("flatmate_groups.lat", "Coordinates of the flat a group shares, not of a member.");
         map.put("flatmate_groups.lng", "Coordinates of the flat a group shares, not of a member.");
-        map.put("society_leads.society_name",
-                "The building the lead is about. The person on the lead is a gap (see GAPS); the "
-                        + "building is not personal data.");
         map.put("message_template.name",
                 "The name of a piece of outreach copy, shown to staff in a picker (D216). Catalogue "
                         + "copy: identical for every owner it is ever sent to, and written by this "
                         + "platform rather than supplied by anybody. The messages actually prepared "
                         + "from it are personal and are deleted \u2014 see outbound_message.");
-        map.put("cms_services.name", "A CMS content row. Editorial copy, not a person.");
         map.put("service_offerings.name",
                 "The name of a service the platform sells. Catalogue copy, identical for every "
                         + "customer who buys it.");
@@ -405,11 +407,7 @@ class ErasureCoverageTest extends AbstractApiTest {
         map.put("flatmate_group_members.name",
                 "A NOT NULL denormalised copy of users.name, written at join time.");
 
-        map.put("society_leads.contact_name",
-                "Captured at intake, sometimes before an account existed, so it is not always "
-                        + "reachable from a user id at all.");
-        map.put("society_leads.mobile", "As society_leads.contact_name.");
-        map.put("tickets.mobile", "Support intake contact — the same shape as society_leads.");
+        map.put("tickets.mobile", "Support intake contact captured before an account may exist.");
 
         map.put("deal_parties.name",
                 "Denormalised party contact on a record that is itself retained. The record must "
@@ -443,19 +441,6 @@ class ErasureCoverageTest extends AbstractApiTest {
         map.put("flatmate_seeker_posts.age",
                 "The poster's age, stored on the post rather than read through user_id.");
         map.put("flatmate_seeker_posts.occupation", "The poster's occupation, stored on the post.");
-        map.put("personal_documents.file_name",
-                "The subject's own uploaded KYC papers (V32). The sweep reaches neither the row nor "
-                        + "the stored object, which makes this the largest of these gaps.");
-        map.put("service_request_draft_approvals.party_key",
-                "Inline draft approvals include the party mobile hash in this key (V48). The sweep "
-                        + "does not reach this table yet.");
-        map.put("service_request_draft_approvals.party_label",
-                "Display label for a draft approver (V48), sometimes copied from an account name.");
-        map.put("service_request_draft_approvals.mobile_hash",
-                "The inline draft approver's mobile digest (V48), stored without a user id.");
-        map.put("service_request_draft_approvals.mobile_masked",
-                "The inline draft approver's masked mobile (V48), stored without a user id.");
-
         return map;
     }
 
@@ -618,6 +603,11 @@ class ErasureCoverageTest extends AbstractApiTest {
                 .andExpect(jsonPath("$.status").value("completed"));
         entityManager.flush();
 
+        assertThat(jdbc.queryForObject("select count(*) from service_request_draft_approvals"
+                + " where mobile_hash = ?", Long.class, Tokens.sha256Hex(oldMobile))).isZero();
+        assertThat(jdbc.queryForObject("select count(*) from identity_storage_deletes"
+                + " where storage_key = ?", Long.class, PERSONAL_DOC_KEY)).isEqualTo(1L);
+
         Map<String, String> survivors = new LinkedHashMap<>();
         for (Map.Entry<String, Outcome> entry : ERASED.entrySet()) {
             String column = entry.getKey();
@@ -740,9 +730,12 @@ class ErasureCoverageTest extends AbstractApiTest {
             Map.entry("service_request_parties", "mobile = ?"),
             Map.entry("tenant_rentals", "tenant_id = ?"),
             Map.entry("help_article_feedback", "user_id = ?"),
-            Map.entry("rent_agreement_tenant_consents", "granted_to = ?"),
+            Map.entry("personal_documents", "owner_id = ?"),
+            Map.entry("service_request_draft_approvals", "user_id = ?"),
             Map.entry("service_request_identities",
                     "service_request_id in (select id from service_requests where requester_id = ?)"));
+
+    private static final String PERSONAL_DOC_KEY = "personal/erasure-coverage/aadhaar";
 
     private static final Set<String> KEYED_ON_OLD_MOBILE =
             Set.of("otp_codes", "service_request_parties");
@@ -887,9 +880,19 @@ class ErasureCoverageTest extends AbstractApiTest {
                        ('create-account', 'mr', true, null, ?)
                 """, subjectId, subjectId);
         jdbc.update("""
-                insert into rent_agreement_tenant_consents (granted_to, tenant_mobile)
-                values (?, '9876500001')
-                """, subjectId);
+                insert into personal_documents (owner_id, category, file_name, storage_key, size_bytes, mime_type)
+                values (?, 'Aadhaar Card', 'aadhaar.pdf', ?, 1024, 'application/pdf')
+                """, subjectId, PERSONAL_DOC_KEY);
+        jdbc.update("""
+                insert into service_request_draft_approvals
+                       (request_id, draft_version, party_key, party_label, user_id, method)
+                values (?, 1, 'tenant:0', 'Erasable Person', ?, 'in_app')
+                """, serviceRequestId, subjectId);
+        jdbc.update("""
+                insert into service_request_draft_approvals
+                       (request_id, draft_version, party_key, party_label, mobile_hash, mobile_masked, method)
+                values (?, 1, ?, 'Landlord', ?, '98xxxxx001', 'otp')
+                """, serviceRequestId, "owner:0:" + Tokens.sha256Hex(mobile), Tokens.sha256Hex(mobile));
     }
 
     private String fileRequest(User subject) throws Exception {

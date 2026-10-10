@@ -13,7 +13,10 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.transaction.annotation.Transactional;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 // Spring test annotations must live on the class hierarchy; fields cannot inject the context.
 @SpringBootTest
@@ -107,5 +110,11 @@ public abstract class AbstractApiTest {
 
     protected String listingImages(User owner) {
         return "\"images\":[\"" + listingPhoto(owner) + "\"]";
+    }
+
+    /** The owner's full record. Create, edit and take-down answer only the identity and verdict. */
+    protected ResultActions storedListing(User owner, Object id) throws Exception {
+        return mvc.perform(get("/me/listings/" + id).header("Authorization", bearer(owner)))
+                .andExpect(status().isOk());
     }
 }

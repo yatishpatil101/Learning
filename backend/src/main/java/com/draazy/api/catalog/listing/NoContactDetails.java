@@ -83,7 +83,27 @@ public @interface NoContactDetails {
 
         private static final Pattern SEPARATORS = Pattern.compile("[\\p{Z}\\p{Pd}\\p{M}\\s.()+_*:|']");
 
-        private static final Pattern RANGE_JOIN = Pattern.compile("(?<=[0-9]000)[\\p{Z}\\s]*[\\p{Pd}|](?=[\\p{Z}\\s]*[0-9])");
+        private static final Pattern RANGE_JOIN = Pattern.compile("(?<=[0-9]000)[\\p{Z}\\s]*[\\p{Pd}|,/](?=[\\p{Z}\\s]*[0-9])");
+
+        /** A thousands-grouped amount (65,00,000 or 1,250,000) is a price, so it never joins its neighbour. */
+        private static final Pattern GROUPED = Pattern.compile(
+                "(?<![0-9,])[0-9]{1,3}(?:(?:,[0-9]{2})*,[0-9]{3}|(?:,[0-9]{3})+)(?![0-9])(?!,[0-9])");
+
+        private static final Pattern TIGHT_JOIN = Pattern.compile("(?<=[0-9])[,/](?=[0-9])");
+
+        /** A run of digits and letter O (a zero typed as one), bounded by non-letters so "October" is left alone. */
+        private static final Pattern ZERO_RUN = Pattern.compile(
+                "(?<![\\p{L}0-9])[0-9oO][0-9oO\\p{Z}\\p{Pd}\\s.()+_*:|']*(?<=[0-9oO])(?!\\p{L})");
+
+        /** A spelled-out separator between two digit groups; amounts ending 000 are ranges, not a number. */
+        private static final Pattern FILLER_WORD = Pattern.compile(
+                "(?<=[0-9])(?<!000)[\\p{Z}\\s]{0,3}(?:dash|hyphen|dot|space|slash|comma|plus|then|next|okay|ok|ext|x)"
+                        + "(?!\\p{L})[\\p{Z}\\s]{0,3}(?=[0-9])",
+                Pattern.CASE_INSENSITIVE | Pattern.UNICODE_CASE);
+
+        private static final Pattern DIGIT = Pattern.compile("[0-9]");
+
+        private static final String BREAK = "x";
 
         @Override
         public boolean isValid(String text, ConstraintValidatorContext context) {
@@ -124,7 +144,13 @@ public @interface NoContactDetails {
         }
 
         private static boolean hasMobile(String text) {
-            return MOBILE.matcher(SEPARATORS.matcher(RANGE_JOIN.matcher(text).replaceAll(",")).replaceAll("")).find();
+            String zeroed = ZERO_RUN.matcher(text).replaceAll(m -> DIGIT.matcher(m.group()).find()
+                    ? m.group().replaceAll("[oO]", "0") : m.group());
+            String unfilled = FILLER_WORD.matcher(zeroed).replaceAll("");
+            String ranged = RANGE_JOIN.matcher(unfilled).replaceAll(BREAK);
+            String priced = GROUPED.matcher(ranged).replaceAll(m -> m.group().replace(",", "") + BREAK);
+            String joined = TIGHT_JOIN.matcher(priced).replaceAll("");
+            return MOBILE.matcher(SEPARATORS.matcher(joined).replaceAll("")).find();
         }
     }
 }

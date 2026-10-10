@@ -11,7 +11,12 @@ const LINK = /(?<![\p{L}0-9])(?:(?:wa|t|m)\s?\.\s?me\s?\/|(?:whatsapp|instagram|
 const HANDLE = /(?<!\p{L})(?:insta(?:gram)?|ig|telegram|snap(?:chat)?|facebook|fb|twitter)\s?(?:id|handle)?\s?[:-]?\s?@[\p{L}0-9._]{2,}/iu;
 const INVISIBLE = /\p{Cf}/gu;
 const SEPARATORS = /[\p{Z}\p{Dash_Punctuation}\p{M}\s.()+_*:|']/gu;
-const RANGE_JOIN = /(?<=[0-9]000)[\p{Z}\s]*[\p{Dash_Punctuation}|](?=[\p{Z}\s]*[0-9])/gu;
+const RANGE_JOIN = /(?<=[0-9]000)[\p{Z}\s]*[\p{Dash_Punctuation}|,/](?=[\p{Z}\s]*[0-9])/gu;
+const GROUPED = /(?<![0-9,])[0-9]{1,3}(?:(?:,[0-9]{2})*,[0-9]{3}|(?:,[0-9]{3})+)(?![0-9])(?!,[0-9])/g;
+const TIGHT_JOIN = /(?<=[0-9])[,/](?=[0-9])/g;
+const ZERO_RUN = /(?<!\p{L})[0-9oO](?:[\p{Z}\p{Dash_Punctuation}\s.()+_*:|']?[0-9oO])+(?!\p{L})/gu;
+const FILLER_WORD = /(?<=[0-9])(?<!000)[\p{Z}\s]{0,3}(?:dash|hyphen|dot|space|slash|comma|plus|then|next|okay|ok|ext|x)(?!\p{L})[\p{Z}\s]{0,3}(?=[0-9])/giu;
+const BREAK = 'x';
 
 const DIGIT_WORDS = [
   ['zero', 'shunya', 'शून्य'],
@@ -55,11 +60,21 @@ const toAsciiDigits = (text) => Array.from(text).map((ch) => {
   return value >= 0 ? String(value) : ch;
 }).join('');
 
+const hasMobile = (text) => {
+  const zeroed = text.replace(ZERO_RUN, (run) => (/[0-9]/.test(run) ? run.replace(/[oO]/g, '0') : run));
+  return MOBILE.test(zeroed
+    .replace(FILLER_WORD, '')
+    .replace(RANGE_JOIN, BREAK)
+    .replace(GROUPED, (price) => price.replace(/,/g, '') + BREAK)
+    .replace(TIGHT_JOIN, '')
+    .replace(SEPARATORS, ''));
+};
+
 export const hasContactDetails = (value) => {
   const text = String(value ?? '').trim();
   if (!text) return false;
   const normalized = toAsciiDigits(text.normalize('NFKC').replace(INVISIBLE, ''));
   const collapsed = normalized.replace(/\s+/g, ' ');
   return EMAIL.test(collapsed) || LINK.test(collapsed) || HANDLE.test(collapsed)
-    || MOBILE.test(spelledDigits(normalized).replace(RANGE_JOIN, ',').replace(SEPARATORS, ''));
+    || hasMobile(spelledDigits(normalized));
 };

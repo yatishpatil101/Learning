@@ -31,6 +31,7 @@ public class WriteRateLimitFilter extends OncePerRequestFilter {
      * WriteRateLimitTest.dataExportIsLimited}). */
     private static final Set<String> LIMITED_READS = Set.of(
             Routes.Documents.SHARED,
+            Routes.Documents.SHARED_URL,
             Routes.Societies.RESOLVE,
             "/me/data-export");
 
@@ -51,15 +52,17 @@ public class WriteRateLimitFilter extends OncePerRequestFilter {
     private final WriteRateLimitStore limiter;
     private final WriteRateLimitStore callbackLimiter;
     private final WriteRateLimitStore localityResolveLimiter;
+    private final WriteRateLimitStore propertyReadLimiter;
     private final Duration window;
     private final boolean proxyAware;
     private volatile boolean misconfigurationLogged;
 
     /** The two counter families need separate namespaces; they must never share a counter on a shared backend. */
     public WriteRateLimitFilter(int budget, Duration window, boolean proxyAware,
-            WriteRateLimitStore.Factory stores, int localityResolveBudget) {
+            WriteRateLimitStore.Factory stores, int localityResolveBudget, int propertyReadBudget) {
         this.limiter = stores.create("w", budget, window);
         this.localityResolveLimiter = stores.create("loc", localityResolveBudget, window);
+        this.propertyReadLimiter = stores.create("pr", propertyReadBudget, window);
         // Computed as a long and clamped: at int width this wraps above 42,949,672 and would hand
         // the callbacks a *smaller* budget than everyone else.
         long callbackBudget = (long) budget * CALLBACK_BUDGET_MULTIPLIER;
@@ -95,6 +98,10 @@ public class WriteRateLimitFilter extends OncePerRequestFilter {
             return;
         }
 
+        if (isAnonymousPropertyRead(request, path) && !allow(propertyReadLimiter, request, response)) {
+            return;
+        }
+
         if (!isLimited(request, path) || allow(limiter, request, response)) {
             chain.doFilter(request, response);
         }
@@ -123,6 +130,14 @@ public class WriteRateLimitFilter extends OncePerRequestFilter {
         return "POST".equals(request.getMethod()) && Routes.Localities.RESOLVE.equals(path);
     }
 
+    /** Listing scraping is anonymous by nature; signed-in callers are already identifiable and are not metered here. */
+    private static boolean isAnonymousPropertyRead(HttpServletRequest request, String path) {
+        boolean read = "GET".equals(request.getMethod()) || "HEAD".equals(request.getMethod());
+        boolean listings = path.equals(Routes.Properties.BASE) || path.startsWith(Routes.Properties.BASE + "/");
+        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        return read && listings && !(auth != null && auth.getPrincipal() instanceof AuthPrincipal);
+    }
+
     private static boolean isLimited(HttpServletRequest request, String path) {
         if (MUTATING.contains(request.getMethod())) {
             return true;
@@ -132,7 +147,8 @@ public class WriteRateLimitFilter extends OncePerRequestFilter {
         return LIMITED_READS.contains(path);
     }
 
-    /** The path as {@link Routes} declares it: context path removed, path parameters dropped, escapes decoded; each step closes a bypass (cross-cutting.md section 8.5). */
+    /** Each step closes a bypass (cross-cutting.md section 8.5): context path removed,
+     * path parameters dropped, escapes decoded. */
     private static String path(HttpServletRequest request) {
         return normalisedPath(request.getContextPath(), request.getRequestURI());
     }

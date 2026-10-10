@@ -22,15 +22,14 @@ import org.springframework.web.HttpMediaTypeNotSupportedException;
 import org.springframework.web.HttpRequestMethodNotSupportedException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.context.request.async.AsyncRequestNotUsableException;
 import org.springframework.web.method.annotation.HandlerMethodValidationException;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 import org.springframework.web.multipart.MaxUploadSizeExceededException;
 import org.springframework.web.servlet.resource.NoResourceFoundException;
 
-/**
- * The single translation point from exceptions to the OpenAPI error envelope; no controller builds
- * an error body itself. Status mapping and the non-obvious handlers: docs/system/api-standards.md §4.
- */
+/** The single translation point from exceptions to the OpenAPI error envelope; no controller builds its own body.
+ * Status mapping and non-obvious handlers: docs/system/api-standards.md §4. */
 @RestControllerAdvice
 public class GlobalExceptionHandler {
 
@@ -64,10 +63,8 @@ public class GlobalExceptionHandler {
         return validationProblem(fields);
     }
 
-    /**
-     * {@code @Valid} on path/query params or method-level validation. A nested field name wins over
-     * the parameter name, which would report {@code "body"}: docs/system/api-standards.md §4.3.
-     */
+    /** {@code @Valid} on path/query params or method-level validation. A nested field name wins over
+     * the parameter name, which would report {@code "body"}: docs/system/api-standards.md §4.3. */
     @ExceptionHandler(HandlerMethodValidationException.class)
     public ResponseEntity<ValidationProblem> handleHandlerValidation(HandlerMethodValidationException ex) {
         List<ValidationProblem.FieldError> fields = ex.getParameterValidationResults().stream()
@@ -91,10 +88,8 @@ public class GlobalExceptionHandler {
         return validationProblem(fields);
     }
 
-    /**
-     * An unparseable request body → 400, with nothing said about why: Jackson's own message would
-     * publish the deserialisation layer's shape. Detail is logged at debug instead.
-     */
+    /** An unparseable request body → 400 with no reason: Jackson's own message would publish the
+     * deserialisation layer's shape. Detail is logged at debug. */
     @ExceptionHandler(HttpMessageNotReadableException.class)
     public ResponseEntity<ApiError> handleUnreadableBody(HttpMessageNotReadableException ex) {
         log.debug("Unreadable request body [traceId={}]: {}", traceId(), ex.getMessage());
@@ -103,10 +98,8 @@ public class GlobalExceptionHandler {
                         400, traceId()));
     }
 
-    /**
-     * A missing or untypeable query/path parameter → 400, naming the parameter and nothing else.
-     * The name is published contract; the exception's own message leaks the target Java type.
-     */
+    /** A missing or untypeable query/path parameter → 400 naming only the parameter: the name is contract,
+     * and the exception's own message leaks the target Java type. */
     @ExceptionHandler({MissingServletRequestParameterException.class, MissingServletRequestPartException.class,
             MethodArgumentTypeMismatchException.class})
     public ResponseEntity<ApiError> handleBadParameter(Exception ex) {
@@ -120,10 +113,8 @@ public class GlobalExceptionHandler {
                         "Invalid or missing request parameter: " + name, 400, traceId()));
     }
 
-    /**
-     * The path matched but the verb did not → 405, with the {@code Allow} header its semantics
-     * require. Explicit because the catch-all outranks Spring: api-standards.md §4.3.
-     */
+    /** The path matched but the verb did not → 405 with the {@code Allow} header its semantics require.
+     * Explicit because the catch-all outranks Spring: api-standards.md §4.3. */
     @ExceptionHandler(HttpRequestMethodNotSupportedException.class)
     public ResponseEntity<ApiError> handleMethodNotSupported(HttpRequestMethodNotSupportedException ex) {
         HttpHeaders headers = new HttpHeaders();
@@ -136,10 +127,8 @@ public class GlobalExceptionHandler {
                         ErrorCodes.Messages.METHOD_NOT_ALLOWED, 405, traceId()));
     }
 
-    /**
-     * A {@code Content-Type} the endpoint does not declare in {@code consumes} → 415. Must render
-     * the same code as the vault's own {@link UnsupportedMediaTypeException}, raised after sniffing.
-     */
+    /** A {@code Content-Type} the endpoint does not declare in {@code consumes} → 415. Must render the same code
+     * as the vault's own {@link UnsupportedMediaTypeException}, raised after sniffing. */
     @ExceptionHandler(HttpMediaTypeNotSupportedException.class)
     public ResponseEntity<ApiError> handleMediaTypeNotSupported(HttpMediaTypeNotSupportedException ex) {
         log.debug("Unsupported content type [traceId={}]: {}", traceId(), ex.getContentType());
@@ -148,10 +137,8 @@ public class GlobalExceptionHandler {
                         ErrorCodes.Messages.UNSUPPORTED_CONTENT_TYPE, 415, traceId()));
     }
 
-    /**
-     * No route matched at all → 404 rather than the catch-all's 500. Logged at {@code debug}: a
-     * mistyped URL is not an operational event.
-     */
+    /** No route matched at all → 404 rather than the catch-all's 500, logged at {@code debug}:
+     * a mistyped URL is not an operational event. */
     @ExceptionHandler(NoResourceFoundException.class)
     public ResponseEntity<ApiError> handleNoRoute(NoResourceFoundException ex) {
         log.debug("No route for [traceId={}]: {} {}", traceId(), ex.getHttpMethod(), ex.getResourcePath());
@@ -177,10 +164,8 @@ public class GlobalExceptionHandler {
                         ErrorCodes.Messages.ACCESS_DENIED, 403, traceId()));
     }
 
-    /**
-     * The servlet container's multipart limit, which trips before the controller is entered, so the
-     * service's own size check cannot see it. Same code as the service raises, deliberately.
-     */
+    /** The servlet container's multipart limit trips before the controller is entered, so the service's own size
+     * check cannot see it; same code as the service raises, deliberately. */
     @ExceptionHandler(MaxUploadSizeExceededException.class)
     public ResponseEntity<ApiError> handleUploadTooLarge(MaxUploadSizeExceededException ex) {
         return ResponseEntity.status(HttpStatus.PAYLOAD_TOO_LARGE)
@@ -188,10 +173,8 @@ public class GlobalExceptionHandler {
                         "That file is too large to upload", 413, traceId()));
     }
 
-    /**
-     * A unique or foreign-key violation → 409, never recovered from locally; {@code warn} because a
-     * genuine bug also lands here. Why local recovery cannot work: docs/system/api-standards.md §4.3.
-     */
+    /** A unique or foreign-key violation → 409, never recovered locally; {@code warn} as a real bug lands here.
+     * Why local recovery cannot work: docs/system/api-standards.md §4.3. */
     @ExceptionHandler(DataIntegrityViolationException.class)
     public ResponseEntity<ApiError> handleDataIntegrity(DataIntegrityViolationException ex) {
         log.warn("Database rejected a write [traceId={}]", traceId(), ex);
@@ -200,10 +183,8 @@ public class GlobalExceptionHandler {
                         "That request conflicts with existing data", 409, traceId()));
     }
 
-    /**
-     * Two writers reached the same row and the second lost. Its own message because the caller did
-     * nothing wrong; {@code info} because a lost race is concurrency working, not a defect.
-     */
+    /** Two writers reached the same row and the second lost. Own message because the caller did nothing wrong;
+     * {@code info} because a lost race is concurrency working, not a defect. */
     @ExceptionHandler(OptimisticLockingFailureException.class)
     public ResponseEntity<ApiError> handleOptimisticLock(OptimisticLockingFailureException ex) {
         log.info("Concurrent update rejected [traceId={}]: {}", traceId(), ex.getMessage());
@@ -211,6 +192,12 @@ public class GlobalExceptionHandler {
                 .body(new ApiError(ErrorCodes.CONFLICT,
                         "Someone else changed this while you were editing it. Reload and try again.",
                         409, traceId()));
+    }
+
+    /** The client (usually an SSE tab) hung up; there is nobody left to send an error body to. */
+    @ExceptionHandler(AsyncRequestNotUsableException.class)
+    public void handleClientGone(AsyncRequestNotUsableException ex) {
+        log.debug("Client disconnected [traceId={}]: {}", traceId(), ex.getMessage());
     }
 
     /** Last resort: never leak internals — log the cause, return a generic 500. */

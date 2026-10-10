@@ -37,6 +37,8 @@ class ContactGateEndpointsTest extends AbstractApiTest {
     @Autowired
     ContactRequestRepository contactRequests;
     @Autowired
+    jakarta.persistence.EntityManager em;
+    @Autowired
     @org.springframework.beans.factory.annotation.Qualifier("requestMappingHandlerMapping")
     RequestMappingHandlerMapping handlerMapping;
 
@@ -175,7 +177,26 @@ class ContactGateEndpointsTest extends AbstractApiTest {
         assertThat(notes.getFirst().get("body").toString())
                 .contains("see their number unless they keep it hidden")
                 .doesNotContain(owner.getMobile());
-        assertThat(notificationsFor(owner)).isEmpty();
+        assertThat(notificationsFor(owner)).extracting(row -> row.get("type"))
+                .containsExactly("contact.received");
+    }
+
+    @Test
+    void askingForContact_notifiesTheOwnerOnce_withoutTheBuyersNumber() throws Exception {
+        User owner = user("9820000210", "owner");
+        User buyer = user("9820000211", "buyer");
+        Property p = listing(owner, "Notify on ask");
+
+        ask(buyer, p);
+        ask(buyer, p);
+
+        assertThat(notificationsFor(owner)).singleElement().satisfies(row -> {
+            assertThat(row.get("type")).isEqualTo("contact.received");
+            assertThat(row.get("link")).isEqualTo("/dashboard#leads");
+            assertThat(row.get("body").toString()).contains("Notify on ask")
+                    .doesNotContain(buyer.getMobile());
+        });
+        assertThat(notificationsFor(buyer)).isEmpty();
     }
 
     @Test
@@ -231,6 +252,33 @@ class ContactGateEndpointsTest extends AbstractApiTest {
 
         assertThat(contactRequests.findByPropertyIdInOrderByCreatedAtDesc(List.of(p.getId()),
                 Pageable.unpaged())).hasSize(1);
+    }
+
+    @Test
+    void anExpiredPendingRequest_readsAsNone_andAskingAgainRenewsTheSameRow() throws Exception {
+        User owner = user("9820000096", "owner");
+        User buyer = user("9820000097", "buyer");
+        Property p = listing(owner, "Renewable");
+        ask(buyer, p);
+        jdbc.update("update contact_requests set created_at = now() - interval '31 days' where property_id = ?", p.getId());
+                em.clear();
+
+                mvc.perform(get(Routes.Contacts.STATUS).param("propertyId", p.getId().toString())
+                        .header(HttpHeaders.AUTHORIZATION, bearer(buyer)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value(ContactStatuses.NONE));
+
+        mvc.perform(post(Routes.Contacts.REQUEST).header(HttpHeaders.AUTHORIZATION, bearer(buyer))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"propertyId\":\"" + p.getId() + "\",\"message\":\"Still keen\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value(ContactStatuses.PENDING));
+
+        assertThat(contactRequests.findByPropertyIdInOrderByCreatedAtDesc(List.of(p.getId()),
+                Pageable.unpaged())).hasSize(1).allSatisfy(row -> {
+                    assertThat(row.getMessage()).isEqualTo("Still keen");
+                    assertThat(row.getCreatedAt()).isAfter(java.time.Instant.now().minusSeconds(60));
+                });
     }
 
     @Test

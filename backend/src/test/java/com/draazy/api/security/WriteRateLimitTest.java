@@ -27,6 +27,7 @@ import org.springframework.test.web.servlet.request.RequestPostProcessor;
     "draazy.security.rate-limit.enabled=true",
     "draazy.security.rate-limit.writes-per-window=2",
     "draazy.security.rate-limit.locality-resolves-per-window=1",
+    "draazy.security.rate-limit.property-reads-per-window=12",
     "draazy.security.rate-limit.window-seconds=60",
 })
 @AutoConfigureMockMvc
@@ -83,6 +84,21 @@ class WriteRateLimitTest {
                 .andExpect(jsonPath("$.error").value("rate_limited"));
         mvc.perform(write(Routes.Auth.LOGIN, "10.0.0.9")).andExpect(status().is(Matchers.not(429)));
         mvc.perform(write(Routes.Localities.RESOLVE, "10.0.0.50")).andExpect(status().is(Matchers.not(429)));
+    }
+
+    @Test
+    @DisplayName("anonymous listing reads are metered per address, with a far larger bucket than writes")
+    void anonymousPropertyReadsAreCapped() throws Exception {
+        for (int i = 0; i < 12; i++) {
+            mvc.perform(get(Routes.Properties.BASE).with(from("10.0.0.60"))).andExpect(status().isOk());
+        }
+
+        mvc.perform(get(Routes.Properties.BASE).with(from("10.0.0.60")))
+                .andExpect(status().isTooManyRequests())
+                .andExpect(jsonPath("$.error").value("rate_limited"));
+        mvc.perform(head(Routes.Properties.BASE).with(from("10.0.0.60")))
+                .andExpect(status().isTooManyRequests());
+        mvc.perform(get(Routes.Properties.BASE).with(from("10.0.0.61"))).andExpect(status().isOk());
     }
 
     @Test

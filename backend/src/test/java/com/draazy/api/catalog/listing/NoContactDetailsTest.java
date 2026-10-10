@@ -31,6 +31,11 @@ class NoContactDetailsTest {
         "Expected rent 65000 - 70000 depending on furnishing",
         "Rent 65000 | 70000 negotiable",
         "Deposit 60000-90000, maintenance extra",
+        "Rent 65000, 70000 negotiable",
+        "Rent 65000/70000 negotiable",
+        "Rent 65000 / 70000 negotiable",
+        "Price 1,25,000, area 750 sq.ft",
+        "Available 987654321 October",
     })
     void anOrdinaryPriceIsNotAPhoneNumber(String title) {
         assertThat(accepts(title))
@@ -55,6 +60,15 @@ class NoContactDetailsTest {
         "Call 98765:43210",
         "Call 98765|43210",
         "Call 98'765'43210",
+        "Call 98765,43210",
+        "Call 98765/43210",
+        "Call 98,765,43210",
+        "Call 98765 4321O",
+        "Call 9876 dash 543210",
+        "Call 98765 space 43210",
+        "Call 98765 dot 43210",
+        "Call 9876 O 54321",
+        "Call 9876543210 or o98765 43210",
         "Owner \u277e\u277d\u277c\u277b\u277a\u2779\u2778\u2777\u2776\u24ff",
     })
     void aMobileIsRefusedHoweverItIsDressed(String title) {

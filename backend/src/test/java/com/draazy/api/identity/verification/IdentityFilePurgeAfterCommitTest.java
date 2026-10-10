@@ -11,7 +11,9 @@ import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.UUID;
 import java.util.concurrent.ThreadLocalRandom;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -42,18 +44,24 @@ class IdentityFilePurgeAfterCommitTest {
     @Autowired
     CapturingStorage storage;
 
+    private final List<UUID> created = new ArrayList<>();
+
     @BeforeEach
     void clearState() {
         deletes.deleteAll();
         storage.clear();
     }
 
+    // These cases commit; erase them so later review-queue tests start from an empty queue.
+    @AfterEach
+    void eraseCreatedCases() {
+        created.forEach(id -> transactions.executeWithoutResult(status -> service.erase(id)));
+        deletes.deleteAll();
+    }
+
     @Test
     void fileDeleteRunsAfterCommit_notOnRollback() {
-        User user = new User(String.format("98%08d", ThreadLocalRandom.current().nextInt(100_000_000)),
-                Roles.Wire.BUYER);
-        user.setMobileVerified(true);
-        users.saveAndFlush(user);
+        User user = user();
         IdentityVerification verification = verifications.saveAndFlush(
                 new IdentityVerification(user.getId(), IdentityDocTypes.PAN, Instant.now()));
         String key = "identity/test/rollback";
@@ -168,7 +176,9 @@ class IdentityFilePurgeAfterCommitTest {
         User user = new User(String.format("98%08d", ThreadLocalRandom.current().nextInt(100_000_000)),
                 Roles.Wire.BUYER);
         user.setMobileVerified(true);
-        return users.saveAndFlush(user);
+        User saved = users.saveAndFlush(user);
+        created.add(saved.getId());
+        return saved;
     }
 
     private static MockMultipartFile png(String field) {

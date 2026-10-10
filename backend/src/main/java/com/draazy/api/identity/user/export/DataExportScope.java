@@ -6,8 +6,8 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
-/** The DPDP s.11 data-export scope: which rows are the subject's, and the redaction rule for shared
- * records. Rationale: docs/system/legal-entity-and-compliance.md#12-dpdp-data-export--the-redaction-rule-for-shared-records */
+/** DPDP s.11 export scope: which rows are the subject's, and the redaction rule for shared records.
+ * Rationale: docs/system/legal-entity-and-compliance.md (section 12). */
 public final class DataExportScope {
 
     private DataExportScope() {
@@ -859,17 +859,6 @@ public final class DataExportScope {
                 """,
                 withheld("assignee_id", "Identifies the staff member handling the ticket.")));
 
-        out.add(new Dataset("support", "society_leads",
-                "Enquiries you submitted about getting your building onto the platform.",
-                """
-                select id, society_name, contact_name, mobile, units, interest, status,
-                       created_at, updated_at
-                  from society_leads
-                 where mobile = :subjectMobile
-                 order by created_at desc
-                """,
-                withheld("note", "Staff free text about how the lead is being worked.")));
-
         out.add(new Dataset("support", "city_waitlist",
                 "Requests you made for us to launch in a city, matched by your phone number. These "
                         + "rows are written by a signed-out form and carry no account id, so this is "
@@ -1160,7 +1149,7 @@ public final class DataExportScope {
                                 + "that is about you rather than about the site."),
                 new Exclusion("reference and catalogue tables",
                         "cities, localities, societies, plans, service_offerings, "
-                                + "cms_services, faqs, banners, announcements, reels, "
+                                + "faqs, reels, "
                                 + "message_template, platform_fees and settings. Reference data "
                                 + "with no data subject behind it, identical for every user."),
                 new Exclusion("other people's rows",

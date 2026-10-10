@@ -131,7 +131,7 @@ Old claim: "the server never sends the owner's number to a buyer, approved or no
   in the listing chat. The masked `requester.mobile` stays as the list-safe display string.
 
 Approved listing chats now have a real-time layer: `/messages/stream` sends id-only `message`,
-`read`, `typing` and `presence` invalidations, and clients refetch the thread. The same stream
+`read`, `delivered`, `typing` and `presence` invalidations, and clients refetch the thread. The same stream
 carries a `notification` event that refreshes the bell's count (cross-cutting.md §7). Read receipts and
 online/last-seen are reciprocal privacy features (`shareReadReceipts`, `shareActivityStatus`); if
 either participant turns one off, that surface is hidden while delivery still records normally.

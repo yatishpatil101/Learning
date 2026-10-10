@@ -103,7 +103,7 @@ public final class ErasureRetention {
                         + " every link already shared points at.",
                 "flatmate_group_members.name — a NOT NULL denormalised copy of users.name, written"
                         + " at join time.",
-                "society_leads / tickets / service_requests — contact_name and mobile captured at"
+                "tickets / service_requests — contact_name and mobile captured at"
                         + " intake, some of it before an account existed, so it is not always"
                         + " reachable from a user id at all.",
                 "deal_parties.name / deal_parties.mobile — denormalised party contact on a record"
@@ -127,13 +127,6 @@ public final class ErasureRetention {
                         + " on the number itself.",
                 "flatmate_seeker_posts — name, age and occupation are stored on the post rather than"
                         + " read through user_id, so the post keeps describing its author after the"
-                        + " users row stops naming anybody.",
-                "personal_documents — the subject's own uploaded KYC papers. Neither the row nor the"
-                        + " stored object is reached by this sweep, which makes it the largest of"
-                        + " these gaps by volume of personal data.",
-                "service_request_draft_approvals — current-draft approval evidence can hold an"
-                        + " inline party's mobile hash, masked mobile and a display label, or an"
-                        + " account party label copied from users.name. The erasure sweep does not"
-                        + " reach this table yet.");
+                        + " users row stops naming anybody.");
     }
 }

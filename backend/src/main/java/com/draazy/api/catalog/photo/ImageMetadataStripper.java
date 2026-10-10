@@ -2,10 +2,19 @@ package com.draazy.api.catalog.photo;
 
 import com.draazy.api.common.error.UnsupportedMediaTypeException;
 import com.draazy.api.common.validation.MediaSignatures;
+import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
+import java.io.IOException;
+import java.io.UncheckedIOException;
+import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
-import java.util.Map;
+import java.util.Arrays;
 import java.util.Set;
+import java.util.SortedMap;
+import java.util.TreeMap;
+import java.util.zip.CRC32;
+import java.util.zip.DeflaterOutputStream;
+import java.util.zip.InflaterInputStream;
 
 final class ImageMetadataStripper {
 
@@ -17,10 +26,12 @@ final class ImageMetadataStripper {
     private static final Set<Integer> JPEG_STRUCTURE = Set.of(
             0xC0, 0xC1, 0xC2, 0xC3, 0xC5, 0xC6, 0xC7, 0xC9, 0xCA, 0xCB, 0xCD, 0xCE, 0xCF,
             0xC4, 0xCC, 0xDB, 0xDC, 0xDD);
-    private static final Map<Integer, byte[]> JPEG_KEPT_APP = Map.of(
-            0xE0, "JFIF\0".getBytes(StandardCharsets.US_ASCII),
-            0xE2, "ICC_PROFILE\0".getBytes(StandardCharsets.US_ASCII),
-            0xEE, "Adobe".getBytes(StandardCharsets.US_ASCII));
+    private static final byte[] JFIF = "JFIF\0".getBytes(StandardCharsets.US_ASCII);
+    private static final byte[] ADOBE = "Adobe".getBytes(StandardCharsets.US_ASCII);
+    private static final byte[] ICC_PREFIX = "ICC_PROFILE\0".getBytes(StandardCharsets.US_ASCII);
+    private static final int JFIF_PAYLOAD = 14;
+    private static final int ADOBE_PAYLOAD = 12;
+    private static final int ICC_CHUNK = 0xFFFF - 2 - ICC_PREFIX.length - 2;
 
     private ImageMetadataStripper() {
     }
@@ -39,6 +50,8 @@ final class ImageMetadataStripper {
         }
         ByteArrayOutputStream out = new ByteArrayOutputStream(c.length);
         out.writeBytes(new byte[] {(byte) 0xFF, (byte) 0xD8});
+        SortedMap<Integer, byte[]> icc = new TreeMap<>();
+        int[] iccCount = {0};
         int i = 2;
         while (true) {
             if (i >= c.length || u(c, i) != 0xFF) {
@@ -72,13 +85,20 @@ final class ImageMetadataStripper {
                 throw damaged();
             }
             if (marker == 0xDA) {
+                writeIcc(out, icc, iccCount[0]);
+                icc.clear();
                 int scanEnd = endOfScan(c, next);
                 out.write(c, markerStart, scanEnd - markerStart);
                 i = scanEnd;
                 continue;
             }
-            if (keeps(marker, c, i + 2, next)) {
-                out.write(c, markerStart, next - markerStart);
+            if (marker == 0xE2 && startsWith(c, i + 2, next, ICC_PREFIX)) {
+                collectIcc(icc, iccCount, c, i + 2 + ICC_PREFIX.length, next);
+            } else {
+                byte[] payload = keptPayload(marker, c, i + 2, next);
+                if (payload != null) {
+                    writeSegment(out, marker, payload);
+                }
             }
             i = next;
         }
@@ -97,15 +117,62 @@ final class ImageMetadataStripper {
         throw damaged();
     }
 
-    private static boolean keeps(int marker, byte[] c, int payload, int end) {
+    // Kept APP segments are cut to their fixed layout, so nothing can ride along after it, and a JFIF
+    // thumbnail is dropped. Null drops the segment.
+    private static byte[] keptPayload(int marker, byte[] c, int payload, int end) {
         if (JPEG_STRUCTURE.contains(marker)) {
-            return true;
+            return Arrays.copyOfRange(c, payload, end);
+        }
+        if (marker == 0xE0 && startsWith(c, payload, end, JFIF) && end - payload >= JFIF_PAYLOAD) {
+            byte[] jfif = Arrays.copyOfRange(c, payload, payload + JFIF_PAYLOAD);
+            jfif[JFIF_PAYLOAD - 2] = 0;
+            jfif[JFIF_PAYLOAD - 1] = 0;
+            return jfif;
+        }
+        if (marker == 0xEE && startsWith(c, payload, end, ADOBE) && end - payload >= ADOBE_PAYLOAD) {
+            return Arrays.copyOfRange(c, payload, payload + ADOBE_PAYLOAD);
         }
         if ((marker >= 0xE0 && marker <= 0xEF) || marker == 0xFE) {
-            byte[] prefix = JPEG_KEPT_APP.get(marker);
-            return prefix != null && startsWith(c, payload, end, prefix);
+            return null;
         }
         throw damaged();
+    }
+
+    private static void writeSegment(ByteArrayOutputStream out, int marker, byte[] payload) {
+        int length = payload.length + 2;
+        out.writeBytes(new byte[] {(byte) 0xFF, (byte) marker, (byte) (length >> 8), (byte) length});
+        out.writeBytes(payload);
+    }
+
+    private static void collectIcc(SortedMap<Integer, byte[]> icc, int[] count, byte[] c, int from, int end) {
+        if (end - from < 2) {
+            count[0] = -1;
+            return;
+        }
+        int total = u(c, from + 1);
+        count[0] = icc.isEmpty() || count[0] == total ? total : -1;
+        if (icc.putIfAbsent(u(c, from), Arrays.copyOfRange(c, from + 2, end)) != null) {
+            count[0] = -1;
+        }
+    }
+
+    // A profile split across segments is rejoined, scrubbed and written as one clean sequence.
+    private static void writeIcc(ByteArrayOutputStream out, SortedMap<Integer, byte[]> icc, int count) {
+        if (icc.isEmpty() || count < 1 || icc.size() != count || icc.firstKey() != 1 || icc.lastKey() != count) {
+            return;
+        }
+        ByteArrayOutputStream joined = new ByteArrayOutputStream();
+        icc.values().forEach(joined::writeBytes);
+        byte[] profile = IccProfileScrubber.scrub(joined.toByteArray());
+        int chunks = profile == null ? 0 : (profile.length + ICC_CHUNK - 1) / ICC_CHUNK;
+        for (int n = 0; n < chunks; n++) {
+            ByteArrayOutputStream payload = new ByteArrayOutputStream();
+            payload.writeBytes(ICC_PREFIX);
+            payload.write(n + 1);
+            payload.write(chunks);
+            payload.write(profile, n * ICC_CHUNK, Math.min(ICC_CHUNK, profile.length - n * ICC_CHUNK));
+            writeSegment(out, 0xE2, payload.toByteArray());
+        }
     }
 
     private static byte[] stripPng(byte[] content) {
@@ -126,7 +193,9 @@ final class ImageMetadataStripper {
                 throw damaged();
             }
             int next = i + 12 + length;
-            if (PNG_KEPT.contains(type)) {
+            if (type.equals("iCCP")) {
+                writeIccChunk(out, content, i + 8, i + 8 + length);
+            } else if (PNG_KEPT.contains(type)) {
                 out.write(content, i, next - i);
             }
             if (type.equals("IEND")) {
@@ -135,6 +204,41 @@ final class ImageMetadataStripper {
             i = next;
         }
         throw damaged();
+    }
+
+    // iCCP is keyword, method byte, then a zlib stream; the keyword may name the device, so it is replaced.
+    private static void writeIccChunk(ByteArrayOutputStream out, byte[] c, int from, int end) {
+        int nul = from;
+        while (nul < end && c[nul] != 0) {
+            nul++;
+        }
+        if (nul + 2 > end || nul - from > 79 || c[nul + 1] != 0) {
+            return;
+        }
+        byte[] profile;
+        try (InflaterInputStream in = new InflaterInputStream(new ByteArrayInputStream(c, nul + 2, end - nul - 2))) {
+            profile = IccProfileScrubber.scrub(in.readNBytes(IccProfileScrubber.MAX_BYTES + 1));
+        } catch (IOException e) {
+            return;
+        }
+        if (profile == null) {
+            return;
+        }
+        ByteArrayOutputStream data = new ByteArrayOutputStream();
+        data.writeBytes("icc\0\0".getBytes(StandardCharsets.US_ASCII));
+        try (DeflaterOutputStream deflate = new DeflaterOutputStream(data)) {
+            deflate.write(profile);
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
+        }
+        byte[] type = "iCCP".getBytes(StandardCharsets.US_ASCII);
+        CRC32 crc = new CRC32();
+        crc.update(type);
+        crc.update(data.toByteArray());
+        out.writeBytes(ByteBuffer.allocate(4).putInt(data.size()).array());
+        out.writeBytes(type);
+        out.writeBytes(data.toByteArray());
+        out.writeBytes(ByteBuffer.allocate(4).putInt((int) crc.getValue()).array());
     }
 
     private static UnsupportedMediaTypeException damaged() {

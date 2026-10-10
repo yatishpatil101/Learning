@@ -1,5 +1,6 @@
 package com.draazy.api.leads.contact;
 
+import java.time.Instant;
 import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
@@ -44,6 +45,18 @@ public interface ContactRequestRepository extends JpaRepository<ContactRequest, 
             @Param("propertyIds") Collection<UUID> propertyIds,
                                    @Param("status") String status);
 
+    @Query("""
+            select cr.propertyId, count(cr) from ContactRequest cr
+            where cr.propertyId in :propertyIds
+              and cr.status = :status
+              and cr.createdAt >= :liveSince
+            group by cr.propertyId
+            """)
+    List<Object[]> countPendingByProperty(
+            @Param("propertyIds") Collection<UUID> propertyIds,
+            @Param("status") String status,
+            @Param("liveSince") Instant liveSince);
+
     // Takes property ids because contact requests do not store owner ids.
     Page<ContactRequest> findByPropertyIdInOrderByCreatedAtDesc(Collection<UUID> propertyIds,
             Pageable pageable);
@@ -63,6 +76,16 @@ public interface ContactRequestRepository extends JpaRepository<ContactRequest, 
     int updateStatusIfCurrent(@Param("id") UUID id,
                               @Param("fromStatus") String fromStatus,
                               @Param("toStatus") String toStatus);
+
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("""
+            update ContactRequest cr
+               set cr.createdAt = :now, cr.message = :message
+             where cr.id = :id
+               and cr.status = 'pending'
+            """)
+    int renewIfPending(@Param("id") UUID id, @Param("message") String message,
+                       @Param("now") Instant now);
 
     @Query("""
             select count(cr) > 0 from ContactRequest cr

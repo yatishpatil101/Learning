@@ -18,6 +18,7 @@ import com.draazy.api.security.AuthPrincipal;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.OptionalInt;
 import java.util.Set;
 import java.util.UUID;
@@ -77,20 +78,44 @@ public class ContactService {
             throw new VerificationRequiredException("This owner only accepts verified contacts");
         }
 
-        if (contactRequests.findByRequesterIdAndPropertyId(viewerId, property.getId()).isEmpty()) {
+        Optional<ContactRequest> existing =
+                contactRequests.findByRequesterIdAndPropertyId(viewerId, property.getId());
+        if (existing.isEmpty()) {
             requireContactAllowance(viewerId);
             try {
                 contactRequests.saveAndFlush(
                         new ContactRequest(property.getId(), viewerId, body.message()));
+                announceToOwner(owner, viewerId, property);
             } catch (DataIntegrityViolationException concurrentDuplicate) {
 
                 // A parallel tap won the race; its row is the one true request, so this call is
                 // simply a re-read. Nothing to repair, nothing worth telling the user about.
                 LOG.debug("Concurrent contact request for property {}", property.getId());
             }
+        } else if (ContactRequestStatuses.isExpiredPending(existing.get().getStatus(),
+                existing.get().getCreatedAt(), Instant.now())) {
+
+            // The same row is renewed rather than a second one inserted: the allowance counts rows,
+            // and asking the same owner again is not a new contact.
+            if (contactRequests.renewIfPending(existing.get().getId(), body.message(), Instant.now()) > 0) {
+                announceToOwner(owner, viewerId, property);
+            }
         }
 
         return describe(viewerId, property);
+    }
+
+    // Name only: the requester's mobile stays behind the gate the owner is being asked to open.
+    private void announceToOwner(User owner, UUID requesterId, Property property) {
+        if (owner == null) {
+            return;
+        }
+        String name = users.findById(requesterId).map(User::getName)
+                .filter(n -> !n.isBlank()).orElse("Someone");
+        notifier.notify(owner.getId(), "contact.received",
+                "New contact request",
+                name + " wants to contact you about " + property.getTitle() + ". Approve or decline it.",
+                "/dashboard#leads");
     }
 
     private void requireContactAllowance(UUID viewerId) {
@@ -178,7 +203,9 @@ public class ContactService {
             return new ContactStatusResponse(ContactStatuses.OWNER, verifiedContactOnly, false, false);
         }
         String status = contactRequests.findByRequesterIdAndPropertyId(viewerId, property.getId())
-                .map(ContactRequest::getStatus)
+                .map(row -> ContactRequestStatuses.isExpiredPending(
+                        row.getStatus(), row.getCreatedAt(), Instant.now())
+                        ? ContactStatuses.NONE : row.getStatus())
                 .orElse(ContactStatuses.NONE);
         return new ContactStatusResponse(
                 status, verifiedContactOnly, verifiedContactOnly && !hasBadge(viewerId),

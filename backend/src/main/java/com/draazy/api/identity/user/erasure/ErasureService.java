@@ -4,9 +4,12 @@ import com.draazy.api.common.audit.AuditService;
 import com.draazy.api.common.error.BadRequestException;
 import com.draazy.api.common.error.ConflictException;
 import com.draazy.api.common.error.NotFoundException;
+import com.draazy.api.common.trust.MobileMask;
 import com.draazy.api.common.web.Ids;
+import com.draazy.api.identity.auth.Tokens;
 import com.draazy.api.identity.user.User;
 import com.draazy.api.identity.user.UserRepository;
+import com.draazy.api.identity.verification.IdentityFilePurgeService;
 import com.draazy.api.identity.verification.IdentityVerificationService;
 import com.draazy.api.security.AuthPrincipal;
 import jakarta.persistence.EntityManager;
@@ -26,8 +29,8 @@ import org.springframework.transaction.annotation.Transactional;
 import tools.jackson.databind.ObjectMapper;
 import tools.jackson.databind.json.JsonMapper;
 
-/** DPDP right-to-erasure — filing and execution. Erased vs retained: {@link ErasureRetention} and
- * docs/system/legal-entity-and-compliance.md#11-dpdp-erasure--what-is-deleted-what-is-retained-and-on-whose-authority */
+/** DPDP right-to-erasure, filing and execution. Erased vs retained: {@link ErasureRetention} and
+ * docs/system/legal-entity-and-compliance.md (section 11). */
 @Service
 public class ErasureService {
 
@@ -96,7 +99,7 @@ public class ErasureService {
     @Transactional
     public ErasureRequestResponse decide(AuthPrincipal admin, String id, String decision,
             String note) {
-        ErasureRequest request = requests.findById(
+        ErasureRequest request = requests.findForDecision(
                         Ids.parseUuid(id).orElseThrow(() -> NotFoundException.of("Erasure request")))
                 .orElseThrow(() -> NotFoundException.of("Erasure request"));
         if (!ErasureStatuses.isDecidable(request.getStatus())) {
@@ -227,11 +230,13 @@ public class ErasureService {
                 .setParameter("id", subjectId)
                 .executeUpdate());
 
-        erased.put("rent_agreement_tenant_consents", entityManager
-                .createNativeQuery("delete from rent_agreement_tenant_consents"
-                        + " where granted_to = :id or tenant_mobile = :mobile")
+        erased.put("personal_documents", erasePersonalDocuments(subjectId));
+
+        erased.put("service_request_draft_approvals", entityManager
+                .createNativeQuery("delete from service_request_draft_approvals"
+                        + " where user_id = :id or mobile_hash = :mobileHash")
                 .setParameter("id", subjectId)
-                .setParameter("mobile", oldMobile)
+                .setParameter("mobileHash", Tokens.sha256Hex(MobileMask.normalise(oldMobile)))
                 .executeUpdate());
 
         // 10. Identity root, last: earlier steps key off mobile or row-existing, so replacing the
@@ -250,6 +255,25 @@ public class ErasureService {
         audit.record(admin, "erasure.execute", "erasure_request", request.getId().toString(),
                 "erased", erased, "note", note);
         return request;
+    }
+
+    // A key also filed onto a service request or property (fileFromPersonalVault) belongs to that
+    // retained document too, so only unshared objects leave storage.
+    @SuppressWarnings("unchecked")
+    private int erasePersonalDocuments(UUID subjectId) {
+        List<String> keys = entityManager
+                .createNativeQuery("""
+                        select p.storage_key from personal_documents p
+                         where p.owner_id = :id
+                           and not exists (select 1 from documents d where d.storage_key = p.storage_key)
+                        """)
+                .setParameter("id", subjectId)
+                .getResultList();
+        filePurge.purgeKeys(keys);
+        return entityManager
+                .createNativeQuery("delete from personal_documents where owner_id = :id")
+                .setParameter("id", subjectId)
+                .executeUpdate();
     }
 
     /** A stand-in for {@code users.mobile} derived from the row id: ten digits beginning {@code 9},

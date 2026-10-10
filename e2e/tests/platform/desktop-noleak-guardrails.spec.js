@@ -22,7 +22,9 @@ test.describe('Mobile-only rules do not leak to desktop', () => {
       // Navbar.jsx toggles this class at every width on purpose; the proof that
       // desktop is safe is that no rule outside the max-width block reads it.
       await page.evaluate(() => document.documentElement.classList.add('dz-nav-hidden'));
-      await page.waitForTimeout(300);
+      await page.evaluate(() => Promise.all(document.getAnimations()
+        .filter((a) => a instanceof CSSTransition)
+        .map((a) => a.finished.catch(() => {}))));
       const after = await bar.boundingBox();
       expect(after.y).toBeCloseTo(before.y, 0);
       await expect(bar).toHaveCSS('transform', 'none');
@@ -99,27 +101,30 @@ test.describe('Mobile-only rules do not leak to desktop', () => {
     await test.step('the card lift survives the hover gate', async () => {
       const card = page.locator('.cat-card').first();
       await card.waitFor({ timeout: 20_000 });
-      await card.scrollIntoViewIfNeeded();
-      await card.hover();
+      // Late layout shifts (the Featured block filling in) move the card out from under the pointer, so each pass
+      // re-centres it; `instant` because `scroll-behavior: smooth` would still be moving it when the hover lands.
       await expect
-        .poll(() =>
-          card.evaluate((el) => {
+        .poll(async () => {
+          await card.evaluate((el) => el.scrollIntoView({ block: 'center', behavior: 'instant' }));
+          await card.hover();
+          return card.evaluate((el) => {
             // A regressed lift computes as `none`, which DOMMatrixReadOnly throws on — and a poll
             // swallows the throw. Report it as the 0 it means.
             const t = getComputedStyle(el).transform;
             return t === 'none' ? 0 : new DOMMatrixReadOnly(t).m42;
-          }),
-        )
+          });
+        })
         .toBeLessThan(0);
     });
   });
 
-  test('on the light theme the desktop hero stays the dark island', async ({ page }) => {
-    await page.addInitScript(() => localStorage.setItem('dzAppPrefs', JSON.stringify({ theme: 'light' })));
+  test('on the light theme the desktop hero is light with the morning-mist glow, like the phone', async ({ page }) => {
     await page.goto('/');
     const hero = page.locator('section.hero-bg');
-    await expect(hero).toHaveClass(/theme-dark/, { timeout: 20_000 });
-    await expect(hero.locator('.hero-mist')).toHaveCount(0);
+    await expect(hero.locator('.hero-mist')).toBeVisible({ timeout: 20_000 });
+    await expect(hero).toHaveCSS('background-image', 'none');
+    await expect(hero.locator('h1')).toHaveCSS('color', 'rgb(15, 23, 42)');
+    await expect(hero.locator('.shape').first()).toBeHidden();
   });
 
   test('the home hero and Featured block keep their desktop structure', async ({ page }) => {
@@ -160,7 +165,7 @@ test.describe('Mobile-only rules do not leak to desktop', () => {
 
     await test.step('the hero keeps its marketing sentence and the chips keep their pill shape', async () => {
       await expect(page.locator('p.hero-sub')).toBeVisible();
-      await expect(page.locator('p.hero-sub')).toContainText(/\d/);
+      await expect(page.locator('p.hero-sub')).toContainText(/^\S.* properties from real owners\. Your number stays private\./);
       const shape = await page.locator('.hero-trust:visible').evaluate((el) => ({
         display: getComputedStyle(el).display,
         radius: getComputedStyle(el.children[0]).borderRadius,
