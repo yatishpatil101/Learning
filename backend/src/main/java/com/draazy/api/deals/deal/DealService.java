@@ -15,16 +15,10 @@ import com.draazy.api.identity.user.UserRepository;
 import com.draazy.api.security.AuthPrincipal;
 import java.time.Instant;
 import java.util.List;
-import java.util.Map;
 import java.util.UUID;
-import java.util.function.Function;
-import java.util.stream.Collectors;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.dao.DataIntegrityViolationException;
-import org.springframework.data.domain.Page;
-import org.springframework.data.domain.PageImpl;
-import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -51,35 +45,6 @@ public class DealService {
         this.users = users;
         this.lifecycle = lifecycle;
         this.tenancyService = tenancyService;
-    }
-
-    @Transactional(readOnly = true)
-    public Page<DealDto> myDeals(UUID callerId, Pageable pageable) {
-        List<UUID> ownedPropertyIds = properties.findIdsByOwnerId(callerId);
-        if (ownedPropertyIds.isEmpty()) {
-            return Page.empty(pageable);
-        }
-
-        Page<Deal> rows = deals.findByPropertyIdInOrderByCreatedAtDesc(ownedPropertyIds, pageable);
-
-        List<UUID> counterpartyIds = rows.getContent().stream()
-                .map(Deal::getCounterpartyId)
-                .filter(id -> id != null)
-                .distinct()
-                .toList();
-        Map<UUID, User> userMap = counterpartyIds.isEmpty()
-                ? Map.of()
-                : users.findAllById(counterpartyIds).stream()
-                        .collect(Collectors.toMap(User::getId, Function.identity()));
-
-        List<DealDto> content = rows.getContent().stream()
-                .map(deal -> {
-                    User cp = deal.getCounterpartyId() != null
-                            ? userMap.get(deal.getCounterpartyId()) : null;
-                    return DealMapper.toDto(deal, cp);
-                })
-                .toList();
-        return new PageImpl<>(content, rows.getPageable(), rows.getTotalElements());
     }
 
     @Transactional(readOnly = true)
@@ -122,7 +87,6 @@ public class DealService {
 
         String normalised = MobileMask.normalise(body.counterpartyMobile());
         if (normalised == null) {
-
             throw new BadRequestException("counterpartyMobile must be a 10-digit mobile number");
         }
         deal.setCounterpartyMobile(normalised);
@@ -139,8 +103,6 @@ public class DealService {
 
         deals.save(deal);
 
-        // The counterpart of close: a reopened rent listing must end its tenancy, or the active
-        // uniqueness index stays occupied and the next tenant can never be let in. Ended, never deleted.
         if (DealIntent.RENT.equals(property.getDeal())) {
             tenancyService.openFromClosedDeal(
                             propertyId, callerId, deal.getCounterpartyId(), body.agreedPrice())
@@ -152,8 +114,6 @@ public class DealService {
         }
     }
 
-    // @IndianMobile validated the shape; store the canonical ten digits so a later masked read
-    // resolves — DealParty is otherwise persisted verbatim.
     @Transactional
     public void reopen(AuthPrincipal caller, UUID propertyId) {
         Property property = ownedProperty(caller.userId(), propertyId);
@@ -180,6 +140,7 @@ public class DealService {
         }
         property.setDealStatus(DealStatuses.ACTIVE);
 
+        // Otherwise the active-tenancy unique index stays occupied and the next tenant can never be let in.
         if (DealIntent.RENT.equals(property.getDeal())) {
             tenancyService.endActiveTenancy(propertyId);
         }

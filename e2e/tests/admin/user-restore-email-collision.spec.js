@@ -91,8 +91,8 @@ test.describe('restoring onto a taken email address', () => {
     })).status()).toBe(200);
 
     expect((await request.patch(`/api/users/${lonely}/restore`, auth())).status()).toBe(200);
-    expect((await (await request.get(`/api/users/${lonely}`, auth())).json()).status)
-      .toBe('active');
+    const listed = await (await request.get(`/api/users?q=${mobile('3')}`, auth())).json();
+    expect(listed.content.map((u) => [u.id, u.status])).toContainEqual([lonely, 'active']);
 
     // Leave the dev database tidy: this account served its purpose and should not sit live in the
     // directory. Archiving is the strongest cleanup available — there is no user DELETE.

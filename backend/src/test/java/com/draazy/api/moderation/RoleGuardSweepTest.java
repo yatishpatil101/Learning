@@ -62,7 +62,6 @@ class RoleGuardSweepTest extends AbstractApiTest {
                 new Guarded(HttpMethod.GET, notesFor("property"), "staff"),
                 new Guarded(HttpMethod.POST, notesFor("property"), "staff"),
                 new Guarded(HttpMethod.GET, Routes.Users.BASE, "staff"),
-                new Guarded(HttpMethod.GET, id(Routes.Users.BY_ID), "staff"),
                 new Guarded(HttpMethod.PATCH, id(Routes.Users.BY_ID), "admin"),
                 new Guarded(HttpMethod.PATCH, id(Routes.Users.ARCHIVE), "admin"),
                 new Guarded(HttpMethod.PATCH, id(Routes.Users.RESTORE), "admin"),
@@ -117,7 +116,7 @@ class RoleGuardSweepTest extends AbstractApiTest {
                     INSERT INTO back_office_permissions (user_id, permissions)
                     VALUES (?::uuid, ?::jsonb)
                     """, saved.getId().toString(), """
-                    ["kyc","propertyVerification","listingModeration","support","content","reports","desk:rental"]
+                    ["kyc","propertyVerification","listingModeration","reviews","support","content","reports","desk:rental"]
                     """);
         }
         return "Bearer " + jwtService.issueAccessToken(saved);

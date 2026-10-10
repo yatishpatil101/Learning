@@ -183,7 +183,7 @@ test('rewriting a recovered address stores every part, not just the box that cha
 
 test('land is not asked for a project name when correcting its saved address', async () => {
   const { validateLocationStep } = await import('../src/pages/consumer/list-property/validation.js');
-  const land = { propertyType: 'openplot', deal: 'buy', commercialType: '', locality: 'Baner',
+  const land = { propertyType: 'openplot', deal: 'buy', commercialType: '',   locality: 'Baner', localitySlug: 'baner',
     pincode: '', price: '5000000', possession: 'available', availableFrom: '2027-01-20',
     ownership: 'freehold', flatNumber: '', tower: '', society: '', street: '', societyId: '' };
 

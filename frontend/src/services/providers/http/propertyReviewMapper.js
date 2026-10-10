@@ -54,21 +54,15 @@ export function toCaseFile(res) {
   };
 }
 
-/** The queue row carries no listing detail — not even a title — because both queues page over case files, not over
- * listings. */
-export function toQueueRow(row) {
+/** The owner's own `/me/property-reviews` row: verdict, reason and unread count, nothing of the staff side. */
+export function toReviewBadge(row) {
   return {
     propertyId: row?.propertyId ?? '',
     status: row?.status ?? 'pending',
-    reviewer: row?.reviewer ?? null,
-    reviewerName: row?.reviewerName ?? null,
     unread: Number(row?.unread) || 0,
+    updatedAt: row?.updatedAt ?? null,
     reasonCode: row?.reasonCode ?? null,
     reasonNote: row?.reasonNote ?? null,
-    overrideRequest: toOverrideRequest(row?.overrideRequest),
-    decidedAt: row?.decidedAt ?? null,
-    updatedAt: row?.updatedAt ?? null,
     lastMessage: row?.lastMessage ?? '',
-    propertyTitle: row?.propertyTitle ?? '',
   };
 }

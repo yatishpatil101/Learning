@@ -121,28 +121,28 @@ class ContentTranslationsTest extends AbstractApiTest {
     }
 
     @Test
-    void theOtherThreeTypesCarryItToo() throws Exception {
+    void adminListsOmitTranslationsUnlessAskedAndCanFilterArchived() throws Exception {
         String token = staff();
-        String service = create(token, ContentTypes.SERVICES,
-                "{\"name\":\"Packers\",\"icon\":\"truck\",\"translations\":"
-                        + "{\"mr\":{\"name\":\"\u092a\u0945\u0915\u0930\u094d\u0938\"}}}");
-        String banner = create(token, ContentTypes.BANNERS,
-                "{\"image\":\"https://img.png\",\"headline\":\"Sale\",\"translations\":"
-                        + "{\"mr\":{\"headline\":\"\u0938\u0947\u0932\"}}}");
-        String announcement = create(token, ContentTypes.ANNOUNCEMENTS,
-                "{\"title\":\"Diwali\",\"translations\":{\"mr\":{\"title\":\"\u0926\u093f\u0935\u093e\u0933\u0940\"}}}");
+        String live = create(token, ContentTypes.FAQS,
+                "{\"question\":\"Live\",\"translations\":{\"mr\":{\"question\":\"" + MR_QUESTION + "\"}}}");
+        String gone = create(token, ContentTypes.FAQS, "{\"question\":\"Gone\"}");
+        mvc.perform(post(Routes.Admin.CONTENT_ARCHIVE, ContentTypes.FAQS, gone)
+                        .header(HttpHeaders.AUTHORIZATION, token))
+                .andExpect(status().isOk());
 
-        mvc.perform(get(Routes.Admin.CONTENT, ContentTypes.SERVICES)
+        mvc.perform(get(Routes.Admin.CONTENT, ContentTypes.FAQS).param("archived", "false")
                         .header(HttpHeaders.AUTHORIZATION, token))
-                .andExpect(jsonPath("$[?(@.id == '" + service + "')].translations.mr.name")
-                        .value("\u092a\u0945\u0915\u0930\u094d\u0938"));
-        mvc.perform(get(Routes.Admin.CONTENT, ContentTypes.BANNERS)
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[?(@.id == '" + live + "')]").isNotEmpty())
+                .andExpect(jsonPath("$[?(@.id == '" + gone + "')]").isEmpty())
+                .andExpect(jsonPath("$[0].translations").doesNotExist())
+                .andExpect(jsonPath("$[0].createdAt").doesNotExist());
+        mvc.perform(get(Routes.Admin.CONTENT, ContentTypes.FAQS).param("archived", "true")
                         .header(HttpHeaders.AUTHORIZATION, token))
-                .andExpect(jsonPath("$[?(@.id == '" + banner + "')].translations.mr.headline")
-                        .value("\u0938\u0947\u0932"));
-        mvc.perform(get(Routes.Admin.CONTENT, ContentTypes.ANNOUNCEMENTS)
+                .andExpect(jsonPath("$[?(@.id == '" + gone + "')]").isNotEmpty())
+                .andExpect(jsonPath("$[?(@.id == '" + live + "')]").isEmpty());
+        mvc.perform(get(Routes.Admin.CONTENT, ContentTypes.FAQS).param("translations", "true")
                         .header(HttpHeaders.AUTHORIZATION, token))
-                .andExpect(jsonPath("$[?(@.id == '" + announcement + "')].translations.mr.title")
-                        .value("\u0926\u093f\u0935\u093e\u0933\u0940"));
+                .andExpect(jsonPath("$[?(@.id == '" + live + "')].translations.mr.question").value(MR_QUESTION));
     }
 }

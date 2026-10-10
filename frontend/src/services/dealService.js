@@ -3,9 +3,6 @@ import { createProvider } from './config.js';
 
 const provider = createProvider('deal');
 
-/** Every deal on the caller's own listings. Empty for a signed-out caller. */
-export const myDeals = async () => (await provider()).myDeals();
-
 /** A listing with no deal row resolves to `active` rather than null. */
 export const getDeal = async (propId) => (await provider()).getDeal(propId);
 

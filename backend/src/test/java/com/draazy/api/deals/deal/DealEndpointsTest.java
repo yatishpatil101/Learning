@@ -279,29 +279,6 @@ class DealEndpointsTest extends AbstractApiTest {
     }
 
     @Test
-    void myDeals_returnsOnlyOwnListings() throws Exception {
-        User owner1 = user("9820200018", "owner");
-        User owner2 = user("9820200019", "owner");
-        Property p1 = listing(owner1, "Owner1 listing");
-        Property p2 = listing(owner2, "Owner2 listing");
-
-        mvc.perform(post(dealPath(p1) + "/reserve")
-                        .header(HttpHeaders.AUTHORIZATION, bearer(owner1)))
-                .andExpect(status().isOk());
-        mvc.perform(post(dealPath(p2) + "/reserve")
-                        .header(HttpHeaders.AUTHORIZATION, bearer(owner2)))
-                .andExpect(status().isOk());
-
-        // Owner1 should only see their own.
-        mvc.perform(get(Routes.Deals.BASE)
-                        .header(HttpHeaders.AUTHORIZATION, bearer(owner1)))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.content.length()").value(1))
-                .andExpect(jsonPath("$.totalElements").value(1))
-                .andExpect(jsonPath("$.content[0].propertyId").value(p1.getId().toString()));
-    }
-
-    @Test
     void closedDeal_blocksNewOffers_a1Regression() throws Exception {
         User owner = user("9820200020", "owner");
         User buyer = user("9820200021", "buyer");

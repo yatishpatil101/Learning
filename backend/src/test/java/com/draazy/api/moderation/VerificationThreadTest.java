@@ -30,8 +30,6 @@ import org.springframework.http.MediaType;
 @DisplayName("Verification thread — participant-or-staff, and both halves of a decision")
 class VerificationThreadTest extends AbstractApiTest {
 
-        private static final String ADMIN_PROPERTY_REVIEWS = "/admin/property-reviews";
-
     @Autowired
     UserRepository users;
     @Autowired
@@ -189,28 +187,6 @@ class VerificationThreadTest extends AbstractApiTest {
         mvc.perform(get(path(listing, "")).header(HttpHeaders.AUTHORIZATION, ownerToken))
                 .andExpect(jsonPath("$.messages[0].read").value(false))
                 .andExpect(jsonPath("$.messages[1].read").value(true));
-    }
-
-    @Test
-    @DisplayName("staff can list verification case files; owner cannot")
-    void verificationQueueIsStaffScopedAndPaged() throws Exception {
-        User owner = user("9820000510", Roles.Wire.OWNER);
-        User staff = user("9820000511", Roles.Wire.STAFF);
-        Property listing = listing(owner, "rent");
-
-        mvc.perform(post(path(listing, "")).header(HttpHeaders.AUTHORIZATION, bearer(owner)))
-                .andExpect(status().isCreated());
-
-        mvc.perform(get(ADMIN_PROPERTY_REVIEWS)
-                        .header(HttpHeaders.AUTHORIZATION, bearer(staff)))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.content.length()").value(1))
-                .andExpect(jsonPath("$.content[0].propertyId").value(listing.getId().toString()))
-                .andExpect(jsonPath("$.content[0].status").value("in_review"));
-
-        mvc.perform(get(ADMIN_PROPERTY_REVIEWS)
-                        .header(HttpHeaders.AUTHORIZATION, bearer(owner)))
-                .andExpect(status().isForbidden());
     }
 
     @Test
@@ -467,6 +443,34 @@ class VerificationThreadTest extends AbstractApiTest {
     }
 
     @Test
+    @DisplayName("needs_info tells the owner, with the reviewer's reason and note, and nobody else")
+    void needsInfoNotifiesOnlyTheOwner() throws Exception {
+        User owner = user("9820000571", Roles.Wire.OWNER);
+        User ops = user("9820000572", Roles.Wire.STAFF);
+        Property listing = listing(owner, "rent");
+
+        mvc.perform(post(path(listing, "")).header(HttpHeaders.AUTHORIZATION, bearer(owner)))
+                .andExpect(status().isCreated());
+        mvc.perform(post(path(listing, "/decision")).header(HttpHeaders.AUTHORIZATION, bearer(ops))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"decision\":\"needs_info\",\"reasonCode\":\"photos_not_real\","
+                        + "\"note\":\"Use current photos.\"}"))
+                .andExpect(status().isOk());
+
+        assertThat(jdbc.queryForList(
+                "select type, title, body, link from notifications where user_id = ? and type like 'listing.%'",
+                owner.getId())).singleElement().satisfies(row -> {
+                    assertThat(row.get("type")).isEqualTo("listing.needs_info");
+                    assertThat(row.get("title")).isEqualTo("Your listing needs info");
+                    assertThat(row.get("body")).isEqualTo(
+                            "Please add clear photos of the actual property. Use current photos.");
+                    assertThat(row.get("link")).isEqualTo("/dashboard?review=" + listing.getId());
+                });
+        assertThat(jdbc.queryForObject("select count(*) from notifications where user_id = ?",
+                Integer.class, ops.getId())).isZero();
+    }
+
+    @Test
     @DisplayName("staff can decide a needs-info case after the owner fixes it")
     void staffCanDecideAfterNeedsInfo() throws Exception {
         User owner = user("9820000560", Roles.Wire.OWNER);
@@ -711,8 +715,8 @@ class VerificationThreadTest extends AbstractApiTest {
 
     // No role guard here; owner filtering is the only protection between case files.
     @Test
-    @DisplayName("the desk queue filters by status and names the reviewer; the owner queue does not")
-    void deskQueueFiltersByStatusAndNamesTheReviewer() throws Exception {
+    @DisplayName("the owner queue never names the reviewer")
+    void ownerQueueDoesNotNameTheReviewer() throws Exception {
         User owner = user("9820000521", Roles.Wire.OWNER);
         User ops = user("9820000522", Roles.Wire.STAFF);
         Property mine = listing(owner, "rent");
@@ -720,24 +724,10 @@ class VerificationThreadTest extends AbstractApiTest {
                 .andExpect(status().isCreated());
         mvc.perform(post(path(mine, "/start")).header(HttpHeaders.AUTHORIZATION, bearer(ops)))
                 .andExpect(status().isOk());
-        String row = "$.content[?(@.propertyId == '" + mine.getId() + "')]";
-
-        mvc.perform(get(ADMIN_PROPERTY_REVIEWS).param("status", "in_review").param("size", "100")
-                        .header(HttpHeaders.AUTHORIZATION, bearer(ops)))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.content[?(@.status != 'in_review')]").isEmpty())
-                .andExpect(jsonPath(row + ".reviewer").value(ops.getId().toString()))
-                .andExpect(jsonPath(row + ".reviewerName").value("User 9820000522"));
-        mvc.perform(get(ADMIN_PROPERTY_REVIEWS).param("status", "approved").param("size", "100")
-                        .header(HttpHeaders.AUTHORIZATION, bearer(ops)))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath(row).isEmpty());
-        mvc.perform(get(ADMIN_PROPERTY_REVIEWS).param("status", "flagged")
-                        .header(HttpHeaders.AUTHORIZATION, bearer(ops)))
-                .andExpect(status().isBadRequest());
 
         mvc.perform(get("/me/property-reviews").header(HttpHeaders.AUTHORIZATION, bearer(owner)))
                 .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content[0].reviewer").doesNotExist())
                 .andExpect(jsonPath("$.content[0].reviewerName").doesNotExist());
     }
 
@@ -772,10 +762,10 @@ class VerificationThreadTest extends AbstractApiTest {
                 .andExpect(jsonPath("$.content[0].propertyId").value(mine.getId().toString()))
                 .andExpect(jsonPath("$.content[0].unread").value(1));
 
-        mvc.perform(get("/admin/property-reviews").header(HttpHeaders.AUTHORIZATION, bearer(ops)))
+        String waiting = "$.ownerReplies.items[?(@.propertyId == '" + mine.getId() + "')]";
+        mvc.perform(get("/admin/bell").header(HttpHeaders.AUTHORIZATION, bearer(ops)))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.content[?(@.propertyId == '" + mine.getId() + "')].unread")
-                        .value(1));
+                .andExpect(jsonPath(waiting).isNotEmpty());
 
         // Reading clears one side only — the assertion that would catch {@code markRead} being
         // widened to every message and silently clearing the badge the other side is waiting on.
@@ -784,10 +774,9 @@ class VerificationThreadTest extends AbstractApiTest {
         mvc.perform(get("/me/property-reviews").header(HttpHeaders.AUTHORIZATION, bearer(owner)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.content[0].unread").value(0));
-        mvc.perform(get("/admin/property-reviews").header(HttpHeaders.AUTHORIZATION, bearer(ops)))
+        mvc.perform(get("/admin/bell").header(HttpHeaders.AUTHORIZATION, bearer(ops)))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.content[?(@.propertyId == '" + mine.getId() + "')].unread")
-                        .value(1));
+                .andExpect(jsonPath(waiting).isNotEmpty());
 
         mvc.perform(get("/me/property-reviews").header(HttpHeaders.AUTHORIZATION, bearer(ops)))
                 .andExpect(status().isOk())

@@ -18,7 +18,7 @@ const ADMIN_FLAG_SECTIONS = [
   { section: 'flatmates', title: 'Flatmates', desc: 'Flatmate community moderation', hasTabFlag: true, options: [] },
   { section: 'support', title: 'Support', desc: 'Customer support ticket queue', hasTabFlag: true, options: [] },
   { section: 'services', title: 'Home Loans desk', desc: 'Home loan enquiry tickets', options: [] },
-  { section: 'content', title: 'Content', desc: 'Banners, FAQs and announcements', options: [] },
+  { section: 'content', title: 'Content', desc: 'FAQs', options: [] },
   { section: 'staffActivity', title: 'Team Activity', desc: 'Staff performance and the activity log', options: [] },
 ];
 

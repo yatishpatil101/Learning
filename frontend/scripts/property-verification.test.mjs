@@ -46,12 +46,10 @@ test('badge preparation counts one qualifying document and never substitutes a b
   assert.equal(complete('buy', 'openplot', { 'Property Card': file }), 1);
 });
 
-test('listing progress treats sale title as the badge evidence and rent as any offered document', () => {
-  const index = progress({ 'Index II': file });
-  const share = progress({ 'Share Certificate': file });
-  assert.deepEqual(index, share);
-  assert.equal(computeProgress({ form, photos: Array(5).fill('photo'), documents: { 'Electricity Bill': file } }).nudge, 'evidence');
-  assert.ok(progress({ 'Electricity Bill': file }, 'rent').pct > progress({}, 'rent').pct);
+test('listing progress ignores documents because the wizard no longer uploads them', () => {
+  assert.deepEqual(progress({ 'Index II': file }), progress({}));
+  assert.deepEqual(progress({ 'Electricity Bill': file }, 'rent'), progress({}, 'rent'));
+  assert.notEqual(computeProgress({ form, photos: Array(5).fill('photo') }).nudge, 'evidence');
 });
 
 test('badge document type policy accepts images and PDFs', async () => {

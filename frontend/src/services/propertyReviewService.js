@@ -8,9 +8,14 @@ export async function getOwnershipVerification(propertyId) {
   return (await provider()).getOwnershipVerification(propertyId);
 }
 
-/** Staff with property verification access only. Raw vault DTOs carry short-lived signed `url` values. */
+/** Staff with property verification access only. Summaries carry no file URL; mint one per open. */
 export async function listOwnershipDocuments(propertyId) {
   return (await provider()).listOwnershipDocuments(propertyId);
+}
+
+/** Signed, short-lived URL for one vault file, minted when the reviewer opens it. */
+export async function getOwnershipDocumentUrl(propertyId, docId) {
+  return (await provider()).getOwnershipDocumentUrl(propertyId, docId);
 }
 
 /** Record { docType, documentId, issuedAt, subjectName }; this does not grant a badge. */
@@ -44,8 +49,8 @@ export async function getPropertyReview(propertyId) {
 }
 
 /** Open the case file, or return the existing one. Idempotent — safe to call on modal open. */
-export async function startPropertyReview(propertyId) {
-  return (await provider()).startPropertyReview(propertyId);
+export async function startPropertyReview(propertyId, options) {
+  return (await provider()).startPropertyReview(propertyId, options);
 }
 
 /** Post to the thread. Returns the updated case file, not just the new message. */

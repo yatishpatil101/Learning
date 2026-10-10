@@ -13,8 +13,8 @@ import java.time.temporal.ChronoUnit;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 
-// Contract + behaviour proof for the CMS / editorial content endpoints (slice 8f): announcements, services, FAQs, and
-// Invariant 6: all four answer without any Authorization header (200), and exclude archived rows.
+// Contract + behaviour proof for the CMS / editorial content endpoints (slice 8f): FAQs.
+// Invariant 6: they answer without any Authorization header (200), and exclude archived rows.
 class ContentEndpointsTest extends AbstractApiTest {
 
     @Test

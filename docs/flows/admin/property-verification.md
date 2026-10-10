@@ -264,7 +264,7 @@ Two different shapes, for two different reasons.
 | Route | Not a participant, not staff | Why |
 |---|---|---|
 | `GET/POST /properties/{id}/verification`, `/messages`, `/read` | **404** | The guard is a *relationship*. A 403 would confirm that a listing with that id exists and is under review — the fact a competitor walking ids would probe for. The refusal has to be indistinguishable from "no such case", **including the response body**: two distinguishable 404s restore the oracle the status code was chosen to remove. |
-| `POST /verification/decision`, `PATCH /verification/checklist`, `GET /admin/property-reviews` | **403** | The guard is a *role*. `@PreAuthorize` refuses before the id is looked up, so the response cannot leak anything about the row — and these are routes a non-staff caller has no legitimate reason to have found. |
+| `POST /verification/decision`, `PATCH /verification/checklist`, `GET /admin/bell` | **403** | The guard is a *role*. `@PreAuthorize` refuses before the id is looked up, so the response cannot leak anything about the row — and these are routes a non-staff caller has no legitimate reason to have found. |
 
 The owner is a participant in their own review, which is why the thread routes carry no `x-roles` in
 the contract (spec fix S28) — role-gating them would have locked owners out of the conversation
@@ -436,7 +436,7 @@ Rationale relocated from `PropertyModerationController` Javadoc.
   console re-reads the listing after acting. `adminUpdateProperty` is the exception because it is
   the only one whose effect the caller cannot predict from the request they sent.
 - **One copy of the field mapping.** `adminUpdateProperty` maps on this controller but delegates
-  to `catalog.listing.ListingService`; owner edits and moderator edits share one private `apply`
+  to `catalog.listing.ListingModerationService`; owner and moderator edits share `ListingEditRules.apply`
   and differ only afterwards - an owner's edit re-opens moderation, a moderator's does not.
 - **Why the queue exists.** `GET /properties` pins `status='approved' AND archived=false` and
   takes no principal, and `GET /me/listings` is scoped to the caller's own `owner_id`. Without

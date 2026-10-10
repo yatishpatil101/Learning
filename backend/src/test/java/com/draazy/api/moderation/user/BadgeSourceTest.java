@@ -29,13 +29,14 @@ class BadgeSourceTest extends AbstractApiTest {
     }
 
     private void readBadgeSource(User actor, User target, String expected) throws Exception {
-        var result = mvc.perform(get(Routes.Users.BY_ID.replace("{id}", target.getId().toString()))
+        var result = mvc.perform(get(Routes.Users.BASE).param("q", target.getMobile())
                         .header(HttpHeaders.AUTHORIZATION, bearer(actor)))
-                .andExpect(status().isOk());
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content.length()").value(1));
         if (expected == null) {
-            result.andExpect(jsonPath("$.badgeSource").doesNotExist());
+            result.andExpect(jsonPath("$.content[0].badgeSource").doesNotExist());
         } else {
-            result.andExpect(jsonPath("$.badgeSource").value(expected));
+            result.andExpect(jsonPath("$.content[0].badgeSource").value(expected));
         }
     }
 

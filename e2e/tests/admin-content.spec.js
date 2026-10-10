@@ -9,53 +9,50 @@ import { appReady } from '../helpers/app.js';
 const RUN = `live-cms-${Date.now()}`;
 
 test.describe('admin content API', () => {
-  test('a banner round-trips through create, patch, archive and restore', async ({ request }) => {
+  test('an FAQ round-trips through create, patch, archive and restore', async ({ request }) => {
     const headers = await authHeaders(ACTORS.admin, { request });
 
-    const created = await request.post(`${API}/admin/content/banners`, {
+    const created = await request.post(`${API}/admin/content/faqs`, {
       headers,
-      data: { image: `https://cdn.example/${RUN}.png`, headline: RUN, link: '/listings', position: 7 },
+      data: { question: RUN, answer: 'Round trip answer', category: 'e2e' },
     });
     expect(created.status()).toBe(201);
-    const banner = await created.json();
-    expect(banner.id).toBeTruthy();
-    expect(banner.type).toBe('banners');
-    expect(banner.archived).toBe(false);
-    expect(banner.headline).toBe(RUN);
-    expect(banner.position).toBe(7);
+    const faq = await created.json();
+    expect(faq.id).toBeTruthy();
+    expect(faq.type).toBe('faqs');
+    expect(faq.archived).toBe(false);
+    expect(faq.question).toBe(RUN);
 
-    // PATCH is a merge: the fields we do not send must survive. The console relies on this — its
-    // edit modal posts the whole form back, but its Active toggle sends one field on its own.
-    const patched = await request.patch(`${API}/admin/content/banners/${banner.id}`, {
+    // PATCH is a merge: the fields we do not send must survive.
+    const patched = await request.patch(`${API}/admin/content/faqs/${faq.id}`, {
       headers,
-      data: { position: 2 },
+      data: { category: 'e2e-2' },
     });
     expect(patched.status()).toBe(200);
     const after = await patched.json();
-    expect(after.position).toBe(2);
-    expect(after.headline).toBe(RUN);
-    expect(after.image).toBe(banner.image);
+    expect(after.category).toBe('e2e-2');
+    expect(after.question).toBe(RUN);
+    expect(after.answer).toBe(faq.answer);
 
-    // The list the console reads includes archived rows — that is what its Archived tab shows.
-    const archived = await request.post(`${API}/admin/content/banners/${banner.id}/archive`, { headers });
+    // The list the console reads includes archived rows — that is what its Archived view shows.
+    const archived = await request.post(`${API}/admin/content/faqs/${faq.id}/archive`, { headers });
     expect(archived.status()).toBe(200);
     expect((await archived.json()).archived).toBe(true);
 
-    const list = await request.get(`${API}/admin/content/banners`, { headers });
+    const list = await request.get(`${API}/admin/content/faqs`, { headers });
     expect(list.status()).toBe(200);
     const rows = await list.json();
-    const mine = rows.find((r) => r.id === banner.id);
+    const mine = rows.find((r) => r.id === faq.id);
     expect(mine, 'the archived row is still on the ops list').toBeTruthy();
     expect(mine.archived).toBe(true);
 
-    const restored = await request.post(`${API}/admin/content/banners/${banner.id}/restore`, { headers });
+    const restored = await request.post(`${API}/admin/content/faqs/${faq.id}/restore`, { headers });
     expect(restored.status()).toBe(200);
     expect((await restored.json()).archived).toBe(false);
 
-    // Leave the shelf tidy: a live banner would render on the consumer home page.
-    await request.post(`${API}/admin/content/banners/${banner.id}/archive`, { headers });
+    // Leave the shelf tidy: a live FAQ would render on the public help page.
+    await request.post(`${API}/admin/content/faqs/${faq.id}/archive`, { headers });
   });
-
   test('authoring is closed to signed-in consumers and to the public', async ({ request }) => {
     const buyer = await authHeaders(ACTORS.buyer, { request });
     const asBuyer = await request.get(`${API}/admin/content/faqs`, { headers: buyer });
@@ -68,34 +65,15 @@ test.describe('admin content API', () => {
     expect([401, 403]).toContain((await request.get(`${API}/admin/reviews`)).status());
   });
 
-  test('an announcement severity outside the column constraint is a 400, not a 500', async ({ request }) => {
+  test('banners, announcements and services have no write side', async ({ request }) => {
     const headers = await authHeaders(ACTORS.admin, { request });
 
-    const bad = await request.post(`${API}/admin/content/announcements`, {
-      headers,
-      data: { title: `${RUN} bad`, severity: 'critical' },
-    });
-    expect(bad.status()).toBe(400);
-
-    const good = await request.post(`${API}/admin/content/announcements`, {
-      headers,
-      data: { title: `${RUN} ok`, body: 'Scheduled maintenance', severity: 'success', active: true },
-    });
-    expect(good.status()).toBe(201);
-    const ann = await good.json();
-    expect(ann.severity).toBe('success');
-    expect(ann.active).toBe(true);
-
-    const badPatch = await request.patch(`${API}/admin/content/announcements/${ann.id}`, {
-      headers,
-      data: { severity: 'critical' },
-    });
-    expect(badPatch.status()).toBe(400);
-
-    await request.post(`${API}/admin/content/announcements/${ann.id}/archive`, { headers });
+    for (const type of ['banners', 'announcements', 'services']) {
+      const res = await request.post(`${API}/admin/content/${type}`, { headers, data: { title: `${RUN} ${type}` } });
+      expect(res.status(), `POST /admin/content/${type}`).toBe(404);
+    }
   });
 });
-
 test.describe('admin review moderation', () => {
   test('pending is an intake state, not a verdict the route will accept', async ({ request }) => {
     const headers = await authHeaders(ACTORS.admin, { request });

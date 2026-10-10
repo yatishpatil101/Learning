@@ -2,16 +2,12 @@ package com.draazy.api.deals.deal;
 
 import com.draazy.api.common.error.NotFoundException;
 import com.draazy.api.common.web.Ids;
-import com.draazy.api.common.web.PageResponse;
-import com.draazy.api.common.web.Pageables;
 import com.draazy.api.common.web.Routes;
 import com.draazy.api.security.AuthPrincipal;
 import com.draazy.api.security.CurrentUser;
 import jakarta.validation.Valid;
 import java.util.List;
 import java.util.UUID;
-import org.springframework.data.domain.Pageable;
-import org.springframework.data.web.PageableDefault;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -27,13 +23,6 @@ public class MeDealsController {
 
     public MeDealsController(DealService dealService) {
         this.dealService = dealService;
-    }
-
-    @GetMapping(Routes.Deals.BASE)
-    public PageResponse<DealDto> myDeals(@CurrentUser AuthPrincipal principal,
-                                         @PageableDefault(size = 20) Pageable pageable) {
-        return PageResponse.of(
-                dealService.myDeals(principal.userId(), Pageables.unsorted(pageable)), d -> d);
     }
 
     @GetMapping(Routes.Deals.BY_PROP)
@@ -70,4 +59,4 @@ public class MeDealsController {
     private static UUID parseUuid(String token) {
         return Ids.parseUuid(token).orElseThrow(() -> NotFoundException.of("Property"));
     }
-    }
+}

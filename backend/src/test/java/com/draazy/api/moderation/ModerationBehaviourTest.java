@@ -296,7 +296,6 @@ class ModerationBehaviourTest extends AbstractApiTest {
         User owner = user("9800000145", "owner", "Owner");
         User desk = user("9800000146", "staff", "Desk");
         User other = user("9800000147", "staff", "Other");
-        User reporter = user("9800000148", "buyer", "Reporter");
         Property listing = listing(owner);
 
         mvc.perform(post("/properties/{id}/verification/start", listing.getId())
@@ -313,7 +312,6 @@ class ModerationBehaviourTest extends AbstractApiTest {
         Property approved = properties.findById(listing.getId()).orElseThrow();
         approved.requestRecheck(List.of("price"));
         properties.saveAndFlush(approved);
-        hardBrokerSignal(approved, reporter);
 
         mvc.perform(patch("/properties/{id}/status", listing.getId())
                         .header(HttpHeaders.AUTHORIZATION, bearer(other))
@@ -326,6 +324,80 @@ class ModerationBehaviourTest extends AbstractApiTest {
         assertThat(review.get("reviewer")).isEqualTo(desk.getId().toString());
         assertThat(review.get("notes")).isEqualTo("deed and tax receipt seen");
         assertThat(properties.findById(listing.getId()).orElseThrow().isRecheckPending()).isFalse();
+    }
+
+    @Test
+    @DisplayName("a hard signal first raised after approval escalates the stays-live re-check")
+    void recheckPassEscalatesASignalRaisedAfterApproval() throws Exception {
+        User owner = user("9800000181", "owner", "Owner");
+        User desk = user("9800000182", "staff", "Desk");
+        User other = user("9800000183", "staff", "Other");
+        User reporter = user("9800000184", "buyer", "Reporter");
+        Property listing = approvedWithPendingRecheck(owner, desk);
+        hardBrokerSignal(listing, reporter);
+
+        mvc.perform(patch("/properties/{id}/status", listing.getId())
+                        .header(HttpHeaders.AUTHORIZATION, bearer(other))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"status\":\"approved\",\"reason\":\"Owner edits reviewed\"}"))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.error").value("second_approver_required"));
+
+        assertThat(properties.findById(listing.getId()).orElseThrow().isRecheckPending()).isTrue();
+    }
+
+    @Test
+    @DisplayName("a re-check passes over a signal a second approver already cleared at approval")
+    void recheckPassKeepsAnOverriddenApproval() throws Exception {
+        User owner = user("9800000185", "owner", "Owner");
+        User desk = user("9800000186", "staff", "Desk");
+        User peer = user("9800000187", "staff", "Peer");
+        User reporter = user("9800000188", "buyer", "Reporter");
+        Property listing = listing(owner);
+        mvc.perform(post("/properties/{id}/verification/start", listing.getId())
+                        .header(HttpHeaders.AUTHORIZATION, bearer(desk)))
+                .andExpect(status().isOk());
+        tickChecklist(listing, desk);
+        hardBrokerSignal(listing, reporter);
+        String requested = mvc.perform(post("/properties/{id}/verification/override-requests", listing.getId())
+                        .header(HttpHeaders.AUTHORIZATION, bearer(desk))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"reason\":\"Hard broker signal reviewed\"}"))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+        String requestId = com.jayway.jsonpath.JsonPath.read(requested, "$.overrideRequest.id");
+        mvc.perform(post("/properties/{id}/verification/override-requests/{rid}/approve", listing.getId(), requestId)
+                        .header(HttpHeaders.AUTHORIZATION, bearer(peer))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"note\":\"second approval\"}"))
+                .andExpect(status().isOk());
+        Property approved = properties.findById(listing.getId()).orElseThrow();
+        approved.requestRecheck(List.of("price"));
+        properties.saveAndFlush(approved);
+
+        mvc.perform(patch("/properties/{id}/status", listing.getId())
+                        .header(HttpHeaders.AUTHORIZATION, bearer(desk))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"status\":\"approved\",\"reason\":\"Owner edits reviewed\"}"))
+                .andExpect(status().isOk());
+
+        assertThat(properties.findById(listing.getId()).orElseThrow().isRecheckPending()).isFalse();
+    }
+
+    private Property approvedWithPendingRecheck(User owner, User desk) throws Exception {
+        Property listing = listing(owner);
+        mvc.perform(post("/properties/{id}/verification/start", listing.getId())
+                        .header(HttpHeaders.AUTHORIZATION, bearer(desk)))
+                .andExpect(status().isOk());
+        tickChecklist(listing, desk);
+        mvc.perform(post("/properties/{id}/verification/decision", listing.getId())
+                        .header(HttpHeaders.AUTHORIZATION, bearer(desk))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"decision\":\"approve\",\"note\":\"deed and tax receipt seen\"}"))
+                .andExpect(status().isOk());
+        Property approved = properties.findById(listing.getId()).orElseThrow();
+        approved.requestRecheck(List.of("price"));
+        return properties.saveAndFlush(approved);
     }
 
     @Test
@@ -433,27 +505,20 @@ class ModerationBehaviourTest extends AbstractApiTest {
     }
 
     @Test
-    @DisplayName("the user list shows full mobiles unaudited; opening one user is audited")
-    void mobileIsFullOnListAndDetailReadIsAudited() throws Exception {
+    @DisplayName("the user list shows masked mobiles and no contact or privacy fields")
+    void userListMasksMobileAndDropsPrivateFields() throws Exception {
         User staff = user("9800000107", "staff", "Ops");
-        User subject = user("9800000108", "buyer", "Subject");
+        user("9800000108", "buyer", "Subject");
 
         mvc.perform(get("/users").param("q", "Subject")
                         .header(HttpHeaders.AUTHORIZATION, bearer(staff)))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.content[0].mobile").value("9800000108"));
-
-        assertThat(auditRows("user.contact.reveal", subject.getId())).isEmpty();
-
-        mvc.perform(get("/users/{id}", subject.getId())
-                        .header(HttpHeaders.AUTHORIZATION, bearer(staff)))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.mobile").value("9800000108"));
-
-        List<Map<String, Object>> rows = auditRows("user.contact.reveal", subject.getId());
-        assertThat(rows).hasSize(1);
-        assertThat(rows.get(0).get("actor")).isEqualTo(staff.getId().toString());
-        assertThat(rows.get(0).get("entity_id")).isEqualTo(subject.getId().toString());
+                .andExpect(jsonPath("$.content[0].mobile").value("98XXXXX108"))
+                .andExpect(jsonPath("$.content[0].email").doesNotExist())
+                .andExpect(jsonPath("$.content[0].hideNumber").doesNotExist())
+                .andExpect(jsonPath("$.content[0].permissions").doesNotExist())
+                .andExpect(jsonPath("$.content[0].mobileVerified").doesNotExist())
+                .andExpect(jsonPath("$.content[0].badgePending").value(false));
     }
 
     @Test

@@ -1,61 +1,45 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router';
-import { Archive, Edit2, Megaphone, Plus, RotateCcw } from 'lucide-react';
+import { Archive, Edit2, Plus, RotateCcw } from 'lucide-react';
 import { listContent, createContent, updateContent, archiveContent, restoreContent } from '../../services/adminContentService.js';
 import { useToast } from '../../context/ToastContext.jsx';
 import { useAdminFlags } from '../../context/AdminFlagsContext.jsx';
 import PageHeader from '../../components/ui/PageHeader.jsx';
-import { useTabParam } from '../../lib/useTabParam.js';
-import Switch from '../../components/ui/Switch.jsx';
 import Modal from '../../components/ui/Modal.jsx';
 import Loading from '../../components/ui/Loading.jsx';
-import { QueueTabs } from '../../components/admin/WorkQueue.jsx';
 
-const TABS = [['banners', 'Banners'], ['faqs', 'FAQs'], ['announcements', 'Announcements']];
+const TYPE = 'faqs';
 
-// Blanks hold only the fields the API stores; offering others would let the console quietly lose work.
-const BLANK_BANNER = { headline: '', image: '', link: '/listings', position: 0 };
 const BLANK_FAQ = { question: '', answer: '', category: 'general' };
-const BLANK_ANN = { title: '', body: '', severity: 'info', active: true };
-
-/** Modal kind -> the API's `{type}` path segment. */
-const TYPE_OF = { banner: 'banners', faq: 'faqs', announcement: 'announcements' };
 
 export default function AdminContent() {
   const { toast } = useToast();
   const { optionEnabled, loading: flagsLoading } = useAdminFlags();
-  const [tab, setTab] = useTabParam(['banners', 'faqs', 'announcements'], 'banners');
-  const [loaded, setLoaded] = useState(false);
-  const [banners, setBanners] = useState([]);
-  const [anns, setAnns] = useState([]);
+  // Live rows load on first open, archived rows on request.
+  const [loaded, setLoaded] = useState({});
+  const asked = useRef(new Set());
   const [faqs, setFaqs] = useState([]);
   const [editModal, setEditModal] = useState(null);
   const [editData, setEditData] = useState({});
 
-  useEffect(() => {
-    let alive = true;
-    Promise.all([
-      listContent('banners'),
-      listContent('announcements'),
-      listContent('faqs'),
-    ]).then(([b, a, f]) => {
-      if (!alive) return;
-      setBanners(b || []);
-      setAnns(a || []);
-      setFaqs(f || []);
-      setLoaded(true);
-    }).catch(() => { if (alive) setLoaded(true); });
-    return () => { alive = false; };
-  }, []);
+  const load = (archived) => {
+    if (asked.current.has(archived)) return;
+    asked.current.add(archived);
+    listContent(TYPE, { archived }).then((rows) => {
+      setFaqs((prev) => [...prev.filter((x) => x.archived !== archived), ...rows]);
+      setLoaded((l) => ({ ...l, [archived ? 'archived' : 'live']: true }));
+    }).catch((err) => {
+      asked.current.delete(archived);
+      toast(err?.message || `Could not load ${archived ? 'archived ' : ''}FAQs.`, 'error');
+    });
+  };
 
-  const activeBanners = useMemo(() => banners.filter((b) => !b.archived), [banners]);
-  const archivedBanners = useMemo(() => banners.filter((b) => b.archived), [banners]);
+  useEffect(() => { load(false); }, []); // eslint-disable-line react-hooks/exhaustive-deps -- `load` is redeclared every render and reads no changing input.
+
   const activeFaqs = useMemo(() => faqs.filter((f) => !f.archived), [faqs]);
   const archivedFaqs = useMemo(() => faqs.filter((f) => f.archived), [faqs]);
-  const activeAnns = useMemo(() => anns.filter((a) => !a.archived), [anns]);
-  const archivedAnns = useMemo(() => anns.filter((a) => a.archived), [anns]);
 
-  if (!loaded || flagsLoading) return <Loading />;
+  if (flagsLoading) return <Loading />;
 
   if (!optionEnabled('content.enabled')) {
     return (
@@ -66,119 +50,68 @@ export default function AdminContent() {
     );
   }
 
-  const openAdd = (kind, blank) => { setEditModal({ kind, isNew: true }); setEditData({ ...blank }); };
-  const openEdit = (kind, item) => { setEditModal({ kind, isNew: false, id: item.id }); setEditData({ ...item }); };
+  const openAdd = () => { setEditModal({ isNew: true }); setEditData({ ...BLANK_FAQ }); };
+  const openEdit = (item) => { setEditModal({ isNew: false, id: item.id }); setEditData({ ...item }); };
   const closeMod = () => { setEditModal(null); setEditData({}); };
 
   // Writes replace the row with the server's response; the audit
   // row is written server-side from the authenticated principal.
-  const saveItem = async (kind, setter) => {
-    const type = TYPE_OF[kind];
+  const saveItem = async () => {
     try {
       if (editModal.isNew) {
-        const created = await createContent(type, editData);
-        setter((prev) => [...prev, created]);
+        const created = await createContent(TYPE, editData);
+        setFaqs((prev) => [...prev, created]);
       } else {
-        const updated = await updateContent(type, editModal.id, editData);
-        setter((prev) => prev.map((x) => (x.id === editModal.id ? updated : x)));
+        const updated = await updateContent(TYPE, editModal.id, editData);
+        setFaqs((prev) => prev.map((x) => (x.id === editModal.id ? updated : x)));
       }
       toast('Saved');
       closeMod();
     } catch (err) {
-      // The server names the offending field ("A banners item needs 'image'"), and that is far more
-      // use to an editor than "Could not save". Fall back only when there is nothing to quote.
+      // The server names the offending field ("A faqs item needs 'question'"), which beats "Could not save".
       toast(err?.message || 'Could not save. Please try again.', 'error');
     }
   };
 
-  const archiveItem = async (kind, setter, id) => {
-    if (!window.confirm(`Archive this ${kind}? It will be hidden but preserved.`)) return;
+  const archiveItem = async (id) => {
+    if (!window.confirm('Archive this FAQ? It will be hidden but preserved.')) return;
     try {
-      const updated = await archiveContent(TYPE_OF[kind], id);
-      setter((prev) => prev.map((x) => (x.id === id ? updated : x)));
+      const updated = await archiveContent(TYPE, id);
+      setFaqs((prev) => prev.map((x) => (x.id === id ? updated : x)));
       toast('Archived');
     } catch {
       toast('Could not archive. Please try again.', 'error');
     }
   };
 
-  const restoreItem = async (kind, setter, id) => {
-    if (!window.confirm(`Restore this ${kind}?`)) return;
+  const restoreItem = async (id) => {
+    if (!window.confirm('Restore this FAQ?')) return;
     try {
-      const updated = await restoreContent(TYPE_OF[kind], id);
-      setter((prev) => prev.map((x) => (x.id === id ? updated : x)));
+      const updated = await restoreContent(TYPE, id);
+      setFaqs((prev) => prev.map((x) => (x.id === id ? updated : x)));
       toast('Restored', 'success');
     } catch {
       toast('Could not restore. Please try again.', 'error');
     }
   };
 
-  /** Only announcements have `active`; banners and FAQs are
-   * withdrawn by archiving, so there is one way to hide a row. */
-  const toggleActive = async (item) => {
-    try {
-      const updated = await updateContent('announcements', item.id, { active: !item.active });
-      setAnns((prev) => prev.map((x) => (x.id === item.id ? updated : x)));
-    } catch {
-      toast('Could not update. Please try again.', 'error');
-    }
-  };
+  const archivedNote = loaded.archived ? `, ${archivedFaqs.length} archived` : '';
 
   return (
     <div>
-      <PageHeader title="Content" subtitle="Manage banners, FAQs and announcements." />
+      <PageHeader title="Content" subtitle="Manage FAQs. The first 6 also appear on the Home page." />
 
-      <QueueTabs
-        tabs={TABS.map(([key, label]) => ({ key, label, count: loaded ? { banners: activeBanners, faqs: activeFaqs, announcements: activeAnns }[key].length : null }))}
-        active={tab}
-        onChange={setTab}
-        label="Content types"
-        idPrefix="content"
-      />
-
-      <div id="content-panel" role="tabpanel" aria-labelledby={`content-tab-${tab}`}>
-      {tab === 'banners' ? (
+      {!loaded.live ? <Loading /> : (
         <div>
-          <div className="mb-3 flex justify-between"><p className="text-xs text-gray-400">Promotional banners shown on the homepage hero. ({activeBanners.length} active, {archivedBanners.length} archived)</p><button onClick={() => openAdd('banner', BLANK_BANNER)} className="dz-btn dz-btn-primary"><Plus className="h-4 w-4" />Add banner</button></div>
-          <div className="grid gap-3 md:grid-cols-2">
-            {activeBanners.map((b) => (
-              <div key={b.id} className="dz-card flex items-center justify-between gap-4 p-4">
-                <div><div className="font-semibold">{b.headline || 'Untitled banner'}</div><div className="mt-0.5 text-xs text-gray-400">Links to {b.link || '—'} · position {b.position ?? '—'}</div></div>
-                <div className="flex items-center gap-2">
-                  <button onClick={() => openEdit('banner', b)} className="rounded-lg border border-white/10 p-1.5 text-gray-400 hover:bg-white/5"><Edit2 className="h-3.5 w-3.5" /></button>
-                  <button onClick={() => archiveItem('banner', setBanners, b.id)} title="Archive" className="rounded-lg border border-white/10 p-1.5 text-gray-400 hover:bg-amber-500/10 hover:text-amber-300"><Archive className="h-3.5 w-3.5" /></button>
-                </div>
-              </div>
-            ))}
-            {!activeBanners.length ? <p className="text-sm text-gray-500">No banners yet.</p> : null}
-          </div>
-          {archivedBanners.length ? (
-            <div className="mt-4">
-              <p className="mb-2 text-xs font-medium text-gray-500 uppercase tracking-wide">Archived</p>
-              <div className="grid gap-3 md:grid-cols-2 opacity-60">
-                {archivedBanners.map((b) => (
-                  <div key={b.id} className="dz-card flex items-center justify-between gap-4 p-4 border-dashed">
-                    <div><div className="font-semibold">{b.headline || 'Untitled banner'}</div><div className="mt-0.5 text-xs text-gray-500">Archived</div></div>
-                    <button onClick={() => restoreItem('banner', setBanners, b.id)} title="Restore" className="rounded-lg border border-emerald-400/30 bg-emerald-500/10 p-1.5 text-emerald-300"><RotateCcw className="h-3.5 w-3.5" /></button>
-                  </div>
-                ))}
-              </div>
-            </div>
-          ) : null}
-        </div>
-      ) : null}
-
-      {tab === 'faqs' ? (
-        <div>
-          <div className="mb-3 flex justify-between"><p className="text-xs text-gray-400">Frequently asked questions. ({activeFaqs.length} active)</p><button onClick={() => openAdd('faq', BLANK_FAQ)} className="dz-btn dz-btn-primary"><Plus className="h-4 w-4" />Add FAQ</button></div>
+          <div className="mb-3 flex justify-between"><p className="text-xs text-gray-400">Frequently asked questions. ({activeFaqs.length} active{archivedNote})</p><button onClick={openAdd} className="dz-btn dz-btn-primary"><Plus className="h-4 w-4" />Add FAQ</button></div>
           <div className="space-y-2">
             {activeFaqs.map((f) => (
               <div key={f.id} className="dz-card p-4">
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0"><div className="font-semibold">{f.question}</div><div className="mt-1 text-sm text-gray-400 line-clamp-2">{f.answer}</div></div>
                   <div className="flex shrink-0 items-center gap-2">
-                    <button onClick={() => openEdit('faq', f)} className="rounded-lg border border-white/10 p-1.5 text-gray-400 hover:bg-white/5"><Edit2 className="h-3.5 w-3.5" /></button>
-                    <button onClick={() => archiveItem('faq', setFaqs, f.id)} title="Archive" className="rounded-lg border border-white/10 p-1.5 text-gray-400 hover:bg-amber-500/10 hover:text-amber-300"><Archive className="h-3.5 w-3.5" /></button>
+                    <button onClick={() => openEdit(f)} className="rounded-lg border border-white/10 p-1.5 text-gray-400 hover:bg-white/5"><Edit2 className="h-3.5 w-3.5" /></button>
+                    <button onClick={() => archiveItem(f.id)} title="Archive" className="rounded-lg border border-white/10 p-1.5 text-gray-400 hover:bg-amber-500/10 hover:text-amber-300"><Archive className="h-3.5 w-3.5" /></button>
                   </div>
                 </div>
               </div>
@@ -193,96 +126,32 @@ export default function AdminContent() {
                   <div key={f.id} className="dz-card p-4 border-dashed">
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0"><div className="font-semibold">{f.question}</div></div>
-                      <button onClick={() => restoreItem('faq', setFaqs, f.id)} title="Restore" className="rounded-lg border border-emerald-400/30 bg-emerald-500/10 p-1.5 text-emerald-300"><RotateCcw className="h-3.5 w-3.5" /></button>
+                      <button onClick={() => restoreItem(f.id)} title="Restore" className="rounded-lg border border-emerald-400/30 bg-emerald-500/10 p-1.5 text-emerald-300"><RotateCcw className="h-3.5 w-3.5" /></button>
                     </div>
                   </div>
                 ))}
               </div>
             </div>
           ) : null}
+          {loaded.archived ? null : (
+            <button type="button" onClick={() => load(true)} className="mt-4 text-xs text-gray-400 underline underline-offset-2 hover:text-white">Show archived</button>
+          )}
         </div>
-      ) : null}
-
-      {tab === 'announcements' ? (
-        <div>
-          <div className="mb-3 flex justify-between"><p className="text-xs text-gray-400">Internal/marketing announcements &amp; campaigns. ({activeAnns.length} active)</p><button onClick={() => openAdd('announcement', BLANK_ANN)} className="dz-btn dz-btn-primary"><Plus className="h-4 w-4" />New announcement</button></div>
-          <div className="space-y-2">
-            {activeAnns.map((a) => (
-              <div key={a.id} className="dz-card p-4">
-                <div className="flex items-start justify-between gap-3">
-                  <div><div className="flex items-center gap-2"><Megaphone className="h-4 w-4 text-brand-teal" /><span className="font-semibold">{a.title}</span><span className="rounded-full border border-white/10 bg-white/5 px-2 py-0.5 text-xs capitalize">{a.severity || 'info'}</span></div><div className="mt-1 text-sm text-gray-400 line-clamp-2">{a.body}</div></div>
-                  <div className="flex shrink-0 items-center gap-2">
-                    <Switch checked={!!a.active} onChange={() => toggleActive(a)} label="Active" />
-                    <button onClick={() => openEdit('announcement', a)} className="rounded-lg border border-white/10 p-1.5 text-gray-400 hover:bg-white/5"><Edit2 className="h-3.5 w-3.5" /></button>
-                    <button onClick={() => archiveItem('announcement', setAnns, a.id)} title="Archive" className="rounded-lg border border-white/10 p-1.5 text-gray-400 hover:bg-amber-500/10 hover:text-amber-300"><Archive className="h-3.5 w-3.5" /></button>
-                  </div>
-                </div>
-              </div>
-            ))}
-            {!activeAnns.length ? <p className="text-sm text-gray-500">No announcements yet.</p> : null}
-          </div>
-          {archivedAnns.length ? (
-            <div className="mt-4">
-              <p className="mb-2 text-xs font-medium text-gray-500 uppercase tracking-wide">Archived</p>
-              <div className="space-y-2 opacity-60">
-                {archivedAnns.map((a) => (
-                  <div key={a.id} className="dz-card p-4 border-dashed">
-                    <div className="flex items-start justify-between gap-3">
-                      <div><span className="font-semibold">{a.title}</span></div>
-                      <button onClick={() => restoreItem('announcement', setAnns, a.id)} title="Restore" className="rounded-lg border border-emerald-400/30 bg-emerald-500/10 p-1.5 text-emerald-300"><RotateCcw className="h-3.5 w-3.5" /></button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          ) : null}
-        </div>
-      ) : null}
-      </div>
+      )}
 
       {editModal ? (
-        <Modal open={true} onClose={closeMod} title={`${editModal.isNew ? 'Add' : 'Edit'} ${editModal.kind}`} size="md"
+        <Modal open={true} onClose={closeMod} title={`${editModal.isNew ? 'Add' : 'Edit'} faq`} size="md"
           footer={<><button onClick={closeMod} className="dz-btn dz-btn-ghost">Cancel</button>
-            <button onClick={() => {
-              if (editModal.kind === 'banner') saveItem('banner', setBanners);
-              else if (editModal.kind === 'faq') saveItem('faq', setFaqs);
-              else saveItem('announcement', setAnns);
-            }} className="dz-btn dz-btn-primary">Save</button></>}
+            <button onClick={saveItem} className="dz-btn dz-btn-primary">Save</button></>}
         >
-          {editModal.kind === 'banner' ? (
-            <div className="space-y-3">
-              {[['headline', 'Headline'], ['image', 'Image URL'], ['link', 'Link']].map(([k, l]) => (
-                <label key={k} className="block text-sm"><span className="mb-1 block text-gray-400">{l}</span>
-                  <input value={editData[k] || ''} onChange={(e) => setEditData((d) => ({ ...d, [k]: e.target.value }))} className="dz-input" /></label>
-              ))}
-              <label className="block text-sm"><span className="mb-1 block text-gray-400">Position</span>
-                <input type="number" value={editData.position ?? 0} onChange={(e) => setEditData((d) => ({ ...d, position: Number(e.target.value) }))} className="dz-input" /></label>
-            </div>
-          ) : editModal.kind === 'faq' ? (
-            <div className="space-y-3">
-              <label className="block text-sm"><span className="mb-1 block text-gray-400">Question</span>
-                <input value={editData.question || ''} onChange={(e) => setEditData((d) => ({ ...d, question: e.target.value }))} className="dz-input" /></label>
-              <label className="block text-sm"><span className="mb-1 block text-gray-400">Answer</span>
-                <textarea rows={3} value={editData.answer || ''} onChange={(e) => setEditData((d) => ({ ...d, answer: e.target.value }))} className="dz-input" /></label>
-              <label className="block text-sm"><span className="mb-1 block text-gray-400">Category</span>
-                <input value={editData.category || ''} onChange={(e) => setEditData((d) => ({ ...d, category: e.target.value }))} className="dz-input" /></label>
-            </div>
-          ) : (
-            <div className="space-y-3">
-              <label className="block text-sm"><span className="mb-1 block text-gray-400">Title</span>
-                <input value={editData.title || ''} onChange={(e) => setEditData((d) => ({ ...d, title: e.target.value }))} className="dz-input" /></label>
-              <label className="block text-sm"><span className="mb-1 block text-gray-400">Body</span>
-                <textarea rows={3} value={editData.body || ''} onChange={(e) => setEditData((d) => ({ ...d, body: e.target.value }))} className="dz-input" /></label>
-              <label className="block text-sm"><span className="mb-1 block text-gray-400">Severity</span>
-                <select value={editData.severity || 'info'} onChange={(e) => setEditData((d) => ({ ...d, severity: e.target.value }))} className="dz-input">
-                  <option value="info">Info</option>
-                  <option value="success">Success</option>
-                  <option value="warning">Warning</option>
-                </select>
-              </label>
-              <label className="flex items-center gap-2 text-sm"><Switch checked={!!editData.active} onChange={(v) => setEditData((d) => ({ ...d, active: v }))} label="Active" /><span className="text-gray-300">Active</span></label>
-            </div>
-          )}
+          <div className="space-y-3">
+            <label className="block text-sm"><span className="mb-1 block text-gray-400">Question</span>
+              <input value={editData.question || ''} onChange={(e) => setEditData((d) => ({ ...d, question: e.target.value }))} className="dz-input" /></label>
+            <label className="block text-sm"><span className="mb-1 block text-gray-400">Answer</span>
+              <textarea rows={3} value={editData.answer || ''} onChange={(e) => setEditData((d) => ({ ...d, answer: e.target.value }))} className="dz-input" /></label>
+            <label className="block text-sm"><span className="mb-1 block text-gray-400">Category</span>
+              <input value={editData.category || ''} onChange={(e) => setEditData((d) => ({ ...d, category: e.target.value }))} className="dz-input" /></label>
+          </div>
         </Modal>
       ) : null}
     </div>

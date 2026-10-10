@@ -1,5 +1,5 @@
 /** `/admin/content` against the live API: counts and copy are read from the server, never hardcoded. The write
- * test archives its banner in `afterEach` because the e2e database resets per run, not per file. */
+ * test archives its FAQ in `afterEach` because the e2e database resets per run, not per file. */
 import { test, expect } from '../../fixtures/live.js';
 import { API, authHeaders } from '../../helpers/liveAuth.js';
 
@@ -7,9 +7,9 @@ import { API, authHeaders } from '../../helpers/liveAuth.js';
 const admin = () => authHeaders('9000000000');
 
 /** Sign in and open the desk. */
-async function openContent(page, login, tab) {
+async function openContent(page, login) {
   await login.asAdmin();
-  await page.goto(tab ? `/admin/content?tab=${tab}` : '/admin/content');
+  await page.goto('/admin/content');
   await expect(page.getByRole('heading', { name: 'Content' })).toBeVisible();
 }
 
@@ -20,88 +20,104 @@ async function contentRows(request, type) {
   return res.json();
 }
 
-test('admin loads the Content desk with its three tabs and the banners view', async ({ page, login, consoleErrors }) => {
+test('admin loads the Content desk on the FAQs view, with banners and announcements gone', async ({ page, login, consoleErrors }) => {
   await openContent(page, login);
 
-  await expect(page.getByRole('tab', { name: /^Banners\b/ })).toBeVisible();
-  await expect(page.getByRole('tab', { name: /^FAQs\b/ })).toBeVisible();
-  await expect(page.getByRole('tab', { name: /^Announcements\b/ })).toBeVisible();
-  await expect(page.getByRole('tab', { name: /^Reviews\b/ })).toHaveCount(0);
-
-  await expect(page.getByText(/\d+ active, \d+ archived/)).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Add banner' })).toBeVisible();
+  await expect(page.getByRole('tab')).toHaveCount(0);
+  await expect(page.getByText(/\d+ active\)/)).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Show archived' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Add FAQ' })).toBeVisible();
+  await expect(page.getByRole('button', { name: /Add banner|New announcement/ })).toHaveCount(0);
 
   expect(consoleErrors).toEqual([]);
 });
 
-test('the banners counter agrees with the server, not with a bundled fixture', async ({ page, login, request }) => {
-  const banners = await contentRows(request, 'banners');
-  const archived = banners.filter((b) => b.archived).length;
-  const active = banners.length - archived;
-
-  await openContent(page, login);
-  // The discriminator for this tab. `db.json` ships its own banner count, so this line reading the
-  // database's is what a silent fallback to the mock provider could not survive.
-  await expect(page.getByText(`${active} active, ${archived} archived`)).toBeVisible();
+test('retired content types are 404 on the API, not an empty list', async ({ request }) => {
+  for (const type of ['banners', 'announcements', 'services']) {
+    const res = await request.get(`${API}/admin/content/${type}`, { headers: await admin() });
+    expect(res.status(), `GET /admin/content/${type}`).toBe(404);
+  }
 });
 
-test('the FAQs tab lists the questions the server holds', async ({ page, login, request }) => {
+test('the FAQ counter agrees with the server, and archived rows load only on request', async ({ page, login, request }) => {
   const faqs = await contentRows(request, 'faqs');
-  expect(faqs.length, 'the e2e seed is expected to carry FAQs for this tab to be worth asserting').toBeGreaterThan(0);
-
-  await openContent(page, login, 'faqs');
-  await expect(page.getByRole('button', { name: 'Add FAQ' })).toBeVisible();
-  // A question taken from the API rather than the hardcoded "Is Draazy really zero brokerage?"
-  // the mock file used — that string is a fact about db.json and says nothing about this desk.
-  await expect(page.getByText(faqs[0].title ?? faqs[0].question)).toBeVisible();
-});
-
-/* Reviews-tab assertions live in `tests/admin-content.spec.js` (it pins this run's author on the row); not repeated here. */
-
-test('adding a banner writes it through the API, not into this browser', async ({ page, login, request }) => {
-  const headline = `E2E live banner ${Date.now()}`;
+  const archived = faqs.filter((f) => f.archived).length;
+  const active = faqs.length - archived;
 
   await openContent(page, login);
-  await page.getByRole('button', { name: 'Add banner' }).click();
+  await expect(page.getByText(`${active} active)`)).toBeVisible();
+  await page.getByRole('button', { name: 'Show archived' }).click();
+  await expect(page.getByText(`${active} active, ${archived} archived)`)).toBeVisible();
+});
 
-  const dialog = page.getByRole('dialog', { name: 'Add banner' });
+test('the desk lists the questions the server holds', async ({ page, login, request }) => {
+  const faqs = await contentRows(request, 'faqs');
+  expect(faqs.length, 'the e2e seed is expected to carry FAQs for this desk to be worth asserting').toBeGreaterThan(0);
+
+  await openContent(page, login);
+  await expect(page.getByText(faqs.find((f) => !f.archived).question)).toBeVisible();
+});
+
+/* Reviews-tab assertions live in tests/admin-content.spec.js, which pins this run's author on the row. */
+
+test('adding an FAQ writes it through the API, not into this browser', async ({ page, login, request }) => {
+  const question = `E2E live faq ${Date.now()}`;
+
+  await openContent(page, login);
+  await page.getByRole('button', { name: 'Add FAQ' }).click();
+
+  const dialog = page.getByRole('dialog', { name: 'Add faq' });
   await expect(dialog).toBeVisible();
 
-  /* Headline and image are both required (the server answers 422 otherwise); fields have no labels, so they are
-     addressed by position, and link is prefilled with `/listings`. */
-  await dialog.getByRole('textbox').nth(0).fill(headline);
-  await dialog.getByRole('textbox').nth(1).fill('https://example.invalid/e2e-banner.jpg');
+  /* Fields have no labels, so they are addressed by position; category is prefilled with `general`. */
+  await dialog.getByRole('textbox').nth(0).fill(question);
+  await dialog.getByRole('textbox').nth(1).fill('Answer written by the e2e run.');
   await dialog.getByRole('button', { name: 'Save' }).click();
 
   await expect(page.getByRole('alert')).toContainText('Saved');
   await expect(page.getByRole('dialog')).toHaveCount(0);
-  await expect(page.getByText(headline)).toBeVisible();
+  await expect(page.getByText(question)).toBeVisible();
 
-  /* On screen is half the claim. The other half — and the only one the mock could not make — is
-     that a second reader, which never touched this browser, can see the row. */
-  const banners = await contentRows(request, 'banners');
-  expect(banners.map((b) => b.headline)).toContain(headline);
+  /* On screen is half the claim. The other half is that a second reader, which never touched this
+     browser, can see the row. */
+  const faqs = await contentRows(request, 'faqs');
+  expect(faqs.map((f) => f.question)).toContain(question);
 
-  // Archive it again so the counter this file asserts elsewhere is unchanged by having run.
-  const created = banners.find((b) => b.headline === headline);
+  const created = faqs.find((f) => f.question === question);
   const archived = await request.post(
-    `${API}/admin/content/banners/${created.id}/archive`,
+    `${API}/admin/content/faqs/${created.id}/archive`,
     { headers: await admin() },
   );
-  expect(archived.ok(), 'the banner this test created must not outlive it').toBeTruthy();
+  expect(archived.ok(), 'the FAQ this test created must not outlive it').toBeTruthy();
 });
 
-test('a banner with no image is refused, and the desk says which field', async ({ page, login }) => {
-  /* The console shows the server's own message; only a live run can assert it, as the mock accepts the body. */
+test('an FAQ with no question is refused, and the desk says which field', async ({ page, login }) => {
   await openContent(page, login);
-  await page.getByRole('button', { name: 'Add banner' }).click();
+  await page.getByRole('button', { name: 'Add FAQ' }).click();
 
-  const dialog = page.getByRole('dialog', { name: 'Add banner' });
-  await dialog.getByRole('textbox').nth(0).fill(`E2E refused banner ${Date.now()}`);
+  const dialog = page.getByRole('dialog', { name: 'Add faq' });
+  await dialog.getByRole('textbox').nth(1).fill(`E2E refused answer ${Date.now()}`);
   await dialog.getByRole('button', { name: 'Save' }).click();
 
-  await expect(page.getByRole('alert')).toContainText("needs 'image'");
-  // The dialog stays open on a refusal: a form that closes has thrown away what the operator typed
-  // along with their chance to fix the one field the message named.
+  await expect(page.getByRole('alert')).toContainText("needs 'question'");
+  // The dialog stays open on a refusal so the operator can fix the one field the message named.
   await expect(dialog).toBeVisible();
+});
+
+test('an FAQ added in the CMS leads the Home page FAQ block', async ({ page, request }) => {
+  const question = `E2E home faq ${Date.now()}`;
+  const res = await request.post(`${API}/admin/content/faqs`, {
+    headers: await admin(),
+    data: { question, answer: 'Answer shown on Home.', category: '0-e2e-home' },
+  });
+  expect(res.status()).toBe(201);
+  const { id } = await res.json();
+
+  try {
+    await page.goto('/');
+    await expect(page.getByRole('heading', { name: 'Frequently asked questions' })).toBeVisible();
+    await expect(page.locator('section[aria-labelledby="faqHeading"] details').first()).toContainText(question);
+  } finally {
+    await request.post(`${API}/admin/content/faqs/${id}/archive`, { headers: await admin() });
+  }
 });

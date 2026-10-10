@@ -72,7 +72,7 @@ test.describe('LIVE: who may read and who may decide a verification case', () =>
       { decision: 'approve' })).status).toBe(403);
     expect((await api('PATCH', `/properties/${id}/verification/checklist`, stranger.token,
       { item: 'ownership', pass: true })).status).toBe(403);
-    expect((await api('GET', '/admin/property-reviews', stranger.token)).status).toBe(403);
+    expect((await api('GET', '/admin/bell', stranger.token)).status).toBe(403);
 
     const after = await ok('GET', `/me/listings/${id}`, owner.token);
     expect(after.status).toBe('pending');

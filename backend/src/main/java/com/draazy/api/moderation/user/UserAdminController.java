@@ -70,7 +70,7 @@ public class UserAdminController {
     // customers=true narrows to owners and buyers; back-office accounts live under Team & Access.
     @GetMapping(Routes.Users.BASE)
     @PreAuthorize(USERS_READ)
-    public PageResponse<UserResponse> list(@RequestParam(required = false) String role,
+    public PageResponse<AdminUserRow> list(@RequestParam(required = false) String role,
             @RequestParam(defaultValue = "false") boolean customers,
             @RequestParam(required = false) String q,
             @RequestParam(required = false) String status,
@@ -82,7 +82,7 @@ public class UserAdminController {
             throw new ValidationException("Unknown status '" + status + "'. Expected one of "
                     + "active, suspended, archived.");
         }
-        PageResponse<UserResponse> page = PageResponse.of(
+        PageResponse<AdminUserRow> page = PageResponse.of(
                 service.list(role, customers, q, status, flagged, archived,
                         Pageables.unsorted(pageable)),
                 dto -> dto);
@@ -98,13 +98,6 @@ public class UserAdminController {
                 .cacheControl(CacheControl.noStore())
                 .body(service.addStaff(principal, body.name(), body.mobile(), body.email(), body.role(),
                         body.functions()));
-    }
-
-    /** {@code GET /users/{id}} (contract {@code getUser}) — audited single-user read. */
-    @GetMapping(Routes.Users.BY_ID)
-    @PreAuthorize(USERS_READ)
-    public UserResponse get(@CurrentUser AuthPrincipal principal, @PathVariable String id) {
-        return service.get(principal, id);
     }
 
     @PostMapping(Routes.Users.RESET_TWO_FACTOR)
@@ -125,7 +118,7 @@ public class UserAdminController {
     /** {@code PATCH /users/{id}} (contract {@code adminUpdateUser}). */
     @PatchMapping(Routes.Users.BY_ID)
     @PreAuthorize(TEAM_WRITE)
-    public UserResponse update(@CurrentUser AuthPrincipal principal, @PathVariable String id,
+    public AdminUserRow update(@CurrentUser AuthPrincipal principal, @PathVariable String id,
             @Valid @RequestBody UserPatchRequest body) {
         return service.update(principal, id, body.name(), body.email(), body.avatar());
     }
@@ -206,7 +199,7 @@ public class UserAdminController {
     /** {@code PATCH /users/{id}/flag} (contract {@code setUserFlag}) — admin only. */
     @PatchMapping(Routes.Users.FLAG)
     @PreAuthorize(ADMIN_WRITE)
-    public UserResponse setFlag(@CurrentUser AuthPrincipal principal, @PathVariable String id,
+    public AdminUserRow setFlag(@CurrentUser AuthPrincipal principal, @PathVariable String id,
             @Valid @RequestBody FlagRequest body) {
         return moderation.setFlag(principal, id, body.flagged(), body.reason());
     }

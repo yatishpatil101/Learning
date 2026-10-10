@@ -128,7 +128,7 @@ class AdminOverviewEndpointsTest extends AbstractApiTest {
     @DisplayName("a section the caller cannot read is absent, not empty")
     void dashboardRedactsPerAtom() throws Exception {
         User ticketsOnly = user("9877710003", Roles.Wire.STAFF, Teams.RENTAL,
-                "[\"support\",\"desk:rental\"]");
+                "[\"support\",\"enquiries\",\"desk:rental\"]");
         read(Routes.Admin.DASHBOARD, ticketsOnly)
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.tickets.open").value(1))
@@ -179,7 +179,12 @@ class AdminOverviewEndpointsTest extends AbstractApiTest {
     void bellTotalsMatchTheOldReads() throws Exception {
         long pending = total(Routes.Moderation.ADMIN_PROPERTIES + "?status=pending&archived=false&size=5");
         long open = total(Routes.Tickets.BASE + "?status=open&size=5");
-        long replies = total(Routes.Moderation.ADMIN_PROPERTY_REVIEWS + "?size=5&unread=true");
+        long replies = jdbc.queryForObject("""
+                select count(*) from property_reviews r
+                where exists (select 1 from review_messages m join properties p on p.id = r.property_id
+                              where m.review_id = r.id and not m.internal and m.read_at is null
+                                and m.sender_id = p.owner_id)
+                """, Long.class);
         read(Routes.Admin.BELL, admin)
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.pendingListings.total").value((int) pending))
@@ -190,6 +195,18 @@ class AdminOverviewEndpointsTest extends AbstractApiTest {
                 .andExpect(jsonPath("$.ownerReplies.total").value((int) replies));
     }
 
+    @Test
+    @DisplayName("a ticket's mobile reaches the bell masked")
+    void bellMasksTicketMobile() throws Exception {
+        jdbc.update("""
+                insert into tickets (id, subject, team, priority, status, mobile, created_at, updated_at)
+                values (?, 'Masked probe', 'legal', 'medium', 'open', '9877710099', now(), now())
+                """, UUID.randomUUID());
+        read(Routes.Admin.BELL, admin)
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.openTickets.items[?(@.mobile == '9877710099')]").isEmpty())
+                .andExpect(jsonPath("$.openTickets.items[?(@.mobile == '98XXXXX099')]").isNotEmpty());
+    }
     @Test
     @DisplayName("the bell leaves out what the caller holds no atom for")
     void bellRedactsPerAtom() throws Exception {

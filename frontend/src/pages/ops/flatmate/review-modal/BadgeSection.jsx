@@ -51,16 +51,6 @@ export default function BadgeSection({ review: r, busy, onDecide }) {
         <dd className="break-words text-gray-100">{r.address || '—'}</dd>
         <dt className="text-gray-400">Claimed by</dt>
         <dd className="text-gray-100">{r.host || '—'} <span className="text-gray-400">{r.hostMobile || ''}</span> · {fmtDate(r.createdAt)}</dd>
-        {r.agreementRegNo ? (
-          <>
-            <dt className="text-gray-400">Registration</dt>
-            <dd className="text-gray-300" data-testid="agreement-registration">
-              <span className="font-mono text-gray-100">{r.agreementRegNo}</span>
-              {r.agreementRegisteredOn ? <span> · registered {r.agreementRegisteredOn}</span> : null}
-              {r.agreementValidTill ? <span> · valid till {r.agreementValidTill}</span> : null}
-            </dd>
-          </>
-        ) : null}
         {r.status === 'rejected' && r.reason ? (
           <>
             <dt className="text-gray-400">Rejected because</dt>

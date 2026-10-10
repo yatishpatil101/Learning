@@ -1,6 +1,6 @@
 package com.draazy.api.moderation.verification;
 
-import com.draazy.api.common.error.BadRequestException;
+import com.draazy.api.common.web.PageResponse;
 import com.draazy.api.common.web.Routes;
 import com.draazy.api.security.AuthPrincipal;
 import com.draazy.api.security.BackOfficePermissions;
@@ -9,8 +9,6 @@ import com.draazy.api.security.Roles;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
-import java.util.Set;
-import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -30,15 +28,9 @@ public class PropertyVerificationController {
     private static final String STAFF_OR_ADMIN =
             "hasAnyRole('" + Roles.STAFF + "', '" + Roles.ADMIN + "')";
 
-    private static final String PROPERTIES_READ =
-            STAFF_OR_ADMIN + " and " + BackOfficePermissions.REQUIRE_PROPERTIES_READ;
-
     // Verification decisions use the verification atom.
     private static final String PROPERTIES_VERIFY =
             STAFF_OR_ADMIN + " and " + BackOfficePermissions.REQUIRE_PROPERTIES_VERIFY;
-
-    private static final Set<String> CASE_STATUSES =
-            Set.of("in_review", "needs_info", "approved", "rejected", "pending");
 
     private final PropertyVerificationService service;
     private final PropertyVerificationOverrideService overrides;
@@ -57,34 +49,19 @@ public class PropertyVerificationController {
         return service.get(principal, id);
     }
 
-    @GetMapping(Routes.Moderation.ADMIN_PROPERTY_REVIEWS)
-    @PreAuthorize(PROPERTIES_READ)
-    public Page<PropertyReviewSummary> listCases(
-            @RequestParam(required = false) String status,
-            @RequestParam(defaultValue = "false") boolean unread, Pageable pageable) {
-        if (status != null && !CASE_STATUSES.contains(status)) {
-            throw new BadRequestException("status must be one of " + String.join(", ",
-                    CASE_STATUSES.stream().sorted().toList()));
-        }
-        if (unread && status != null) {
-            throw new BadRequestException("unread cannot be combined with status");
-        }
-        return queue.listCases(status, unread, pageable);
-    }
-
     // Owner dashboard gets its own case files in one page.
     @GetMapping(Routes.Moderation.ME_PROPERTY_REVIEWS)
-    public Page<PropertyReviewSummary> listMyCases(
+    public PageResponse<ReviewBadge> listMyCases(
             @CurrentUser AuthPrincipal principal, Pageable pageable) {
-        return queue.listMyCases(principal, pageable);
+        return PageResponse.of(queue.listMyCases(principal, pageable), badge -> badge);
     }
 
     /** {@code POST /properties/{id}/verification} (contract {@code initPropertyVerification}) — 201. */
     @PostMapping(Routes.Moderation.PROPERTY_VERIFICATION)
     @ResponseStatus(HttpStatus.CREATED)
     public PropertyReviewResponse initiate(@CurrentUser AuthPrincipal principal,
-            @PathVariable String id) {
-        return service.initiate(principal, id);
+            @PathVariable String id, @RequestParam(defaultValue = "false") boolean markRead) {
+        return service.initiate(principal, id, markRead);
     }
 
     @PostMapping(Routes.Moderation.VERIFICATION_MESSAGES)
@@ -107,7 +84,6 @@ public class PropertyVerificationController {
         service.markRead(principal, id);
     }
 
-    // POST /properties/{id/verification/decision} (contract verificationDecision, x-roles: [staff, admin]).
     @PostMapping(Routes.Moderation.VERIFICATION_DECISION)
     @PreAuthorize(PROPERTIES_VERIFY)
     public PropertyReviewResponse decide(@CurrentUser AuthPrincipal principal,

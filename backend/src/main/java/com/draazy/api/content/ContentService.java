@@ -15,7 +15,7 @@ public class ContentService {
         this.mapper = mapper;
     }
 
-    /** Non-archived banners, ordered by position. */
+    /** Non-archived FAQs, by category. */
     @Transactional(readOnly = true)
     public List<FaqResponse> listFaqs() {
         return faqs.findByArchivedFalseOrderByCategoryAscCreatedAtAscIdAsc().stream()

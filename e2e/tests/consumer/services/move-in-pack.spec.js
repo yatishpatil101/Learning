@@ -2,17 +2,8 @@ import { test, expect, ACTORS, STAFF } from '../../../fixtures/live.js';
 import { API, authHeaders } from '../../../helpers/liveAuth.js';
 import { appReady } from '../../../helpers/app.js';
 
-/* The Move-in Pack against the live API: the booking (a price the customer assembles from six line
-   items and a 12% bundle discount) and the coming-soon waitlist.
-
-   Both end at the same question — can ops actually reach this person? — answered by reading the
-   packers board back through `GET /tickets` with a staff token, because the buyer is refused that
-   route. A banner or toast alone would pass against the defects these replace: a lead that only
-   reached localStorage, and a success toast for a write that never left the browser.
-
-   The waitlist rate limit is deliberately not asserted here: it is per mobile per hour against a
-   shared table, and `ServiceWaitlistTest` covers the budget and `Retry-After` where the
-   transaction rolls back. */
+/* Reads the packers board back via GET /tickets with a staff token (the buyer is refused it), since a toast
+   alone passes on a lead that never left the browser. The waitlist rate limit is in ServiceWaitlistTest. */
 
 const PRICES = { movers: 8000, clean: 2500, agreement: 1500, paint: 6000, verify: 999, internet: 500 };
 
@@ -40,7 +31,8 @@ async function packersBoard(size = 20) {
 async function setMovePack(patch) {
   const res = await fetch(`${API}/admin/settings`, {
     method: 'PUT',
-    // `authHeaders` already sets `content-type`; a second, differently-cased key sends it twice and the server answers 415.
+    // authHeaders already sets content-type; a second, differently-cased key sends it twice
+    // and the server answers 415.
     headers: await authHeaders(ACTORS.admin),
     body: JSON.stringify({ movePack: patch }),
   });
@@ -85,12 +77,17 @@ test.describe('Move-in Pack booking (live)', () => {
     await pack.getByRole('button', { name: 'Book Move-in Pack' }).click();
     const body = JSON.parse((await posted).postData() || '{}');
     expect(body.quotedValue).toBe(EXPECTED_QUOTE);
-    // `value` must not be in the body at all — not present-and-null: a client sending the key is one lenient mapper away from setting it.
+    // value must not be in the body at all, not even null: a client sending the key
+    // is one lenient mapper away from setting it.
     expect(Object.keys(body)).not.toContain('value');
     await expect(page.getByText(/Move-in Pack booked/i)).toBeVisible();
 
     await expect.poll(async () => (await packersBoard()).length).toBe(before + 1);
-    const [latest] = await packersBoard();
+    const [row] = await packersBoard();
+    // The board row is the slim TicketRow; price, pipeline value and line items are on the full ticket.
+    const res = await fetch(`${API}/tickets/${row.id}`, { headers: await authHeaders(STAFF.packers) });
+    expect(res.status).toBe(200);
+    const latest = await res.json();
     expect(latest.subject).toBe('Move-in Pack booking');
     expect(latest.team).toBe('packers');
     // The number the customer agreed to, computed in the browser and read back through a different account's token.
@@ -98,7 +95,8 @@ test.describe('Move-in Pack booking (live)', () => {
     // Accepting a price from the client must not also let it write the pipeline figure.
     expect(latest.value).toBeNull();
 
-    // A price with no line items is a quote nobody can honour; asserted whole because a mapper that drops a field drops it quietly.
+    // A price with no line items is a quote nobody can honour;
+    // asserted whole because a mapper that drops a field does so quietly.
     expect(latest.detail).toBe(CHOSEN.join(', '));
     // Identity comes off the session, never off the page: the form never asked for either.
     expect(latest.mobile).toBe(ACTORS.buyer);
@@ -106,9 +104,8 @@ test.describe('Move-in Pack booking (live)', () => {
   });
 
   test('a booking the server refuses is reported as refused, and the selection survives', async ({ page, login }) => {
-    /* A booking that works cannot show that a failing one is reported, so the POST is made to fail.
-       The assertion is a pair — failure toast present AND success toast absent — because either
-       alone passes on the wrong page. */
+    /* The POST is made to fail; the assertion is a pair (failure toast present AND success toast absent)
+       because either alone passes on the wrong page. */
     await login.asBuyer();
 
     // Scoped to the POST and installed after login, so the page's own reads still work.
@@ -131,7 +128,8 @@ test.describe('Move-in Pack booking (live)', () => {
 
     expect((await packersBoard()).length).toBe(before);
 
-    // Clearing the selection on failure would turn the retry into a re-do, and a stuck `booking` state would leave no way to retry.
+    // Clearing the selection on failure would turn the retry into a re-do,
+    // and a stuck booking state would block it.
     await expect(pack.getByRole('button', { name: 'Book Move-in Pack' })).toBeEnabled();
     await expect(pack.getByRole('button', { name: new RegExp(CHOSEN[0]) })).toHaveClass(/bg-teal-400\/10/);
   });
@@ -144,7 +142,8 @@ test.describe('Move-in Pack booking (live)', () => {
     await pack.getByRole('button', { name: 'Book Move-in Pack' }).click();
 
     await expect(page).toHaveURL(/\/signin/);
-    // The redirect is the positive anchor: the gate runs before the write, so no half-identified ticket reaches the desk.
+    // The redirect is the positive anchor: the gate runs before the write,
+    // so no half-identified ticket reaches the desk.
     expect((await packersBoard()).length).toBe(before);
   });
 
@@ -201,7 +200,8 @@ test.describe('Move-in Pack waitlist (live)', () => {
   });
 
   test('nobody can read the waitlist back without a staff token', async () => {
-    // The rows are unverified phone numbers, so there is no GET at all; the board read in the test above proves the server is answering.
+    // The rows are unverified phone numbers, so there is no GET at all;
+    // the board read above proves the server is answering.
     const res = await fetch(`${API}/service-waitlist`);
     expect(res.status).toBeGreaterThanOrEqual(400);
     expect(res.status).toBeLessThan(500);

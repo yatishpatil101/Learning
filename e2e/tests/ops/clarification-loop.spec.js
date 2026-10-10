@@ -77,6 +77,6 @@ test('staff see an owner reply on the bell and the card, and opening it clears b
   await expect(page.getByRole('dialog').getByText(ANSWER)).toBeVisible({ timeout: 20_000 });
   await expect(card.getByTestId('owner-replied')).toHaveCount(0);
 
-  const after = await api('GET', '/admin/property-reviews?unread=true&size=100', await authHeaders(ACTORS.admin));
-  expect(after.body.content.map((r) => r.propertyId)).not.toContain(id);
+  const after = await api('GET', '/admin/bell', await authHeaders(ACTORS.admin));
+  expect(after.body.ownerReplies.items.map((r) => r.propertyId)).not.toContain(id);
 });

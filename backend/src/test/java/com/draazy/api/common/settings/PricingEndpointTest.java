@@ -15,7 +15,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 
-/** Round trips are admin write then anonymous read; absences assert that other fee-block keys, like the fraud-desk threshold, are never published. */
+/** Round trips are admin write then anonymous read; other fee-block keys (fraud threshold) are never published. */
 class PricingEndpointTest extends AbstractApiTest {
 
     @Autowired UserRepository users;
@@ -37,7 +37,7 @@ class PricingEndpointTest extends AbstractApiTest {
                 .andExpect(jsonPath("$.pricing.gstPercent").value(18));
     }
 
-    /** Asserted key by key with {@code exists()}: defaults equal the seed row, so a value assertion cannot tell a real read from literals. */
+    /** Checked per key with {@code exists()}: defaults equal the seed row, so a value check proves no read. */
     @Test
     void everyPriceTheClientNeedsIsPublished() throws Exception {
         mvc.perform(get(Routes.Bootstrap.BASE))
@@ -46,11 +46,10 @@ class PricingEndpointTest extends AbstractApiTest {
                 .andExpect(jsonPath("$.pricing.ownerProYearly").exists())
                 .andExpect(jsonPath("$.pricing.rentAgreementPlatform").exists())
                 .andExpect(jsonPath("$.pricing.seekerPlusTopup").exists())
-                .andExpect(jsonPath("$.pricing.featuredListing").exists())
                 .andExpect(jsonPath("$.pricing.gstPercent").exists());
     }
 
-    /** The only test that can tell a real row read from a controller returning the same seven literals; the untouched sibling is checked as the settings write is a deep merge. */
+    /** Only test that tells a real row read from literals; the untouched sibling proves the write deep-merges. */
     @Test
     void aPriceAnAdminChangesIsThePriceAnAnonymousVisitorIsQuoted() throws Exception {
         mvc.perform(put(Routes.Admin.SETTINGS)
@@ -63,10 +62,10 @@ class PricingEndpointTest extends AbstractApiTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.pricing.ownerProYearly").value(5499))
                 .andExpect(jsonPath("$.pricing.seekerPlusTopup").value(349))
-                .andExpect(jsonPath("$.pricing.featuredListing").value(999));
+                .andExpect(jsonPath("$.pricing.rentAgreementPlatform").value(500));
     }
 
-    /** The fraud threshold and contact allowances share the prices block but are never published, which a "fees block" response would do by accident. */
+    /** The fraud threshold and contact allowances share the prices block but must never be published. */
     @Test
     void theRestOfTheFeesBlockIsNotPublished() throws Exception {
         mvc.perform(get(Routes.Bootstrap.BASE))

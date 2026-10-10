@@ -17,8 +17,4 @@ final class PropertyReviewStatuses {
             default -> WIRE_IN_REVIEW;
         };
     }
-
-    static String storedFilter(String status) {
-        return WIRE_IN_REVIEW.equals(status) ? STORED_PENDING : status;
-    }
 }

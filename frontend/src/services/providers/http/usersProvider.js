@@ -8,7 +8,6 @@ const toRow = (u) => ({
   id: u?.id,
   name: u?.name || '',
   mobile: u?.mobile || '',
-  email: u?.email || '',
   role: u?.role,
   city: u?.city || '',
   listings: u?.listingsCount ?? 0,
@@ -18,6 +17,7 @@ const toRow = (u) => ({
   badgeSource: u?.badgeSource || null,
   flagged: Boolean(u?.flagged),
   flagReason: u?.flagReason || '',
+  badgePending: Boolean(u?.badgePending),
   archived: u?.status === 'archived',
 });
 

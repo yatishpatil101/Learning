@@ -687,11 +687,11 @@ class ListingNoticesTest extends AbstractApiTest {
                         .value("reporter says the photos are from a hotel listing"));
 
         // And the assertion that stops this from being satisfied by dropping the field: the desk
-        // still gets it, from the queue the desk actually reads.
-        mvc.perform(get("/admin/properties").param("size", "200")
+        // still gets it, from the review detail the desk opens.
+        mvc.perform(get("/admin/properties/" + id)
                         .header(HttpHeaders.AUTHORIZATION, bearer(staff("9871115571"))))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.content[?(@.id == '" + id + "')].flagReason")
+                .andExpect(jsonPath("$.flagReason")
                         .value("reporter says the photos are from a hotel listing"));
     }
 
@@ -768,11 +768,12 @@ class ListingNoticesTest extends AbstractApiTest {
                         .header(HttpHeaders.AUTHORIZATION, otherToken))
                 .andExpect(status().isCreated());
 
-        String staffToken = bearer(staff("9871115548"));
-        mvc.perform(get("/admin/property-reviews?page=0&size=20")
-                        .header(HttpHeaders.AUTHORIZATION, staffToken))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.content[0].propertyId").value(newer.toString()));
+        String latest = """
+                select property_id::text from property_reviews where property_id in (?, ?)
+                order by last_message_at desc, id desc limit 1
+                """;
+        properties.flush();
+        assertThat(jdbc.queryForObject(latest, String.class, stale, newer)).isEqualTo(newer.toString());
 
         // review_messages owns the association, so inserting a message does not dirty property_reviews by
         // itself and an old case would stay out of sight. What is pinned: something said in a case moves it.
@@ -781,10 +782,8 @@ class ListingNoticesTest extends AbstractApiTest {
                         .content("{\"electricityMeterNo\":\"MSEDCL-170049300\"}"))
                 .andExpect(status().isOk());
 
-        mvc.perform(get("/admin/property-reviews?page=0&size=20")
-                        .header(HttpHeaders.AUTHORIZATION, staffToken))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.content[0].propertyId").value(stale.toString()));
+        properties.flush();
+        assertThat(jdbc.queryForObject(latest, String.class, stale, newer)).isEqualTo(stale.toString());
     }
 
     @Test

@@ -255,7 +255,7 @@ class UserAdminStaffCreationTest extends AbstractApiTest {
         User actor = manager("9866042013", "manager-reader@example.com");
         User buyer = users.saveAndFlush(new User("9866042014", Roles.Wire.BUYER));
 
-        mvc.perform(get(Routes.Users.BY_ID.replace("{id}", buyer.getId().toString()))
+        mvc.perform(get(Routes.Users.BASE).param("q", buyer.getMobile())
                         .header(HttpHeaders.AUTHORIZATION, bearer(actor)))
                 .andExpect(status().isOk());
         mvc.perform(patch(Routes.Users.SUSPEND.replace("{id}", buyer.getId().toString()))
@@ -287,6 +287,12 @@ class UserAdminStaffCreationTest extends AbstractApiTest {
         mvc.perform(post(Routes.Users.REISSUE_INVITE.replace("{id}", staffId))
                         .header(HttpHeaders.AUTHORIZATION, token))
                 .andExpect(status().isForbidden());
+        mvc.perform(patch(Routes.Users.BY_ID.replace("{id}", staffId))
+                        .header(HttpHeaders.AUTHORIZATION, token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"email\":\"manager-controlled@example.com\"}"))
+                .andExpect(status().isForbidden());
+        assertThat(users.findById(staff.getId()).orElseThrow().getEmail()).isEqualTo("kyc-staff@example.com");
         mvc.perform(put(Routes.Users.PERMISSIONS.replace("{id}", staffId))
                         .header(HttpHeaders.AUTHORIZATION, token)
                         .contentType(MediaType.APPLICATION_JSON)

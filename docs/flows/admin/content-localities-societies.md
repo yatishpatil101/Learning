@@ -1,6 +1,6 @@
 # Flow: Admin Content, Localities & Societies
 
-> The editorial + place-registry surface: homepage banners, FAQs, announcements and user-review
+> The editorial + place-registry surface: FAQs and user-review
 > moderation (Content page); community-locality promotion into the curated registry (Localities page);
 > and the society directory with claims/residents/candidates moderation (Societies page).
 > **Status:** documented from React source - **Primary role(s):** admin (Content, Localities, Societies modules)
@@ -12,17 +12,17 @@
 - **Job-to-be-done:** "Publish and retire marketing content, moderate user reviews, keep the locality and
   society registries clean, and promote real community-submitted places into the canonical set."
 - **Why it matters:** localities and societies are the spine of search, filters, SEO and pricing
-  ([`../consumer/search-listings.md`](../consumer/search-listings.md)); banners/FAQs/announcements are the
+  ([`../consumer/search-listings.md`](../consumer/search-listings.md)); FAQs are the
   storefront; review moderation guards trust. Bad registry data breaks discovery everywhere.
 
 ## 2. Entry points
-- **Routes:** `/admin/content` (tabs: banners, faqs, announcements, reviews), `/admin/localities`
+- **Routes:** `/admin/content` (FAQs only; banners and announcements were retired, D303), `/admin/localities`
   (tabs: pending, directory), `/admin/societies` (tabs: claims, residents, candidates, directory, moderation).
 - **Tiles / triggers:** Content per-tab Add/Edit/Archive/Restore + review Approve/Reject; Localities 3 KPI
   cards (Localities / Pending review / Curated) that jump to a tab, plus per-row Verify/Dismiss; Societies
   per-tab decision buttons. Dashboard "New announcement" quick action links to `/admin/content`.
 - **Source components:**
-  - `src/pages/admin/AdminContent.jsx` - banners/faqs/announcements/reviews CRUD + archive + review moderation.
+  - `src/pages/admin/AdminContent.jsx` - FAQ CRUD + archive + review moderation.
   - `src/pages/admin/AdminLocalities.jsx` - community-locality pending/directory + verify/dismiss.
   - `src/pages/admin/AdminSocieties.jsx` + `societies/*.jsx` - claims, residents, candidates, directory, moderation.
 
@@ -30,14 +30,12 @@
 - **Operator = admin** holding the relevant atoms (`content:*`, `localities:*`, `societies:*`).
   The seed custom role `CR_content` that used to bundle them was retired with the rest (D209): the
   bundles were a widening union the server could never honour, so they granted nothing.
-- Content tabs are individually flag-gated (`content.enabled` gates the whole page; `content.banners`,
-  `content.faqs`, `content.announcements`, `content.reviews` gate each tab). Localities/Societies have no per-tab flags.
+- `content.enabled` gates the Content page. Localities/Societies have no per-tab flags.
 - `by = user.name || 'Admin'` stamps verifications; guards are UX-only mock RBAC
   ([`../../system/cross-cutting.md`](../../system/cross-cutting.md) section 1).
 
 ## 4. Entities touched
-- [`banners`](../../system/data-model.md), [`faqs`](../../system/data-model.md),
-  [`announcements`](../../system/data-model.md) - **read / created / updated / archived / restored**.
+- [`faqs`](../../system/data-model.md) - **read / created / updated / archived / restored**.
 - [`reviews`](../../system/data-model.md) - **read / updated** (`status` publish/reject) / **archived / restored**.
 - [`localities`](../../system/data-model.md) - **read** (curated + community); community records **updated** (`tier`) or **removed**.
 - Societies: static `societies.js` catalog (**read**) plus localStorage-backed overlays (claims, resident
@@ -51,18 +49,15 @@
 ## 5. Business rules & logic  *(the meat)*
 
 ### 5.1 Content - collections and blank templates
-Tabs: banners, faqs, announcements, reviews. Blank templates:
-- Banner: `{ title, sub, cta:'View', href:'/listings', theme:'teal', active:true }`.
-- FAQ: `{ q, a, cat:'general', active:true }`.
-- Announcement: `{ title, body, audience:'all', active:true }` (audience: all / owners / seekers / staff).
+FAQs only. Blank template: `{ question, answer, category:'general' }`.
 Each active/archived split is `filter(x => !x.archived)` vs `x.archived`.
 
 ### 5.2 Content - create / edit / active toggle
 - **Save (new):** id = `` `${kind[0]}${Date.now()}` ``, appended, persisted via `saveCollection(col, list)`
   (`mutateDb(db => db[col] = list)`); audit `Added <kind> "<title|q>"` (sliced to 80 chars).
 - **Save (edit):** merges `editData` into the matching id; audit `Updated <kind> <id>`.
-- **Active toggle:** flips `active` in state and in the db item (banners/faqs/announcements) - controls public visibility.
-- Modal fields: banner edits title/sub/cta/href/theme + active; FAQ edits q/a/cat; announcement edits title/body/audience + active.
+- **Active toggle:** flips `active` in state and in the db item (faqs) - controls public visibility.
+- Modal fields: FAQ edits question/answer/category.
 
 ### 5.3 Content - archive / restore (soft delete)
 > **Historical.** The archive/restore controls below were localStorage-only and have been removed
@@ -137,7 +132,7 @@ Each decision logs `Societies` audit and re-reads via a `bump` counter.
   See the shared pattern in [`../../system/cross-cutting.md`](../../system/cross-cutting.md) section 2.
 
 ## 7. State machine
-- **Content item (banner/faq/announcement):** `active <-> inactive`; orthogonal `archived (soft-deleted) <-> restored`. No hard delete.
+- **Content item (faq):** `active <-> inactive`; orthogonal `archived (soft-deleted) <-> restored`. No hard delete.
 - **Review:** `pending -> published | rejected` (re-decidable), plus `archived <-> restored`.
 - **Community locality:** `community (pending) -> curated (verified)` [terminal for promotion] or `dismissed (removed)`.
 - **Society claim:** `pending -> approved (claimed) | rejected`. **Resident:** `pending -> verified | rejected`
@@ -150,5 +145,5 @@ Each decision logs `Societies` audit and re-reads via a `bump` counter.
 - **Confirmations:** archive/restore use `window.confirm` (+ optional note prompt) - blocking browser dialogs.
 - **Locality dismiss caveat:** the slug stays resolvable in-memory until reload after dismissal (documented, harmless).
 - **Society guards:** duplicate claim (`'exists'`) and resident unit conflict (`'conflict'`) surface as error toasts.
-- **Empty states:** "No banners/FAQs/announcements/reviews yet", "No community localities awaiting review", etc.
+- **Empty states:** "No FAQs yet", "No community localities awaiting review", etc.
 - **Concurrency:** shared store / localStorage, last write wins.

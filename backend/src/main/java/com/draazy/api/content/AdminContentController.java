@@ -14,24 +14,12 @@ import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
-/**
- * CMS authoring (contract tag {@code Admin &amp; Analytics}, five operations).
- *
- * <p>Staff and admin both, because keeping the FAQ list current is ops work, not a privileged one.
- * The class-level {@code @PreAuthorize} is what enforces that — {@code SecurityConfig} only
- * requires authentication for {@code /admin/**}, and a per-method annotation on five methods is
- * five chances to forget one.
- *
- * <p><strong>The per-account atoms (D192/D13) do have to be per method</strong>, because the split
- * they exist to express is read from write and that is not a property of the class. Each method
- * annotation therefore repeats the role term: a method-level {@code @PreAuthorize} replaces the
- * class-level one rather than adding to it, so dropping the role here would have quietly turned the
- * narrowing into a substitution — the exact failure the whole slice is written to prevent. The
- * class-level annotation is kept as the answer for any method added without one.
- */
+/** Staff and admin both: {@code SecurityConfig} only requires authentication on {@code /admin/**}. A method-level
+ * {@code @PreAuthorize} replaces the class one, so per-method atoms must repeat the role term. */
 @RestController
 @PreAuthorize("hasAnyRole('" + Roles.STAFF + "', '" + Roles.ADMIN + "')")
 public class AdminContentController {
@@ -52,8 +40,10 @@ public class AdminContentController {
     /** {@code GET /admin/content/{type}} (contract {@code adminListContent}). */
     @GetMapping(Routes.Admin.CONTENT)
     @PreAuthorize(CONTENT_READ)
-    public List<ContentItem> list(@PathVariable String type) {
-        return service.list(type);
+    public List<ContentItem> list(@PathVariable String type,
+            @RequestParam(required = false) Boolean archived,
+            @RequestParam(defaultValue = "false") boolean translations) {
+        return service.list(type, archived, translations);
     }
 
     /** {@code POST /admin/content/{type}} (contract {@code adminCreateContent}). */

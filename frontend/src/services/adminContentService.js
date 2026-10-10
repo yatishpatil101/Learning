@@ -3,9 +3,6 @@ import { createProvider } from './config.js';
 
 const provider = createProvider('adminContent');
 
-/** The four types the API manages. Anything else is a 400 from the server, not a silent empty list. */
-export const CONTENT_TYPES = ['announcements', 'services', 'faqs', 'banners'];
-
 /** The console's edit modal is seeded with the whole row, and posting that back hands the server four fields
  * `ContentWrite` does not accept. */
 const SERVER_OWNED = ['id', 'type', 'archived', 'createdAt'];
@@ -16,9 +13,9 @@ const writable = (body) => {
   return out;
 };
 
-/** Every row of one type, archived ones included and told apart by `archived` rather than fetched separately — the
- * console shows both at once, and two requests would let the two halves disagree about the same row mid-edit. */
-export const listContent = async (type) => (await provider()).listContent(type);
+/** One half of one type: `archived: false` the live rows, `true` the archived ones; omitted, both. Rows carry no
+ * translations unless `translations: true`. */
+export const listContent = async (type, opts) => (await provider()).listContent(type, opts);
 
 export const createContent = async (type, body) => (await provider()).createContent(type, writable(body));
 

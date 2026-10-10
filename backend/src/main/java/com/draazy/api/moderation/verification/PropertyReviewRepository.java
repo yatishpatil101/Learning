@@ -23,18 +23,8 @@ public interface PropertyReviewRepository extends JpaRepository<PropertyReview, 
             """, nativeQuery = true)
     Integer lockCaseFileFor(@Param("propertyId") UUID propertyId);
 
-    @Query("""
-            select r from PropertyReview r
-            order by r.lastMessageAt desc, r.id desc
-            """)
-    Page<PropertyReview> findAllForDesk(Pageable pageable);
-
-    @Query("""
-            select r from PropertyReview r
-            where r.status = :status
-            order by r.lastMessageAt desc, r.id desc
-            """)
-    Page<PropertyReview> findAllForDeskByStatus(@Param("status") String status, Pageable pageable);
+    @Query("select count(m) > 0 from ReviewMessage m where m.review.id = :reviewId and m.internal = true and m.body = :body")
+    boolean hasInternalNote(@Param("reviewId") UUID reviewId, @Param("body") String body);
 
     @Query("""
             select r from PropertyReview r

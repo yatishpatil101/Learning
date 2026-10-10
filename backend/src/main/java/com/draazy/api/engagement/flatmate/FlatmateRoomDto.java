@@ -70,8 +70,6 @@ public record FlatmateRoomDto(
     public record Host(
             FlatmateRoomDetails details,
             Map<String, Object> agreementDoc,
-            String agreementRegNo,
-            LocalDate agreementRegisteredOn,
             LocalDate agreementValidTill,
             String ownerConsentMobile) {
     }
