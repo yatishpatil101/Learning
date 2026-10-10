@@ -5,7 +5,7 @@ import Icon from '../../../../components/Icon.jsx';
 import MobileField from '../../../../components/MobileField.jsx';
 import Field from '../../../../components/ui/Field.jsx';
 import { pickDoc } from './helpers.js';
-import { coOwnerDocSlots } from './validation.js';
+import { coOwnerDocSlots, dupMessageKey } from './validation.js';
 import { COMMERCIAL_ROUTE } from './constants.js';
 import PoaFields from './PoaFields.jsx';
 import UploadBox from './UploadBox.jsx';
@@ -20,7 +20,7 @@ export default function CoOwnerBlock({ index, row, set, remove, errors, fc, clea
     className: fc(p + k),
     ...extra,
   });
-  const why = (k, fallback) => t(errors[p + k] === 'dup' ? (k === 'mobile' ? 'services.ra.err.dupMobile' : 'services.ra.err.dupAadhaar') : fallback);
+  const why = (k, fallback) => t(errors[p + k] === 'dup' ? dupMessageKey(k) : fallback);
   const offline = row.residency === 'nri' || row.residency === 'foreign';
   return (
     <div className="bg-white/4 border border-white/8 rounded-xl p-4" data-testid={`co-owner-${index}`}>
@@ -53,7 +53,7 @@ export default function CoOwnerBlock({ index, row, set, remove, errors, fc, clea
           <Field label={t('services.ra.owner.age')} required error={errors[p + 'age'] && (t(errors[p + 'age'] === 'match' ? 'services.ra.err.ageDob' : 'services.ra.err.adult'))}><input inputMode="numeric" {...input('age')} onChange={(e) => { set('age', e.target.value.replace(/\D/g, '')); clearErr(p + 'age'); }} placeholder={t('services.ra.owner.agePlaceholder')} /></Field>
           <Field label={t('services.ra.owner.gender')}><NativeSelect value={row.gender} onChange={(e) => set('gender', e.target.value)} className="field w-full px-4 py-3 rounded-xl text-white text-sm"><option value="">{t('services.ra.owner.genderPlaceholder')}</option>{['Male', 'Female', 'Other'].map((o) => <option key={o}>{o}</option>)}</NativeSelect></Field>
         </div>
-        <Field label={t('services.ra.owner.pan')} required error={errors[p + 'pan'] && t('services.ra.owner.panErr')}><input maxLength={10} {...input('pan')} onChange={(e) => { set('pan', e.target.value.toUpperCase()); clearErr(p + 'pan'); }} className={fc(p + 'pan') + ' uppercase'} placeholder="ABCDE1234F" /></Field>
+        <Field label={t('services.ra.owner.pan')} required error={errors[p + 'pan'] && why('pan', 'services.ra.owner.panErr')}><input maxLength={10} {...input('pan')} onChange={(e) => { set('pan', e.target.value.toUpperCase()); clearErr(p + 'pan'); }} className={fc(p + 'pan') + ' uppercase'} placeholder="ABCDE1234F" /></Field>
         {offline ? (
           <>
             <Field label={t('services.ra.party.passport')} required error={errors[p + 'passport'] && t('services.ra.party.passportErr')}><input maxLength={20} {...input('passport')} onChange={(e) => { set('passport', e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '')); clearErr(p + 'passport'); }} placeholder={t('services.ra.party.passportPlaceholder')} /></Field>

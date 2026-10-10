@@ -4,6 +4,7 @@ import com.draazy.api.billing.plan.Plan;
 import com.draazy.api.billing.plan.SubscriptionService;
 import com.draazy.api.billing.referral.ReferralRepository;
 import com.draazy.api.common.settings.PlatformSettings;
+import com.draazy.api.common.trust.AgreementCreditUsageLookup;
 import com.draazy.api.common.trust.ContactAllowanceLookup;
 import com.draazy.api.common.trust.ContactUsageLookup;
 import com.draazy.api.common.trust.ListingAllowanceLookup;
@@ -32,14 +33,17 @@ public class EntitlementService implements ContactAllowanceLookup, ListingAllowa
     private final ContactUsageLookup usage;
     private final PlatformSettings settings;
     private final ListingSlotLookup slots;
+    private final AgreementCreditUsageLookup agreementCredits;
 
     public EntitlementService(SubscriptionService subscriptions, ReferralRepository referrals,
-            ContactUsageLookup usage, PlatformSettings settings, ListingSlotLookup slots) {
+            ContactUsageLookup usage, PlatformSettings settings, ListingSlotLookup slots,
+            AgreementCreditUsageLookup agreementCredits) {
         this.subscriptions = subscriptions;
         this.referrals = referrals;
         this.usage = usage;
         this.settings = settings;
         this.slots = slots;
+        this.agreementCredits = agreementCredits;
     }
 
     /** Computes both together to avoid running two queries twice. */
@@ -68,10 +72,21 @@ public class EntitlementService implements ContactAllowanceLookup, ListingAllowa
         ListingEntitlementDto listings = new ListingEntitlementDto(
                 listingBase + listingBonus, listingBonus, slots.listingSlotsHeld(userId));
 
-        AgreementEntitlementDto agreements = new AgreementEntitlementDto(
-                Math.toIntExact(granting / REFERRALS_PER_FREE_AGREEMENT));
+        AgreementEntitlementDto agreements = agreementsOf(userId, granting);
 
         return new EntitlementsDto(contacts, listings, agreements);
+    }
+
+    /** Spendable at rent-agreement checkout; zero when every earned credit is already held by a request. */
+    @Transactional(readOnly = true)
+    public int freeAgreementsRemaining(UUID userId) {
+        return agreementsOf(userId, referrals.countGrantingFor(userId)).remaining();
+    }
+
+    private AgreementEntitlementDto agreementsOf(UUID userId, long granting) {
+        int earned = Math.toIntExact(granting / REFERRALS_PER_FREE_AGREEMENT);
+        int used = Math.toIntExact(agreementCredits.agreementCreditsHeld(userId));
+        return new AgreementEntitlementDto(earned, used, Math.max(0, earned - used));
     }
 
     /** Ceiling-only path for the listing gate; skips the contact and agreement halves. */

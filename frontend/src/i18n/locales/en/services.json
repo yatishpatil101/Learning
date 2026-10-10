@@ -738,6 +738,7 @@
         "registrationFee": "Registration Fee",
         "serviceFee": "Draazy Service Fee",
         "gst": "GST",
+        "referralWaiver": "Free with your referral reward (\u2212{{amount}})",
         "estimatedTotal": "Estimated Total",
         "totalPayable": "Total Payable",
         "loading": "Loading current charges\u2026",
@@ -883,6 +884,7 @@
       },
       "checkoutFailed": "We saved your request but couldn't open payment. Please try again.",
       "identitiesRetry": "We saved your request but couldn't send the PAN and Aadhaar details. Please try again.",
+      "identitiesDuplicate": "A PAN or Aadhaar entered here is already on this agreement for another party. Each person needs their own — please correct it and submit again.",
       "checkoutIncomplete": "We saved your request, but it is not ready for payment yet: {{detail}}",
       "detailsRejected": "We couldn't save the agreement details: {{detail}}",
       "declined": {
@@ -918,6 +920,7 @@
         "docRequired": "This document is required for registration.",
         "dupAadhaar": "This Aadhaar is already entered for another party. Each person needs their own.",
         "dupMobile": "This mobile is already used by another party. Each person needs their own.",
+        "dupPan": "This PAN is already entered for another party. Each person needs their own.",
         "email": "Enter a valid email address."
       },
       "doneInviteTitle_owner": "Request sent to the owner!",

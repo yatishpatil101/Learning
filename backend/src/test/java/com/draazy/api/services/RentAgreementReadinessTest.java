@@ -402,6 +402,18 @@ class RentAgreementReadinessTest extends ServiceFixtures {
         }
 
         @Test
+        @DisplayName("the invited side cannot reuse a PAN or Aadhaar the requester already recorded, whatever the PAN's case")
+        void invitedSideCannotRepeatANumber() throws Exception {
+            User owner = customer("9820000786");
+            User tenant = customer("9820000787");
+            String id = coFill(owner, tenant, "," + PROP + "," + WITNESSES + "," + TERMS);
+            identities(owner, id, parties(owner(0, OWNER_AADHAAR), witnesses()), 204);
+
+            identities(tenant, id, parties(party("tenant", 0, TENANT_AADHAAR, "abcde1234f")), 422);
+            identities(tenant, id, parties(tenant(OWNER_AADHAAR)), 422);
+        }
+
+        @Test
         @DisplayName("the invited side writes only its own half; the licensor, flat, terms and witnesses stay the requester's")
         void invitedSideWritesOnlyItsOwnHalf() throws Exception {
             User owner = customer("9820000742");

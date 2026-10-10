@@ -80,17 +80,20 @@ test.describe('Rent Agreement — what the Sub-Registrar will refuse is refused 
     const tenantAge = t.getByPlaceholder('e.g. 29').first();
     await t.getByPlaceholder('12-digit Aadhaar').fill(AADHAAR.owner);
     await t.getByPlaceholder('10-digit mobile').fill(MOBILE.owner);
+    await t.getByPlaceholder('ABCDE1234F').first().fill('abcde1234f');
     await tenantAge.fill('');
 
     await clickNext(page);
     await stillOn(page, 2);
     await expect(t.getByText(/This Aadhaar is already entered for another party/)).toBeVisible();
     await expect(t.getByText(/This mobile is already used by another party/)).toBeVisible();
+    await expect(t.getByText(/This PAN is already entered for another party/), 'PAN case does not hide a repeat').toBeVisible();
     await expect(t.getByText(DOC_REQUIRED)).toHaveCount(4);
     await expect(t.getByText(AGE_ERR)).toBeVisible();
 
     await t.getByPlaceholder('12-digit Aadhaar').fill(AADHAAR.tenant);
     await t.getByPlaceholder('10-digit mobile').fill(MOBILE.tenant);
+    await t.getByPlaceholder('ABCDE1234F').first().fill('PQRSX6789K');
     await uploadAll(t, 'tenant-doc');
     await clickNext(page);
     await stillOn(page, 2);

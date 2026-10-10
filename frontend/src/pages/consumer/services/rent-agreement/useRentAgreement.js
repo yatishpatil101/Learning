@@ -14,6 +14,7 @@ import { docReady, stepErrors as formStepErrors, startDateBounds } from './valid
 import { collectDocs as collectFormDocs, draftDocRefs, removeIndexedDocs, slotForCategory } from './documents.js';
 import { useRaFurniture } from './useRaFurniture.js';
 import { useRaPayment } from './useRaPayment.js';
+import { useEntitlements } from '../../property/useEntitlements.js';
 import { getDealFees } from '../../../../services/feesService.js';
 import { leaveLicenceStamp } from '../../../../lib/toolCalc.js';
 import { myListing, myListings } from '../../../../services/propertyService.js';
@@ -72,6 +73,8 @@ export function useRentAgreement() {
   // Invite mode
   const [mode, setMode] = useState('owner');
   const [inviteCtx, setInviteCtx] = useState(null);
+  const { entitlements, refresh: refreshEntitlements } = useEntitlements(isIn && !inviteCtx);
+  const referralCredit = (entitlements?.agreements?.remaining ?? 0) >= 1;
   const [inviteError, setInviteError] = useState(null);
   /* The owner's own listings, for the "pick one of your properties" shortcut and the `?listing=` prefill. */
   const [selectedPropertyId, setSelectedPropertyId] = useState(null);
@@ -246,7 +249,7 @@ export function useRentAgreement() {
     setPaying(true);
     try {
       const checkout = await openServiceRequestCheckout(payable.id, DECLARATION_VERSION);
-      const status = await payAndConfirm(checkout, Number(payable.amount) || null);
+      const status = await payAndConfirm(checkout, referralCredit ? null : Number(payable.amount) || null);
       if (mountedRef.current && status === 'cancelled') toast(tr('services.ra.checkoutFailed'), 'error');
       else if (mountedRef.current && status && status !== 'awaiting_payment') toast(tr('services.ra.pay.paid'), 'success');
     } catch (err) {
@@ -254,6 +257,7 @@ export function useRentAgreement() {
       if (mountedRef.current) toast(err?.status === 409 && err?.message ? tr('services.ra.checkoutIncomplete', { detail: err.message }) : tr('services.ra.checkoutFailed'), 'error');
     } finally {
       payingRef.current = false;
+      refreshEntitlements();
       if (mountedRef.current) { setPaying(false); setRequestsNonce((n) => n + 1); }
     }
   };
@@ -483,15 +487,16 @@ export function useRentAgreement() {
     const dhc = 300;
     const service = feeRow.platformFee;
     const gst = feeRow.gst;
+    const waived = referralCredit ? service + gst : 0;
     return {
       ...answers,
-      stamp, reg, dhc, service, gst,
-      total: service + stamp + reg + dhc + gst,
+      stamp, reg, dhc, service, gst, waived,
+      total: service + stamp + reg + dhc + gst - waived,
       computed,
       notes: feeRow.notes || null,
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- retryFees is a stable state increment
-  }, [terms.rent, terms.deposit, terms.nrDeposit, terms.months, terms.increment, terms.incrementEvery, regArea, feeStatus, feeRow]);
+  }, [terms.rent, terms.deposit, terms.nrDeposit, terms.months, terms.increment, terms.incrementEvery, regArea, feeStatus, feeRow, referralCredit]);
   // Built outside `generate` so the size guard below measures the object that will be posted.
 
   const propertyLine = () =>[prop.flatNo, prop.society, prop.locality, prop.city].filter(Boolean).join(', ');
@@ -789,15 +794,16 @@ export function useRentAgreement() {
   // Never log the payload of an identities call: its body is a set of Aadhaar numbers.
 
   const handOff = async (requestId, parties, docs) => {
-    let identitiesOk = true;
+    let identitiesError = null;
     try {
       await recordServiceRequestIdentities(requestId, parties);
     } catch (err) {
       console.error('Rent Agreement identity hand-off failed', err?.status || err?.message);
-      identitiesOk = false;
+      // Formats are checked before submit, so a 422 here is a number another party (often a co-filler) already holds.
+      identitiesError = err?.status === 422 ? 'services.ra.identitiesDuplicate' : 'services.ra.identitiesRetry';
     }
     const docsOk = await uploadDocs(requestId, docs);
-    if (!identitiesOk) return tr('services.ra.identitiesRetry');
+    if (identitiesError) return tr(identitiesError);
     if (docsOk === 'reattach') return tr('services.ra.docsReattach');
     if (!docsOk) return tr('services.ra.docsRetry');
     return null;
@@ -814,7 +820,8 @@ export function useRentAgreement() {
       console.error('Rent Agreement checkout refused', err?.status);
       return err?.status === 409 && err?.message ? tr('services.ra.checkoutIncomplete', { detail: err.message }) : tr('services.ra.checkoutFailed');
     }
-    await payAndConfirm(checkout, cost.total);
+    await payAndConfirm(checkout, referralCredit ? null : cost.total);
+    refreshEntitlements();
     return null;
   };
 

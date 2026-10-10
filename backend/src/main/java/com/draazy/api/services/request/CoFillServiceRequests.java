@@ -29,6 +29,7 @@ public class CoFillServiceRequests {
     private final Notifier notifier;
     private final PaymentGateway gateway;
     private final TransactionTemplate transactions;
+    private final ServiceRequestReferralCredit referralCredit;
 
     public CoFillServiceRequests(ServiceRequestRepository requests,
             ServiceRequestPartyRepository partyRows,
@@ -39,7 +40,8 @@ public class CoFillServiceRequests {
             RentAgreementReadiness readiness,
             Notifier notifier,
             PaymentGateway gateway,
-            PlatformTransactionManager transactionManager) {
+            PlatformTransactionManager transactionManager,
+            ServiceRequestReferralCredit referralCredit) {
         this.requests = requests;
         this.partyRows = partyRows;
         this.parties = parties;
@@ -50,6 +52,7 @@ public class CoFillServiceRequests {
         this.notifier = notifier;
         this.gateway = gateway;
         this.transactions = new TransactionTemplate(transactionManager);
+        this.referralCredit = referralCredit;
     }
 
     @Transactional
@@ -165,7 +168,11 @@ public class CoFillServiceRequests {
         if (openOrder != null) {
             return resumeCheckout(caller, id, openOrder);
         }
-        PaymentGateway.PaymentOrder order = serviceRequests.openOrderFor(caller, ready);
+        ServiceRequest payable = transactions.execute(tx -> spendReferralCredit(caller, id));
+        if (payable.getStatus() != ServiceRequestStatus.AWAITING_PAYMENT) {
+            return transactions.execute(tx -> mapper.toDto(serviceRequests.visible(caller, id), caller));
+        }
+        PaymentGateway.PaymentOrder order = serviceRequests.openOrderFor(caller, payable);
         return transactions.execute(tx -> {
             ServiceRequest request = checkoutable(caller, id);
             if (!request.attachOrder(order.orderId())) {
@@ -173,6 +180,20 @@ public class CoFillServiceRequests {
             }
             return mapper.toDto(requests.saveAndFlush(request), caller).withPaymentSessionId(order.paymentSessionId());
         });
+    }
+
+    // A fully waived request has no gateway order to wait for, so it is settled as a paid one would be.
+    private ServiceRequest spendReferralCredit(AuthPrincipal caller, String id) {
+        ServiceRequest request = checkoutable(caller, id);
+        if (referralCredit.spend(request)) {
+            serviceRequests.recordBy(request, "referral-credit.applied", caller.userId());
+            if (request.getAmount() == 0) {
+                serviceRequests.transition(request, ServiceRequestStatus.NEW);
+                serviceRequests.record(request, "payment.waived", null);
+            }
+            requests.saveAndFlush(request);
+        }
+        return request;
     }
 
     private ServiceRequestDto resumeCheckout(AuthPrincipal caller, String id, String orderId) {

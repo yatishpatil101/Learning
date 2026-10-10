@@ -39,7 +39,7 @@ export function useRaPayment({ tr, toast }) {
   });
 
   const payAndConfirm = async (checkout, expectedTotal) => {
-    if (!checkout?.paymentSessionId) return;
+    if (!checkout?.paymentSessionId) return checkout?.status;
     const charged = Number(checkout.amount);
     if (Number.isFinite(charged) && charged > 0 && expectedTotal != null && charged !== expectedTotal) {
       toast(tr('services.ra.cost.chargedDiffers', { amount: fmt(charged) }), 'info');

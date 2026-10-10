@@ -25,7 +25,7 @@ Share the link rather than the code where you can — a friend who follows it ha
 | Track | Trigger | Reward |
 | --- | --- | --- |
 | Searching | Each qualified referral | **+15 owner contacts** |
-| Letting | Every 3 qualified referrals | **1 free rent agreement** |
+| Letting | Every 3 qualified referrals | **1 free rent agreement** (Draazy fee + GST; government charges still apply) |
 | Letting | Every 3 qualified referrals | **1 extra listing slot** |
 
 You are on both tracks at once — they are three offers sitting on the same referrals, not a choice you make.
@@ -45,7 +45,7 @@ Rewards are recalculated from your referral list every time you look, not banked
 
 - **Owner contacts** — folded into your allowance on the [Plans page](/plans). See [Contacting owners](/help/a/contacting-owners) for how contacts are counted.
 - **Listing slots** — you can simply post another property.
-- **Free rent agreements** — counted on the [Refer a friend](/refer) page. The rent agreement checkout does not deduct them automatically, so [contact Support](/support) before you pay for one.
+- **Free rent agreements** — counted on the [Refer a friend](/refer) page as earned minus used. When you pay for a rent agreement with one available, checkout waives the Draazy service fee and its GST automatically and shows "Free with your referral reward"; stamp duty, registration and other government charges are still payable. If you cancel that request, the reward is returned. If a referral is later found fraudulent after you have used its reward, the agreement already delivered stays yours.
 
 ## If a code does not work
 

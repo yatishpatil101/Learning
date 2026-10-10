@@ -55,9 +55,9 @@ export default function Refer() {
     return () => { alive = false; };
   }, []);
   const contacts = ent?.contacts?.referralBonus ?? 0;
-  /* `agreements.free` is derived per request from the qualified
-     referrals, so a clawback can't leave the perk behind. */
-  const free = ent?.agreements?.free ?? 0;
+  /* `remaining` is earned minus agreements already paid with a credit; both are derived per
+     request, so a clawback can't leave the perk behind. */
+  const free = ent?.agreements?.remaining ?? ent?.agreements?.free ?? 0;
   const bonusSlots = ent?.listings?.referralBonus ?? 0;
   const left = ent?.contacts?.unlimited ? null : (ent?.contacts?.remaining ?? null);
   const listings = ent?.listings;
@@ -295,22 +295,6 @@ export default function Refer() {
             </div>
           </div>
           )}
-        </div>
-      </section>
-
-      {/* Move-in guarantee */}
-      <section className="glass rounded-2xl p-5 sm:p-7" style={{ borderColor: 'rgb(var(--dz-c-emerald-500) / .3)', background: 'linear-gradient(135deg,rgb(var(--dz-c-emerald-500) / .08),rgb(var(--dz-c-teal-500) / .05))' }}>
-        <div className="flex flex-col sm:flex-row items-start gap-5">
-          <div className="w-14 h-14 rounded-2xl bg-emerald-500/15 flex items-center justify-center flex-shrink-0"><Icon name="shield-check" className="w-7 h-7 text-emerald-400" /></div>
-          <div>
-            <h2 className="text-xl font-bold mb-1">{t('misc1.referGuaranteeTitle')}</h2>
-            <p className="text-gray-300 text-sm leading-relaxed mb-3">{t('misc1.referGuaranteeBody1')}<b>{t('misc1.referVerified')}</b>{t('misc1.referGuaranteeBody2')}<b>{t('misc1.referNextAgreementFree')}</b>{t('misc1.referGuaranteeBody3')}</p>
-            <div className="flex flex-wrap gap-2">
-              <span className="text-xs px-3 py-1 rounded-full bg-white/5 border border-white/10 text-gray-300">{t('misc1.referTagVerifiedOnly')}</span>
-              <span className="text-xs px-3 py-1 rounded-full bg-white/5 border border-white/10 text-gray-300">{t('misc1.referTagReport7Days')}</span>
-              <span className="text-xs px-3 py-1 rounded-full bg-white/5 border border-white/10 text-gray-300">{t('misc1.referTagNoQuestions')}</span>
-            </div>
-          </div>
         </div>
       </section>
     </div>

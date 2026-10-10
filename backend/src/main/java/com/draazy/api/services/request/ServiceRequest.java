@@ -60,6 +60,9 @@ public class ServiceRequest extends VersionedEntity {
     @Column(name = "payment_ref")
     private String paymentRef;
 
+    @Column(name = "referral_credit", nullable = false)
+    private boolean referralCredit;
+
     protected ServiceRequest() {
 
     }
@@ -88,6 +91,11 @@ public class ServiceRequest extends VersionedEntity {
     void awaitPayment(long amount) {
         this.status = ServiceRequestStatus.AWAITING_PAYMENT;
         this.amount = amount;
+    }
+
+    void spendReferralCredit(long amountAfterWaiver) {
+        this.referralCredit = true;
+        this.amount = amountAfterWaiver;
     }
 
     // Never overwrite an order ref; displaced payable orders would lose their request.

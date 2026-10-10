@@ -62,22 +62,23 @@ const blank = (v) => !String(v ?? '').trim();
 const wholeIn = (v, lo, hi) => /^\d+$/.test(String(v).trim()) && Number(v) >= lo && Number(v) <= hi;
 const passportOk = (v) => /^[A-Za-z0-9]{6,20}$/.test(String(v || '').trim());
 
-/* Mobiles and Aadhaars of everyone on the agreement, as [errorKey, value] pairs in form order, so a duplicate is
-   pinned on the later field — the one the customer just typed. */
+/* Mobiles, Aadhaars and PANs of everyone on the agreement, as [errorKey, value] pairs in form order, so a duplicate
+   is pinned on the later field — the one the customer just typed. */
 const licensorIds = ({ owner, coOwners = [], ownerMode, invite }) => (ownerMode === 'invite'
-  ? [{ m: ['invMobile', invite?.invMobile], a: ['invAadhaar', ''] }]
+  ? [{ m: ['invMobile', invite?.invMobile], a: ['invAadhaar', ''], pan: ['invPan', ''] }]
   : [
-  { m: ['oMobile', owner?.oMobile], a: ['oAadhaar', owner?.oAadhaar] },
-  ...coOwners.map((c, i) => ({ m: [`c${i}mobile`, c.mobile], a: [`c${i}aadhaar`, c.aadhaar] })),
+  { m: ['oMobile', owner?.oMobile], a: ['oAadhaar', owner?.oAadhaar], pan: ['oPan', owner?.oPan] },
+  ...coOwners.map((c, i) => ({ m: [`c${i}mobile`, c.mobile], a: [`c${i}aadhaar`, c.aadhaar], pan: [`c${i}pan`, c.pan] })),
 ]);
-const tenantIds = ({ tenants = [] }) => tenants.map((t, i) => ({ m: [`t${i}mobile`, t.mobile], a: [`t${i}aadhaar`, t.aadhaar] }));
-const witnessIds = ({ wit = {} }) => [1, 2].map((n) => ({ m: [`w${n}Mobile`, wit[`w${n}Mobile`]], a: [`w${n}Aadhaar`, wit[`w${n}Aadhaar`]] }));
+const tenantIds = ({ tenants = [] }) => tenants.map((t, i) => ({ m: [`t${i}mobile`, t.mobile], a: [`t${i}aadhaar`, t.aadhaar], pan: [`t${i}pan`, t.pan] }));
+const witnessIds = ({ wit = {} }) => [1, 2].map((n) => ({ m: [`w${n}Mobile`, wit[`w${n}Mobile`]], a: [`w${n}Aadhaar`, wit[`w${n}Aadhaar`]], pan: [`w${n}Pan`, ''] }));
 
-const flagDuplicates = (e, before, mine, pick) => {
-  const seen = new Set(before.map((p) => digits(pick(p)[1])).filter(Boolean));
+const panKey = (v) => String(v || '').trim().toUpperCase();
+const flagDuplicates = (e, before, mine, pick, norm = digits) => {
+  const seen = new Set(before.map((p) => norm(pick(p)[1])).filter(Boolean));
   mine.forEach((p) => {
     const [key, raw] = pick(p);
-    const v = digits(raw);
+    const v = norm(raw);
     if (!v) return;
     if (seen.has(v) && !e[key]) e[key] = 'dup';
     seen.add(v);
@@ -86,7 +87,9 @@ const flagDuplicates = (e, before, mine, pick) => {
 const distinctParties = (e, before, mine) => {
   flagDuplicates(e, before, mine, (p) => p.m);
   flagDuplicates(e, before, mine, (p) => p.a);
+  flagDuplicates(e, before, mine, (p) => p.pan, panKey);
 };
+export const dupMessageKey = (key) => `services.ra.err.${/mobile$/i.test(key) ? 'dupMobile' : /pan$/i.test(key) ? 'dupPan' : 'dupAadhaar'}`;
 
 const checkPoa = (e, prefix, row, today) => {
   if (row?.capacity !== 'poa') return;

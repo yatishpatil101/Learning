@@ -63,7 +63,7 @@ public class ServiceRequestPricing {
         return platformFee + settings.gstOn(platformFee) + statutory(details);
     }
 
-    private long statutory(Map<String, Object> details) {
+    long statutory(Map<String, Object> details) {
         LeaveAndLicenceCharges.Terms terms = leaveAndLicenceTerms(details);
         if (terms != null) {
             return LeaveAndLicenceCharges.on(terms).total();

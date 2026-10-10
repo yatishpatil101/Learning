@@ -6,7 +6,7 @@ import MobileField from '../../../../components/MobileField.jsx';
 import Field from '../../../../components/ui/Field.jsx';
 import { COMMERCIAL_ROUTE, MAX_TENANTS } from './constants.js';
 import { pickDoc } from './helpers.js';
-import { tenantDocSlots } from './validation.js';
+import { dupMessageKey, tenantDocSlots } from './validation.js';
 import UploadBox from './UploadBox.jsx';
 import IdentityReminderNote from './IdentityReminderNote.jsx';
 import PartyIdentityFields from './PartyIdentityFields.jsx';
@@ -14,7 +14,7 @@ import TenantPoliceRecord from './TenantPoliceRecord.jsx';
 
 export default function StepTenant({ step, canInvite, tenantMode, setTenantMode, tenants, setTenant, removeTenant, addTenant, errors, clearErr, tenantDocs, setTenantDocs, invite, setInvite, identityReminders }) {
   const { t: tr } = useTranslation();
-  const why = (k, fallback) => tr(errors[k] === 'dup' ? (k.endsWith('mobile') || k === 'invMobile' ? 'services.ra.err.dupMobile' : 'services.ra.err.dupAadhaar') : fallback);
+  const why = (k, fallback) => tr(errors[k] === 'dup' ? dupMessageKey(k) : fallback);
   return (
     <div className={'step-panel' + (step === 2 ? ' active' : '')}>
       <div className="flex items-center justify-between mb-1">
@@ -72,7 +72,7 @@ export default function StepTenant({ step, canInvite, tenantMode, setTenantMode,
                   </div>
                   <Field label={tr('services.ra.tenant.occupation')}><input value={t.occupation} onChange={(e) => setTenant(i, 'occupation', e.target.value)} className="field w-full px-4 py-3 rounded-xl text-white text-sm" placeholder={tr('services.ra.tenant.occupationPlaceholder')} /></Field>
                   <Field label={tr('services.ra.tenant.relation')}><input value={t.relation} onChange={(e) => setTenant(i, 'relation', e.target.value)} className="field w-full px-4 py-3 rounded-xl text-white text-sm" placeholder={tr('services.ra.tenant.relationPlaceholder')} /></Field>
-                  <Field label={tr('services.ra.tenant.pan')} required error={errors['t' + i + 'pan'] && tr('services.ra.tenant.panErr')}><input maxLength={10} value={t.pan} onChange={(e) => { setTenant(i, 'pan', e.target.value.toUpperCase()); clearErr('t' + i + 'pan'); }} className={'field w-full px-4 py-3 rounded-xl text-white text-sm uppercase' + (errors['t' + i + 'pan'] ? ' err' : '')} placeholder="ABCDE1234F" /></Field>
+                  <Field label={tr('services.ra.tenant.pan')} required error={errors['t' + i + 'pan'] && why('t' + i + 'pan', 'services.ra.tenant.panErr')}><input maxLength={10} value={t.pan} onChange={(e) => { setTenant(i, 'pan', e.target.value.toUpperCase()); clearErr('t' + i + 'pan'); }} className={'field w-full px-4 py-3 rounded-xl text-white text-sm uppercase' + (errors['t' + i + 'pan'] ? ' err' : '')} placeholder="ABCDE1234F" /></Field>
                   {t.residency === 'nri' || t.residency === 'foreign' ? (
                     <>
                       <Field label={tr('services.ra.party.passport')} required error={errors['t' + i + 'passport'] && tr('services.ra.party.passportErr')}><input maxLength={20} value={t.passport || ''} onChange={(e) => { setTenant(i, 'passport', e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '')); clearErr('t' + i + 'passport'); }} className={'field w-full px-4 py-3 rounded-xl text-white text-sm' + (errors['t' + i + 'passport'] ? ' err' : '')} placeholder={tr('services.ra.party.passportPlaceholder')} /></Field>

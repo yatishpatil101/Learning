@@ -3,11 +3,12 @@ import Icon from '../../../../components/Icon.jsx';
 import MobileField from '../../../../components/MobileField.jsx';
 import Field from '../../../../components/ui/Field.jsx';
 import IdentityReminderNote from './IdentityReminderNote.jsx';
+import { dupMessageKey } from './validation.js';
 
 export default function StepWitnesses({ step, wit, setWit, errors, fc, clearErr, identityReminders }) {
   const { t } = useTranslation();
   const set = (k, v) => { setWit((p) => ({ ...p, [k]: v })); clearErr(k); };
-  const why = (k, fallback) => t(errors[k] === 'dup' ? (k.endsWith('Mobile') ? 'services.ra.err.dupMobile' : 'services.ra.err.dupAadhaar') : fallback);
+  const why = (k, fallback) => t(errors[k] === 'dup' ? dupMessageKey(k) : fallback);
   return (
     <div className={'step-panel' + (step === 4 ? ' active' : '')}>
       <h2 className="text-xl font-bold text-white mb-1">{t('services.ra.witnesses.title')}</h2>

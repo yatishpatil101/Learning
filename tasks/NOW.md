@@ -50,7 +50,7 @@ Dev/e2e staff creds live in `db/seed-staff` (local + e2e only): admin `900000000
 
 | Fact | Value | Taken |
 |---|---|---|
-| Next free Flyway slot | **V105** (V104 = back-office holders; V95 is a gap, leave it) | 2026-10-10 |
+| Next free Flyway slot | **V107** (V105 = help-feedback one vote, V106 = RA referral credit; V95 is a gap, leave it) | 2026-10-10 |
 | e2e spec files | 387 under `e2e` | 2026-10-10 |
 | Backend suite (full) | 2,766 run, 0 failed (361 classes, ~4 min) | 2026-10-10 |
 | Full e2e sweep | ~40 red in `-Full` (Vite reloads from concurrent edits); all 115 green on targeted rerun | 2026-10-10 |

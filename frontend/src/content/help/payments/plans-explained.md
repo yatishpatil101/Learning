@@ -36,7 +36,7 @@ There is a seeker plan too: **Seeker Plus**, one payment of ₹199 for 1 month. 
 
 ## Earning allowance instead of buying it
 
-Every qualified referral adds **+15 owner contacts** for free, and every three qualified referrals add one extra listing slot and one free rent agreement. Your code is on the [Plans page](/plans). Referrals are reviewed for fraud, so a reward appears once the referral qualifies, not the moment someone signs up.
+Every qualified referral adds **+15 owner contacts** for free, and every three qualified referrals add one extra listing slot and one free rent agreement (it waives Draazy's service fee and GST at checkout; government charges still apply). Your code is on the [Plans page](/plans). Referrals are reviewed for fraud, so a reward appears once the referral qualifies, not the moment someone signs up.
 
 ## Who a plan is worth it for
 
