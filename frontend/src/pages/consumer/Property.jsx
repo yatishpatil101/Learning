@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
-import { Link, useLocation, useNavigate, useParams } from 'react-router';
+import { Link, useLocation, useNavigate } from 'react-router';
 import Icon from '../../components/Icon.jsx';
+import Breadcrumbs from '../../components/Breadcrumbs.jsx';
 import HScroll from '../../components/ui/HScroll.jsx';
 import { messagesLinkForProp } from '../../lib/chatFormat.js';
 import { queuePendingChat } from '../../services/conversationService.js';
@@ -12,9 +13,10 @@ import PropertyHeader from './property/PropertyHeader.jsx';
 import PropertyTabs from './property/PropertyTabs.jsx';
 import PropertyModals from './property/PropertyModals.jsx';
 import ListingUnavailable from './property/ListingUnavailable.jsx';
+import usePageHead from '../../lib/usePageHead.js';
+import { listingHead, propertyHref } from '../../lib/listingSeo.js';
 
 export default function Property() {
-  const { id } = useParams();
   const location = useLocation();
   const navigate = useNavigate();
   const [visitIntent, setVisitIntent] = useState(() => new URLSearchParams(location.search).get('visit') === '1');
@@ -22,6 +24,8 @@ export default function Property() {
   const priceOnHero = useSheetViewport();
   const { tr } = ctx;
   const { p, isIn, setVisitOpen, visitOpen, flagEnabled } = ctx;
+  const head = p ? listingHead({ bhk: p.bhkNum, type: p.type, deal: p.deal, locality: p.locality, price: p.price, area: p.area, areaUnit: p.areaUnit }) : {};
+  usePageHead({ ...head, path: p ? propertyHref(p) : undefined, noindex: Boolean(p) && (p.status !== 'approved' || p.dealStatus === 'closed') });
   useEffect(() => {
     const params = new URLSearchParams(location.search);
     if (params.get('visit') !== '1') return;
@@ -43,7 +47,7 @@ export default function Property() {
   // A skeleton in the page's own shape rather than a centred spinner: it holds the
   // layout, so the hero arriving does not shove the page down.
   if (ctx.loading) return <PropertySkeleton />;
-  if (ctx.notFound) return <ListingUnavailable reason="not-found" listingId={id} tr={tr} />;
+  if (ctx.notFound) return <ListingUnavailable reason="not-found" tr={tr} />;
   if (ctx.underReview) {
     return (
       <div className="mx-auto max-w-3xl px-4 py-32 text-center">
@@ -54,10 +58,10 @@ export default function Property() {
     );
   }
   if (ctx.dealClosed) {
-    return <ListingUnavailable reason="closed" listingId={id} closedWord={ctx.closedWord} tr={tr} />;
+    return <ListingUnavailable reason="closed" listing={p} closedWord={ctx.closedWord} tr={tr} />;
   }
   if (ctx.listingPaused) {
-    return <ListingUnavailable reason="paused" listingId={id} tr={tr} />;
+    return <ListingUnavailable reason="paused" listing={p} tr={tr} />;
   }
 
   const {
@@ -84,17 +88,16 @@ export default function Property() {
             </div>
           )}
 
-          {/* Breadcrumb — hidden on mobile (the navbar's back tile covers up-navigation there); kept from sm+ for
-             orientation and SEO. */}
-          <nav className="hidden sm:flex items-center gap-2 text-sm mb-4 sm:mb-6 flex-wrap" aria-label="Breadcrumb">
-            <Link to="/" className="text-slate-500 hover:text-brand-teal-3 flex items-center gap-1"><Icon name="home" className="w-3.5 h-3.5" /> {tr('property.home')}</Link>
-            <Icon name="chevron-right" className="w-3.5 h-3.5 text-slate-600" />
-            <Link to={returnTo} state={{ restore: true }} className="text-slate-500 hover:text-brand-teal-3">{isRent ? tr('property.breadcrumbRent') : tr('property.breadcrumbBuy')}</Link>
-            <Icon name="chevron-right" className="w-3.5 h-3.5 text-slate-600" />
-            <Link to={`/locality/${p.localitySlug}`} className="text-slate-500 hover:text-brand-teal-3">{p.locality}</Link>
-            <Icon name="chevron-right" className="w-3.5 h-3.5 text-slate-600" />
-            <span className="text-slate-300 truncate">{title}</span>
-          </nav>
+          <Breadcrumbs
+            className="mb-2 sm:mb-4"
+            trail={[
+              [tr('property.home'), '/'],
+              [isRent ? tr('property.breadcrumbRent') : tr('property.breadcrumbBuy'), returnTo, { restore: true }],
+              [p.locality, p.localitySlug ? `/locality/${p.localitySlug}` : returnTo],
+              ...(p.societySlug && p.societyName ? [[p.societyName, `/society/${p.societySlug}`]] : []),
+              [title, null],
+            ]}
+          />
 
           {/* Keyed on the listing: `active` is reset here on an id change but the gallery's own `ask` slide is not,
              so an in-place navigation would otherwise park the next listing's hero on its request-photos card. */}

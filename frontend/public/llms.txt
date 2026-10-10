@@ -1,0 +1,42 @@
+# Draazy
+
+> Pune's broker-free property marketplace. Rent or buy homes, plots and commercial spaces from owners, with phone numbers private until the owner approves.
+
+## About
+
+- [About Draazy](https://draazy.com/about): what Draazy is, how it makes money, and how to contact us.
+- [How verification works](https://draazy.com/how-verification-works): how owners and listings are checked, and what Draazy Assured means.
+- [Draazy vs NoBroker](https://draazy.com/compare/nobroker): plans and fees compared for Pune, each NoBroker fact linked to NoBroker's own page.
+
+## Guides
+
+- [Pune property blog](https://draazy.com/blog): renting, buying, owner and legal guides for Pune.
+- [Pune locality guides](https://draazy.com/locality): who each area suits, getting around, and what to check before you rent or buy.
+
+## Search
+
+- [Homes for rent in Pune](https://draazy.com/rent/pune): owner-listed flats and houses for rent, with area and BHK pages.
+- [Homes for sale in Pune](https://draazy.com/buy/pune): owner-listed flats and houses for sale, with area and BHK pages.
+
+## Help
+
+- [Help centre](https://draazy.com/help): how search, visits, listing, payments and verification work.
+- [FAQ](https://draazy.com/help/faq)
+
+## Services
+
+- [Online rent agreement in Pune](https://draazy.com/services/rent-agreement)
+- [Home loans](https://draazy.com/home-loans)
+- [Property legal checks](https://draazy.com/services/property-legal)
+- [Property valuation](https://draazy.com/services/property-valuation)
+- [Packers and movers](https://draazy.com/services/packers-movers)
+- [Interior and renovation](https://draazy.com/services/interior-renovation)
+- [EMI calculator](https://draazy.com/emi-calculator)
+
+## Free tools
+
+- [Free tools hub](https://draazy.com/tools): calculators and generators for renters, buyers and owners. No sign-in.
+- [Rent receipt generator for HRA](https://draazy.com/tools/rent-receipt-generator)
+- [Stamp duty calculator for Maharashtra](https://draazy.com/tools/stamp-duty-calculator-maharashtra)
+- [Rent agreement cost in Pune](https://draazy.com/tools/rent-agreement-cost-pune)
+- [Rental yield calculator](https://draazy.com/tools/rental-yield-calculator)

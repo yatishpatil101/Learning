@@ -240,7 +240,7 @@ export default function Societies() {
           </p>
         </div>
 
-        <div className="mb-6 rounded-2xl border border-dashed border-teal-400/40 bg-teal-500/5 px-4 py-3.5 reveal">
+        <div className="relative z-20 mb-6 rounded-2xl border border-dashed border-teal-400/40 bg-teal-500/5 px-4 py-3.5 reveal">
           <p className="mb-2 text-sm font-semibold text-white">{t('societies.cantFindTitle')}</p>
           <SocietySelect allowNotOnMaps={false} mintOrigin="demand" authReason="community" onChange={addSociety} placeholder={t('societies.addPlaceholder')} />
         </div>

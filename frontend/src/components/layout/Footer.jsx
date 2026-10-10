@@ -2,6 +2,7 @@ import { useId, useState } from 'react';
 import { Link } from 'react-router';
 import Icon from '../Icon.jsx';
 import LogoMark from '../brand/LogoMark.jsx';
+import { SUPPORT_PHONE, SUPPORT_TEL } from '../../lib/supportContact.js';
 
 const SOCIAL = {
   facebook: 'M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z',
@@ -55,14 +56,14 @@ export default function Footer() {
               <span className="text-lg font-bold">Draazy</span>
             </Link>
             <p className="text-sm text-gray-500 leading-relaxed mb-4 sm:mb-5">
-              Pune's broker-free property marketplace. Verified owners, zero brokerage, direct contact.
+              Pune's broker-free property marketplace. Rent or buy homes, plots and commercial spaces from owners, with phone numbers private until the owner approves.
             </p>
             <div className="flex items-center gap-2">
-              <Soc k="facebook" label="Draazy on Facebook" href="https://www.facebook.com/share/1EKDhPoDnE/?mibextid=wwXIfr" hover="hover:bg-teal-500/10 hover:text-teal-400" />
-              <Soc k="instagram" label="Draazy on Instagram" href="https://www.instagram.com/draazyapp.homes?stkn=dGl6eWQ3cGQ4YzQ%3D&utm_source=qr" hover="hover:bg-pink-500/10 hover:text-pink-400" />
-              <Soc k="x" label="Draazy on X" href="https://x.com/draazyapp?s=11" hover="hover:bg-teal-500/10 hover:text-teal-400" />
+              <Soc k="facebook" label="Draazy on Facebook" href="https://www.facebook.com/profile.php?id=61594205514968" hover="hover:bg-teal-500/10 hover:text-teal-400" />
+              <Soc k="instagram" label="Draazy on Instagram" href="https://www.instagram.com/draazyapp.homes" hover="hover:bg-pink-500/10 hover:text-pink-400" />
+              <Soc k="x" label="Draazy on X" href="https://x.com/draazyapp" hover="hover:bg-teal-500/10 hover:text-teal-400" />
               <Soc k="linkedin" label="Draazy on LinkedIn" href="http://www.linkedin.com/in/draazy-app-4a3195435" hover="hover:bg-teal-500/10 hover:text-teal-400" />
-              <Soc k="youtube" label="Draazy on YouTube" href="https://youtube.com/@draazy-x1u?si=H8gzz2enoa7vaiPD" hover="hover:bg-orange-500/10 hover:text-orange-400" />
+              <Soc k="youtube" label="Draazy on YouTube" href="https://www.youtube.com/@draazy-x1u" hover="hover:bg-orange-500/10 hover:text-orange-400" />
             </div>
           </div>
           {/* Column 2 — Explore links */}
@@ -79,6 +80,7 @@ export default function Footer() {
                 ['Refer & earn', '/refer'],
                 ['Services', '/services'],
                 ['EMI calculator', '/emi-calculator'],
+                ['Free tools', '/tools'],
                 ['Locality guides', '/locality'],
               ].map(([label, to]) => (
                 <li key={label}>
@@ -92,6 +94,8 @@ export default function Footer() {
           <FooterCol title="Company">
             <ul className="space-y-3">
               {[
+                ['About Draazy', '/about'],
+                ['How verification works', '/how-verification-works'],
                 ['Help centre', '/help'],
                 ['Blog', '/blog'],
                 ['FAQ', '/help/faq'],
@@ -124,27 +128,22 @@ export default function Footer() {
 
           <FooterCol title="Contact">
             <address className="not-italic space-y-3">
-              <a href="tel:+919876543210" className="flex items-center gap-2.5 group">
+              <a href={SUPPORT_TEL} className="flex items-center gap-2.5 group">
                 <Icon name="phone" className="w-4 h-4 text-teal-500 shrink-0" />
-                <span className="text-sm text-gray-500 group-hover:text-white transition-colors">+91 98765 43210</span>
+                <span className="text-sm text-gray-500 group-hover:text-white transition-colors">{SUPPORT_PHONE}</span>
               </a>
               <a href="mailto:support@draazy.com" className="flex items-center gap-2.5 group">
                 <Icon name="mail" className="w-4 h-4 text-teal-500 shrink-0" />
                 <span className="text-sm text-gray-500 group-hover:text-white transition-colors">support@draazy.com</span>
               </a>
-              <div className="flex items-start gap-2.5">
-                <Icon name="map-pin" className="w-4 h-4 text-teal-500 shrink-0 mt-0.5" />
-                <span className="text-sm text-gray-500">201, Business Bay, Baner Road, Pune 411045</span>
-              </div>
               <div className="flex items-center gap-2.5">
                 <Icon name="clock" className="w-4 h-4 text-teal-500 shrink-0" />
-                <span className="text-sm text-gray-500">Mon – Sat, 9 AM – 8 PM</span>
+                <span className="text-sm text-gray-500">9 AM – 8 PM, Mon–Sat</span>
               </div>
               <div className="flex items-start gap-2.5 pt-1">
                 <Icon name="file-text" className="w-4 h-4 text-teal-500 shrink-0 mt-0.5" />
                 <span className="text-xs text-gray-600 leading-relaxed">
-                  Draazy Technologies Pvt. Ltd.<br />
-                  CIN U72900PN2024PTC000000 · GSTIN 27ABCDE1234F1Z5
+                  Draazy Technologies
                 </span>
               </div>
             </address>

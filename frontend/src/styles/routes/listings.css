@@ -66,10 +66,13 @@
 /* Smart-search controls on phones: neither carries a class buttons.css scopes `:focus-visible`
    to, so both would fall back to the UA outline. They sit 4px apart, so they have to agree. */
 .lst-search-go:focus-visible,
-.lst-search-bell:focus-visible {
+.lst-search-bell:focus-visible,
+.lst-search-field:focus-visible {
   outline: 2px solid var(--teal-2);
   outline-offset: 2px;
 }
+
+.lst-search-go { transition: background-color .25s ease, box-shadow .25s ease, transform .25s ease, filter .25s ease; }
 
 /* The bell is the bar's full height, so the shared +2px offset would hang 4px outside it. */
 .lst-search-bell:focus-visible {

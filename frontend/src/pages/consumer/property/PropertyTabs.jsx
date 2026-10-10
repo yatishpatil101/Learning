@@ -13,6 +13,7 @@ import { VerificationSection } from './VerificationSection.jsx';
 import { DocumentsSection } from './DocumentsSection.jsx';
 import VerificationDisclaimer from '../../../components/property/VerificationDisclaimer.jsx';
 import { SimilarProperties } from './SimilarProperties.jsx';
+import KnowLocality from './KnowLocality.jsx';
 import { SOCIETY_AMENITY_LABELS, withInFlatAsFurniture } from '../list-property/constants.js';
 
 const PropertyMap = lazy(() => import('../../../components/property/PropertyMap.jsx'));
@@ -152,6 +153,7 @@ export default function PropertyTabs({ ctx }) {
             </>
           ) : null}
 
+          <KnowLocality p={p} />
           <SimilarProperties p={p} />
 
     </>

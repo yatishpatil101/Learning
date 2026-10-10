@@ -158,6 +158,7 @@ export default function PropertyHeader({ ctx, priceOnHero = false }) {
                     {/* Inside a collapsed panel, so the automated tap-target sweep never reaches it — the 44px
                        minimum has to be asserted here by hand. */}
                     <button type="button" onClick={() => setReportOpen(true)} className="inline-flex items-center gap-2 min-h-[44px] text-xs text-slate-200 rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-left hover:bg-white/10 hover:border-amber-400/30 transition-smooth"><Icon name="flag" className="w-4 h-4 text-amber-400" /> {tr('property.reportReverify')}</button>
+                    <Link to="/how-verification-works" className="inline-flex items-center gap-2 min-h-[44px] text-xs text-slate-200 rounded-lg border border-white/10 bg-white/5 px-3 py-2 hover:bg-white/10 hover:border-emerald-400/30 transition-smooth"><Icon name="info" className="w-4 h-4 text-emerald-400" /> {tr('property.assuredHow')}</Link>
                   </div>
                 </MobileCollapse>
               </div>

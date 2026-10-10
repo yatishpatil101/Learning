@@ -1,9 +1,16 @@
+import { appendFileSync, writeFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { join, resolve } from 'node:path';
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import { VitePWA } from 'vite-plugin-pwa';
 import helpContentPlugin from './scripts/vite-plugin-help-content.mjs';
 import blogPlugin from './scripts/vite-plugin-blog.mjs';
 import localityGuidesPlugin from './scripts/vite-plugin-locality-guides.mjs';
+import contentIndexPlugin from './scripts/vite-plugin-content-index.mjs';
+import spaFallbackPlugin from './scripts/vite-plugin-spa-fallback.mjs';
+import routeHeadsPlugin from './scripts/vite-plugin-route-heads.mjs';
+import { ROUTE_HEADS } from './src/data/routeHeads.js';
 
 const PROXY_TARGET = process.env.VITE_PROXY_TARGET || 'http://localhost:8080';
 
@@ -15,6 +22,37 @@ function apiBaseHtmlPlugin() {
     name: 'draazy-api-base-html',
     configResolved(c) { base = c.env.VITE_API_BASE || '/api'; },
     transformIndexHtml: (html) => html.replaceAll('__API_BASE__', base),
+  };
+}
+/* The dev server injects an inline React Refresh preamble the production CSP has no hash for. */
+function devInlineScriptHashesPlugin() {
+  return {
+    name: 'draazy-dev-inline-script-hashes',
+    apply: 'serve',
+    transformIndexHtml: {
+      order: 'post',
+      handler(html) {
+        const hashes = [...html.matchAll(/<script(?![^>]*\bsrc=)[^>]*>([\s\S]+?)<\/script>/g)]
+          .map((m) => `'sha256-${createHash('sha256').update(m[1]).digest('base64')}'`)
+          .filter((h) => !html.includes(h));
+        return html.replace("script-src 'self'", `script-src 'self' ${hashes.join(' ')}`);
+      },
+    },
+  };
+}
+/* Only draazy.com may be indexed: the sandbox host's page copies would compete with production. Google and
+   Bing may still crawl, or they never see the noindex on pages indexed earlier; other bots are kept out. */
+function noindexOffProductionPlugin() {
+  let outDir;
+  return {
+    name: 'draazy-noindex-off-production',
+    apply: 'build',
+    configResolved(c) { outDir = resolve(c.root, c.build.outDir); },
+    writeBundle() {
+      if (new URL(process.env.SITE_URL || 'https://draazy.com').host === 'draazy.com') return;
+      writeFileSync(join(outDir, 'robots.txt'), 'User-agent: Googlebot\nUser-agent: Bingbot\nDisallow:\n\nUser-agent: *\nDisallow: /\n');
+      appendFileSync(join(outDir, '_headers'), '\n/*\n  X-Robots-Tag: noindex\n');
+    },
   };
 }
 /* Cache shell/static assets only; listing/account data must stay NetworkOnly so stale availability
@@ -38,11 +76,11 @@ function pwaPlugin() {
         'assets/index-*.js',
         'assets/vendor-react-*.js',
       ],
-      globIgnores: ['**/floorplans/**', 'blog.html', 'blog/**', 'locality.html', 'locality/**'],
+      globIgnores: ['**/floorplans/**', 'blog.html', 'blog/**', 'help.html', 'help/**', 'locality.html', 'locality/**', ...Object.keys(ROUTE_HEADS).filter((p) => p !== '/').map((p) => `${p.slice(1)}.html`)],
       importScripts: ['push-sw.js'],
-      // SPA deep links resolve to the shell. The denylist is the important half: without it, a
-      // navigation request to /api/* would be answered with index.html.
-      navigateFallback: 'index.html',
+      // SPA deep links resolve to the shell: 404.html, because index.html carries the home page's content and
+      // canonical. The denylist is the important half: without it, a navigation to /api/* would get the shell.
+      navigateFallback: '404.html',
       navigateFallbackDenylist: [/^\/api\//],
       cleanupOutdatedCaches: true,
       clientsClaim: true,
@@ -92,7 +130,8 @@ function pwaPlugin() {
 }
 
 export default defineConfig({
-  plugins: [react(), helpContentPlugin({ root: __dirname }), blogPlugin({ root: __dirname }), localityGuidesPlugin({ root: __dirname }), pwaPlugin(), apiBaseHtmlPlugin()],
+  // spaFallbackPlugin reads files the blog, locality and route-head plugins write, so it runs after them.
+  plugins: [react(), helpContentPlugin({ root: __dirname }), blogPlugin({ root: __dirname }), localityGuidesPlugin({ root: __dirname }), contentIndexPlugin({ root: __dirname }), routeHeadsPlugin(), spaFallbackPlugin({ root: __dirname }), pwaPlugin(), apiBaseHtmlPlugin(), devInlineScriptHashesPlugin(), noindexOffProductionPlugin()],
   build: {
     rollupOptions: {
       output: {

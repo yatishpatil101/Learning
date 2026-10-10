@@ -63,6 +63,7 @@
     "saved": "Saved",
     "account": "Account",
     "primaryMobile": "Primary",
+    "breadcrumb": "Breadcrumb",
     "postProperty": "Post Property"
   },
   "postChooser": {
@@ -108,7 +109,7 @@
   "adminFinance": {
     "disclosureTitle": "Not every figure below is measured",
     "disclosureLead": "These are structural zeros, not quiet months. Totals and averages computed from them carry the same caveat. Each turns live on its own flag.",
-    "refundsNotMeasured": "Refunds: the platform has no refund path, so no refund can be recorded here.",
+    "refundsNotMeasured": "Refunds: not tracked here, so this stays at ₹0. Service-request refunds are not included.",
     "servicesNotCounted": "Revenue excludes the services marketplace: a service order records a quote, not money received.",
     "servicesQuoted": "Quoted value, not money received, so it is left out of revenue.",
     "notMeasured": "Not measured",

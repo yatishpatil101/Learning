@@ -27,6 +27,8 @@ function upsert(tag, match, attr, value) {
 /** Mirrors the prerendered head (scripts/vite-plugin-blog.mjs) after client-side navigation. */
 export default function usePageHead({ title, description, path, noindex = false }) {
   useEffect(() => {
+    // Nothing to say yet (a page still loading its record): leave the head as it is.
+    if (!title) return undefined;
     const titleEl = document.querySelector('title');
     const prevTitle = (titleEl && titleEl.getAttribute('data-shell')) ?? document.title;
     titleEl?.removeAttribute('data-shell');

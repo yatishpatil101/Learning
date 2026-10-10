@@ -10,11 +10,15 @@ import { lazyPage } from './i18n/lazyPage.js';
 import { applyAppPrefs } from './lib/localPrefs.js';
 import { DESK_BY_VALUE, portalBase, portalPath } from './lib/adminModules.js';
 import { recordPageView, startPageViewBeacon } from './lib/telemetry/pageViewBeacon.js';
+import usePageHead from './lib/usePageHead.js';
+import { ROUTE_HEADS } from './data/routeHeads.js';
 
 import Home from './pages/consumer/Home.jsx';
 import Signin from './pages/consumer/Signin.jsx';
 import Signup from './pages/consumer/Signup.jsx';
 import Stub from './pages/Stub.jsx';
+import useKeyboardOpen from './lib/useKeyboardOpen.js';
+import { installReducedMotionScroll } from './lib/motion.js';
 import LegacyHelpLangRedirect from './components/help/LegacyHelpLangRedirect.jsx';
 
 const AdminLayout = lazy(() => import('./components/layout/AdminLayout.jsx'));
@@ -43,11 +47,18 @@ const InteriorRenovation = lazyPage(() => import('./pages/consumer/services/Inte
 const PropertyValuation = lazyPage(() => import('./pages/consumer/services/PropertyValuation.jsx'), 'services');
 const RentAgreement = lazyPage(() => import('./pages/consumer/services/RentAgreement.jsx'), 'list-property', 'services');
 const Contact = lazy(() => import('./pages/consumer/Contact.jsx'));
+const TrustPage = lazy(() => import('./pages/consumer/TrustPage.jsx'));
+const CompareNobroker = lazy(() => import('./pages/consumer/CompareNobroker.jsx'));
 const StaffInvite = lazy(() => import('./pages/consumer/StaffInvite.jsx'));
 const Notifications = lazy(() => import('./pages/consumer/Notifications.jsx'));
 const Plans = lazy(() => import('./pages/consumer/Plans.jsx'));
 const Refer = lazy(() => import('./pages/consumer/Refer.jsx'));
 const EmiCalculator = lazy(() => import('./pages/consumer/EmiCalculator.jsx'));
+const ToolsHub = lazy(() => import('./pages/consumer/tools/ToolsHub.jsx'));
+const RentReceipt = lazy(() => import('./pages/consumer/tools/RentReceipt.jsx'));
+const StampDutyTool = lazy(() => import('./pages/consumer/tools/StampDutyTool.jsx'));
+const RentAgreementCost = lazy(() => import('./pages/consumer/tools/RentAgreementCost.jsx'));
+const RentalYield = lazy(() => import('./pages/consumer/tools/RentalYield.jsx'));
 const TenantProfile = lazyPage(() => import('./pages/consumer/TenantProfile.jsx'), 'misc2', 'verify');
 const VerifyIdentity = lazyPage(() => import('./pages/consumer/VerifyIdentity.jsx'), 'verify-identity');
 const Checkout = lazyPage(() => import('./pages/consumer/Checkout.jsx'), 'misc2');
@@ -63,6 +74,8 @@ const Messages = lazyPage(() => import('./pages/consumer/Messages.jsx'), 'flatma
 const Flatmates = lazyPage(() => import('./pages/consumer/Flatmates.jsx'), 'flatmates', 'owner', 'property', 'verify');
 const FlatmateDetail = lazyPage(() => import('./pages/consumer/FlatmateDetail.jsx'), 'flatmates', 'owner', 'property');
 const Locality = lazyPage(() => import('./pages/consumer/Locality.jsx'), 'listings', 'locality');
+const RentBuyLanding = lazyPage(() => import('./pages/consumer/RentBuyLanding.jsx'), 'listings', 'owner', 'property', 'verify');
+const FlatmateLanding = lazyPage(() => import('./pages/consumer/FlatmateLanding.jsx'), 'flatmates', 'owner', 'property', 'verify');
 const Support = lazyPage(() => import('./pages/consumer/Support.jsx'), 'misc2');
 const HelpHome = lazy(() => import('./pages/consumer/help/HelpHome.jsx'));
 const HelpCategory = lazy(() => import('./pages/consumer/help/HelpCategory.jsx'));
@@ -90,11 +103,15 @@ const AdminProperties = lazy(() => import('./pages/admin/AdminProperties.jsx'));
 const AdminAnalytics = lazy(() => import('./pages/admin/AdminAnalytics.jsx'));
 const AdminUsers = lazy(() => import('./pages/admin/AdminUsers.jsx'));
 const AdminServices = lazy(() => import('./pages/admin/AdminServices.jsx'));
+const AdminRunbooks = lazy(() => import('./pages/admin/AdminRunbooks.jsx'));
 const AdminEnquiries = lazy(() => import('./pages/admin/AdminEnquiries.jsx'));
 const AdminFinance = lazy(() => import('./pages/admin/AdminFinance.jsx'));
 const AdminContent = lazy(() => import('./pages/admin/AdminContent.jsx'));
 const AdminReports = lazy(() => import('./pages/admin/AdminReports.jsx'));
 const AdminSettings = lazy(() => import('./pages/admin/AdminSettings.jsx'));
+const AdminIntegrations = lazy(() => import('./pages/admin/AdminIntegrations.jsx'));
+const AdminErasureRequests = lazy(() => import('./pages/admin/AdminErasureRequests.jsx'));
+const AdminHelpFeedback = lazy(() => import('./pages/admin/AdminHelpFeedback.jsx'));
 const AdminPostOnBehalf = lazyPage(() => import('./pages/admin/AdminPostOnBehalf.jsx'), 'list-property');
 const AdminStaffActivity = lazy(() => import('./pages/admin/AdminStaffActivity.jsx'));
 const AdminSocieties = lazy(() => import('./pages/admin/AdminSocieties.jsx'));
@@ -142,6 +159,17 @@ function PageViewTelemetry() {
   return null;
 }
 
+function RouteHead({ route, head }) {
+  usePageHead({ ...head, path: route });
+  return null;
+}
+
+function StaticRouteHead() {
+  const { pathname } = useLocation();
+  const head = ROUTE_HEADS[pathname];
+  return head ? <RouteHead route={pathname} head={head} /> : null;
+}
+
 function LoadingFallback() {
   return (
     <div className="flex items-center justify-center min-h-[60vh]">
@@ -177,6 +205,8 @@ const BACK_OFFICE_ROUTES = [{
   element: <AdminLayout />,
   children: [
     { index: true, element: <AdminDashboard /> },
+    { path: 'runbooks', element: <AdminRunbooks /> },
+    { path: 'runbooks/:slug', element: <AdminRunbooks /> },
     { path: 'kyc-review', element: <ModuleRoute moduleKey="kycReview"><OpsIdentityReview /></ModuleRoute> },
     { path: 'properties', element: <ModuleRoute moduleKey="properties"><AdminProperties /></ModuleRoute> },
     { path: 'analytics', element: <ModuleRoute moduleKey="analytics"><FlagRoute flag="analytics"><AdminAnalytics /></FlagRoute></ModuleRoute> },
@@ -199,6 +229,9 @@ const BACK_OFFICE_ROUTES = [{
     { path: 'localities', element: <ModuleRoute moduleKey="localities"><AdminLocalities /></ModuleRoute> },
     { path: 'team', element: <ModuleRoute moduleKey="team"><AdminTeam /></ModuleRoute> },
     { path: 'settings', element: <ModuleRoute moduleKey="settings"><AdminSettings /></ModuleRoute> },
+    { path: 'integrations', element: <ModuleRoute moduleKey="integrations"><AdminIntegrations /></ModuleRoute> },
+    { path: 'erasure-requests', element: <ModuleRoute moduleKey="erasure"><AdminErasureRequests /></ModuleRoute> },
+    { path: 'help-feedback', element: <ModuleRoute moduleKey="helpFeedback"><AdminHelpFeedback /></ModuleRoute> },
     { path: 'post-on-behalf', element: <ModuleRoute moduleKey="postOnBehalf"><AdminPostOnBehalf /></ModuleRoute> },
     { path: 'staff-activity', element: <ModuleRoute moduleKey="staffActivity"><AdminStaffActivity /></ModuleRoute> },
     { path: '*', element: <PortalHome /> },
@@ -217,12 +250,14 @@ function BackOffice() {
 export default function App() {
   // Apply saved appearance prefs (e.g. Reduce motion) to <html> once on load so
   // the choice persists across sessions and route changes before any page mounts.
-  useEffect(() => { applyAppPrefs(); }, []);
+  useEffect(() => { applyAppPrefs(); installReducedMotionScroll(); }, []);
+  useKeyboardOpen();
   return (
     <>
       <PreviewBanner />
       <ScrollToTop />
       <PageViewTelemetry />
+      <StaticRouteHead />
       <Suspense fallback={<LoadingFallback />}>
       <Routes>
         {/* Standalone full-screen secure viewer (own chrome, no consumer nav) */}
@@ -251,10 +286,18 @@ export default function App() {
           <Route path="/services/property-valuation" element={<PropertyValuation />} />
           <Route path="/services/rent-agreement" element={<RentAgreement />} />
           <Route path="/contact" element={<Contact />} />
+          <Route path="/about" element={<TrustPage path="/about" />} />
+          <Route path="/compare/nobroker" element={<CompareNobroker />} />
+          <Route path="/how-verification-works" element={<TrustPage path="/how-verification-works" />} />
           <Route path="/notifications" element={<ProtectedRoute><Notifications /></ProtectedRoute>} />
           <Route path="/plans" element={<Plans />} />
           <Route path="/refer" element={<ProtectedRoute><Refer /></ProtectedRoute>} />
           <Route path="/emi-calculator" element={<EmiCalculator />} />
+          <Route path="/tools" element={<ToolsHub />} />
+          <Route path="/tools/rent-receipt-generator" element={<RentReceipt />} />
+          <Route path="/tools/stamp-duty-calculator-maharashtra" element={<StampDutyTool />} />
+          <Route path="/tools/rent-agreement-cost-pune" element={<RentAgreementCost />} />
+          <Route path="/tools/rental-yield-calculator" element={<RentalYield />} />
           <Route path="/tenant-profile" element={<ProtectedRoute><TenantProfile /></ProtectedRoute>} />
           <Route path="/checkout" element={<ProtectedRoute><Checkout /></ProtectedRoute>} />
           <Route path="/schedule-visit" element={<AppFlagRoute flag="scheduleVisit"><ProtectedRoute><ScheduleVisit /></ProtectedRoute></AppFlagRoute>} />
@@ -275,6 +318,11 @@ export default function App() {
               centred spinner guarantees a reflow as someone reaches for the List/Map toggle. */}
           <Route path="/flatmates" element={<Suspense fallback={<FlatmatesSkeleton />}><Flatmates /></Suspense>} />
           <Route path="/flatmates/:kind/:id" element={<FlatmateDetail />} />
+          <Route path="/flatmates/:place" element={<FlatmateLanding />} />
+          <Route path="/rent/:place" element={<RentBuyLanding deal="rent" />} />
+          <Route path="/rent/:place/:bhk" element={<RentBuyLanding deal="rent" />} />
+          <Route path="/buy/:place" element={<RentBuyLanding deal="buy" />} />
+          <Route path="/buy/:place/:bhk" element={<RentBuyLanding deal="buy" />} />
           {/* Permanent redirect for legacy external links and search results. */}
           <Route path="/share-flat" element={<Navigate to="/flatmates" replace />} />
           <Route path="/support" element={<ProtectedRoute><Support /></ProtectedRoute>} />

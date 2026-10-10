@@ -1,6 +1,26 @@
+# Per-user, sign-in and back-office routes have nothing to index. Document pages stay crawlable so the
+# X-Robots-Tag noindex in _headers can be seen. Only draazy.com is indexable (vite.config.js).
 User-agent: *
 Disallow: /admin
+Disallow: /staff
 Disallow: /ops
 Disallow: /api/
+Disallow: /signin
+Disallow: /signup
+Disallow: /checkout
+Disallow: /dashboard
+Disallow: /owner-hub
+Disallow: /messages
+Disallow: /notifications
+Disallow: /saved
+Disallow: /support
+Disallow: /refer
+Disallow: /pay-rent
+Disallow: /tenant-profile
+Disallow: /verify-identity
+Disallow: /schedule-visit
 
 Sitemap: https://draazy.com/sitemap.xml
+Sitemap: https://draazy.com/sitemaps/properties.xml
+Sitemap: https://draazy.com/sitemaps/societies.xml
+Sitemap: https://draazy.com/sitemaps/landing.xml

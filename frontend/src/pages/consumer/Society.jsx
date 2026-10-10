@@ -1,6 +1,6 @@
-import { Link } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import Icon from '../../components/Icon.jsx';
+import Breadcrumbs from '../../components/Breadcrumbs.jsx';
 import LoadError from '../../components/LoadError.jsx';
 import HScroll from '../../components/ui/HScroll.jsx';
 import { useToast } from '../../context/ToastContext.jsx';
@@ -14,6 +14,8 @@ import ReviewsTab from './society/tabs/ReviewsTab.jsx';
 import LocationTab from './society/tabs/LocationTab.jsx';
 import SocietySidebar from './society/SocietySidebar.jsx';
 import SocietySkeleton from './society/SocietySkeleton.jsx';
+import usePageHead from '../../lib/usePageHead.js';
+import { societyHead } from '../../lib/listingSeo.js';
 
 export default function Society() {
   const { t } = useTranslation();
@@ -25,6 +27,8 @@ export default function Society() {
     rateOpen, pick, setPick, revText, setRevText, cats, setCat, inp, submitReview,
     stats, tabs, current, selectTab,
   } = hub;
+  const head = socLoading || loadError ? {} : societyHead(soc);
+  usePageHead({ title: head.title, description: head.description, path: `/society/${soc.slug}`, noindex: Boolean(soc._generic || head.thin) });
 
   /* The page URL is the whole share payload (family discussing
      a flat), so there is no deep-link contract to invent. */
@@ -48,13 +52,15 @@ export default function Society() {
   return (
     <div ref={rootRef} className="soc-page">
       <div className="pt-8 sm:pt-10 pb-24 max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
-        {/* Breadcrumb links are standalone targets between chevrons, so the WCAG 2.5.8 inline-text exemption
-            doesn't apply; `tap-target` grows the hit area. */}
-        <nav className="flex items-center gap-2 text-sm text-gray-400 mb-5 reveal" aria-label="Breadcrumb">
-          <Link to="/societies" className="tap-target inline-flex items-center hover:text-white">{t('society.breadcrumb')}</Link><Icon name="chevron-right" className="w-3.5 h-3.5" />
-          <Link to={`/locality/${soc.localitySlug}`} className="tap-target inline-flex items-center hover:text-white capitalize">{locName}</Link><Icon name="chevron-right" className="w-3.5 h-3.5" />
-          <span className="text-white font-medium">{soc.name}</span>
-        </nav>
+        <Breadcrumbs
+          className="mb-5 reveal"
+          trail={[
+            [t('nav.home'), '/'],
+            [t('society.breadcrumb'), '/societies'],
+            [locName, `/locality/${soc.localitySlug}`],
+            [soc.name, null],
+          ]}
+        />
 
         {/* Hero */}
         <section className="theme-dark rounded-3xl overflow-hidden relative mb-6 glass reveal">
