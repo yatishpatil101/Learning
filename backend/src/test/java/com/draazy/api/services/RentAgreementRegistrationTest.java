@@ -525,13 +525,4 @@ class RentAgreementRegistrationTest extends ServiceFixtures {
         verify(checker, row(id, tenant.getMobile()).getId(), "registered", 200);
         assertThat(agreements.hasRegisteredTenancy(p.getId(), tenant.getMobile())).isTrue();
     }
-
-    private void upload(User caller, String id, String category, int expected) throws Exception {
-        mvc.perform(multipart(Routes.ServiceRequests.DOCS, id)
-                        .file(new MockMultipartFile("file", "copy.pdf", "application/pdf",
-                                "%PDF-1.4 planted".getBytes()))
-                        .param("category", category)
-                        .header(HttpHeaders.AUTHORIZATION, bearer(caller)))
-                .andExpect(status().is(expected));
-    }
 }

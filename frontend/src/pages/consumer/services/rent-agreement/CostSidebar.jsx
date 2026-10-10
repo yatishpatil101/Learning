@@ -1,5 +1,6 @@
 import { useTranslation } from 'react-i18next';
 import Icon from '../../../../components/Icon.jsx';
+import { SUPPORT_PHONE, SUPPORT_TEL } from '../../../../lib/supportContact.js';
 import { fmt } from './helpers.js';
 /* The charges half is rendered from the server's published fee breakdown, so the read has two states that must not
    render a price: still loading, and failed. */
@@ -95,7 +96,7 @@ export default function CostSidebar({ cost }) {
       <div className="glass-card rounded-2xl p-5">
         <p className="text-white font-semibold text-sm mb-1">{t('services.ra.cost.needHelp')}</p>
         <p className="text-gray-500 text-xs mb-3">{t('services.ra.cost.needHelpSub')}</p>
-        <a href="tel:18002000000" className="text-teal-400 text-sm font-semibold flex items-center gap-2"><Icon name="headset" className="w-4 h-4" /> 1800 200 0000</a>
+        <a href={SUPPORT_TEL} className="text-teal-400 text-sm font-semibold flex items-center gap-2"><Icon name="headset" className="w-4 h-4" /> {SUPPORT_PHONE}</a>
       </div>
     </div>
   );

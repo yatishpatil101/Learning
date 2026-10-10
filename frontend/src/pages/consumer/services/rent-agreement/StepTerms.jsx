@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next';
 import NativeSelect from '../../../../components/ui/NativeSelect.jsx';
 import DateField from '../../../../components/ui/DateField.jsx';
 import Icon from '../../../../components/Icon.jsx';
-import FieldError from '../../../../components/ui/FieldError.jsx';
+import Field from '../../../../components/ui/Field.jsx';
 import DepositPayments from './DepositPayments.jsx';
 import { AREA_UNITS, CASH_LIMIT, DEED_LANGUAGES, FIXTURES, FURN_PRESETS, MAX_OCCUPANTS, PARKING, PERIODS, TDS_RENT_THRESHOLD, VISIT_PLACES, VISIT_SLOTS } from './constants.js';
 import { visitDateBounds } from './validation.js';
@@ -23,14 +23,13 @@ export default function StepTerms({ step, terms, setT, startBounds, errors = {},
     setCustomChosen(v === 'custom');
     if (v !== 'custom') setMonths(v);
   };
-  const numberField = (k, errKey, labelKey = k) => (<div><label className="lbl">{t(`services.ra.terms.${labelKey}`)}</label><input inputMode="numeric" value={terms[k]} onChange={(e) => { setT(k, e.target.value); clearErr(k); }} className={fc(k)} /><FieldError show={!!errors[k]}>{t(errKey, { months: terms.months })}</FieldError></div>);
+  const numberField = (k, errKey, labelKey = k) => (<Field label={t(`services.ra.terms.${labelKey}`)} error={errors[k] && t(errKey, { months: terms.months })}><input inputMode="numeric" value={terms[k]} onChange={(e) => { setT(k, e.target.value); clearErr(k); }} className={fc(k)} /></Field>);
   const payerField = (k, values) => (
-    <div>
-      <label className="lbl">{t(`services.ra.terms.${k}`)}</label>
+    <Field label={t(`services.ra.terms.${k}`)}>
       <NativeSelect value={terms[k]} title={t(`services.ra.terms.${k}`)} onChange={(e) => setT(k, e.target.value)} className="field w-full px-4 py-3 rounded-xl text-white text-sm">
         {values.map((v) => <option key={v} value={v}>{t(`services.ra.terms.payerOpt.${v}`)}</option>)}
       </NativeSelect>
-    </div>
+    </Field>
   );
   const maintLabel = { Tenant: t('services.ra.terms.maintOpt.Tenant'), Owner: t('services.ra.terms.maintOpt.Owner') };
   const visitBounds = visitDateBounds();
@@ -39,33 +38,31 @@ export default function StepTerms({ step, terms, setT, startBounds, errors = {},
       <h2 className="text-xl font-bold text-white mb-1">{t('services.ra.terms.title')}</h2>
       <p className="text-gray-500 text-sm mb-6">{t('services.ra.terms.subtitle')}</p>
       <div className="grid grid-cols-2 gap-3 sm:gap-4 mb-5">
-        <div className="col-span-2 sm:col-span-1"><label className="lbl req">{t('services.ra.terms.startDate')}</label><DateField value={terms.startDate} min={startBounds?.min} max={startBounds?.max} onChange={(v) => { setT('startDate', v); clearErr('startDate'); }} className={fc('startDate')} ariaLabel={t('services.ra.terms.startDateAria')} /><FieldError show={!!errors.startDate}>{errors.startDate === 'range' ? t('services.ra.terms.startDateRange', { min: startBounds?.min, max: startBounds?.max }) : t('services.ra.terms.startDateErr')}</FieldError></div>
-        <div>
-          <label className="lbl req">{t('services.ra.terms.period')}</label>
+        <Field className="col-span-2 sm:col-span-1" label={t('services.ra.terms.startDate')} required error={errors.startDate && (errors.startDate === 'range' ? t('services.ra.terms.startDateRange', { min: startBounds?.min, max: startBounds?.max }) : t('services.ra.terms.startDateErr'))}><DateField value={terms.startDate} min={startBounds?.min} max={startBounds?.max} onChange={(v) => { setT('startDate', v); clearErr('startDate'); }} className={fc('startDate')} ariaLabel={t('services.ra.terms.startDateAria')} /></Field>
+        <Field label={t('services.ra.terms.period')} required>
           <NativeSelect value={periodIsCustom ? 'custom' : terms.months} title={t('services.ra.terms.period')} onChange={(e) => onPeriod(e.target.value)} className={periodIsCustom ? 'field w-full px-4 py-3 rounded-xl text-white text-sm' : fc('months')}>
             {PERIODS.map((m) => <option key={m} value={String(m)}>{t('services.ra.terms.periodMonths', { count: m })}</option>)}
             <option value="custom">{t('services.ra.terms.periodCustom')}</option>
           </NativeSelect>
-        </div>
+        </Field>
         {periodIsCustom && (
-          <div><label className="lbl req">{t('services.ra.terms.periodCustomMonths')}</label><input inputMode="numeric" value={terms.months} onChange={(e) => setMonths(digits(e.target.value))} className={fc('months')} placeholder="1 – 60" /><FieldError show={!!errors.months}>{t('services.ra.terms.monthsErr')}</FieldError></div>
+          <Field label={t('services.ra.terms.periodCustomMonths')} required error={errors.months && t('services.ra.terms.monthsErr')}><input inputMode="numeric" value={terms.months} onChange={(e) => setMonths(digits(e.target.value))} className={fc('months')} placeholder="1 – 60" /></Field>
         )}
-        <div><label className="lbl req">{t('services.ra.terms.rent')}</label><input inputMode="numeric" value={terms.rent} onChange={(e) => { setT('rent', digits(e.target.value)); clearErr('rent'); }} className={fc('rent')} placeholder={t('services.ra.terms.rentPlaceholder')} /><FieldError show={!!errors.rent}>{t('services.ra.terms.rentErr')}</FieldError></div>
-        <div><label className="lbl req">{t('services.ra.terms.deposit')}</label><input inputMode="numeric" value={terms.deposit} onChange={(e) => { setT('deposit', digits(e.target.value)); clearErr('deposit'); }} className={fc('deposit')} placeholder={t('services.ra.terms.depositPlaceholder')} /><FieldError show={!!errors.deposit}>{t('services.ra.terms.depositErr')}</FieldError></div>
-        <div><label className="lbl">{t('services.ra.terms.nrDeposit')}</label><input inputMode="numeric" value={terms.nrDeposit} onChange={(e) => setT('nrDeposit', digits(e.target.value))} className="field w-full px-4 py-3 rounded-xl text-white text-sm" placeholder="0" /></div>
+        <Field label={t('services.ra.terms.rent')} required error={errors.rent && t('services.ra.terms.rentErr')}><input inputMode="numeric" value={terms.rent} onChange={(e) => { setT('rent', digits(e.target.value)); clearErr('rent'); }} className={fc('rent')} placeholder={t('services.ra.terms.rentPlaceholder')} /></Field>
+        <Field label={t('services.ra.terms.deposit')} required error={errors.deposit && t('services.ra.terms.depositErr')}><input inputMode="numeric" value={terms.deposit} onChange={(e) => { setT('deposit', digits(e.target.value)); clearErr('deposit'); }} className={fc('deposit')} placeholder={t('services.ra.terms.depositPlaceholder')} /></Field>
+        <Field label={t('services.ra.terms.nrDeposit')}><input inputMode="numeric" value={terms.nrDeposit} onChange={(e) => setT('nrDeposit', digits(e.target.value))} className="field w-full px-4 py-3 rounded-xl text-white text-sm" placeholder="0" /></Field>
         {numberField('increment', 'services.ra.terms.incrementErr', Number(terms.months) > 11 ? 'increment' : 'incrementRenewal')}
         {Number(terms.months) > 11 && (
-          <div>
-            <label className="lbl">{t('services.ra.terms.incrementEvery')}</label>
+          <Field label={t('services.ra.terms.incrementEvery')}>
             <NativeSelect value={terms.incrementEvery} title={t('services.ra.terms.incrementEvery')} onChange={(e) => setT('incrementEvery', e.target.value)} className="field w-full px-4 py-3 rounded-xl text-white text-sm">
               {['11', '12'].map((m) => <option key={m} value={m}>{t('services.ra.terms.periodMonths', { count: Number(m) })}</option>)}
             </NativeSelect>
-          </div>
+          </Field>
         )}
         {numberField('lockin', 'services.ra.terms.lockinErr')}
         {numberField('notice', 'services.ra.terms.noticeErr')}
         {numberField('dueDay', 'services.ra.terms.dueDayErr')}
-        <div className="col-span-2 sm:col-span-1"><label className="lbl">{t('services.ra.terms.payMode')}</label><NativeSelect value={terms.payMode} onChange={(e) => setT('payMode', e.target.value)} className="field w-full px-4 py-3 rounded-xl text-white text-sm">{['Bank Transfer / NEFT', 'UPI', 'Cheque', 'Cash'].map((o) => <option key={o}>{o}</option>)}</NativeSelect></div>
+        <Field className="col-span-2 sm:col-span-1" label={t('services.ra.terms.payMode')}><NativeSelect value={terms.payMode} onChange={(e) => setT('payMode', e.target.value)} className="field w-full px-4 py-3 rounded-xl text-white text-sm">{['Bank Transfer / NEFT', 'UPI', 'Cheque', 'Cash'].map((o) => <option key={o}>{o}</option>)}</NativeSelect></Field>
       </div>
       {terms.payMode === 'Cash' && Math.max(num(terms.deposit), num(terms.nrDeposit), num(terms.rent)) >= CASH_LIMIT && (
         <p role="status" className="text-amber-400 text-xs -mt-2 mb-5 leading-relaxed">{t('services.ra.terms.cashLimit')}</p>
@@ -84,24 +81,22 @@ export default function StepTerms({ step, terms, setT, startBounds, errors = {},
         {payerField('utilitiesBy', ['Tenant', 'Owner'])}
         {payerField('taxBy', ['Owner', 'Tenant'])}
         {payerField('costBy', ['Split', 'Tenant', 'Owner'])}
-        <div>
-          <label className="lbl">{t('services.ra.terms.parking')}</label>
+        <Field label={t('services.ra.terms.parking')}>
           <NativeSelect value={terms.parking} title={t('services.ra.terms.parking')} onChange={(e) => { setT('parking', e.target.value); if (e.target.value === 'none') setT('parkingArea', ''); }} className="field w-full px-4 py-3 rounded-xl text-white text-sm">
             {PARKING.map((v) => <option key={v} value={v}>{t(`services.ra.terms.parkingOpt.${v}`)}</option>)}
           </NativeSelect>
-        </div>
+        </Field>
         {terms.parking !== 'none' && (
           <>
-            <div><label className="lbl">{t('services.ra.terms.parkingArea')}</label><input inputMode="decimal" value={terms.parkingArea || ''} onChange={(e) => { setT('parkingArea', e.target.value.replace(/[^\d.]/g, '')); clearErr('parkingArea'); }} className={fc('parkingArea')} placeholder={t('services.ra.property.smallAreaPlaceholder')} /><FieldError show={!!errors.parkingArea}>{t('services.ra.property.optionalAreaErr')}</FieldError></div>
-            <div>
-              <label className="lbl">{t('services.ra.property.areaUnit')}</label>
+            <Field label={t('services.ra.terms.parkingArea')} error={errors.parkingArea && t('services.ra.property.optionalAreaErr')}><input inputMode="decimal" value={terms.parkingArea || ''} onChange={(e) => { setT('parkingArea', e.target.value.replace(/[^\d.]/g, '')); clearErr('parkingArea'); }} className={fc('parkingArea')} placeholder={t('services.ra.property.smallAreaPlaceholder')} /></Field>
+            <Field label={t('services.ra.property.areaUnit')}>
               <NativeSelect value={terms.parkingAreaUnit || 'sqft'} title={t('services.ra.terms.parkingAreaUnit')} onChange={(e) => setT('parkingAreaUnit', e.target.value)} className="field w-full px-4 py-3 rounded-xl text-white text-sm">
                 {AREA_UNITS.map((v) => <option key={v} value={v}>{t(`services.ra.property.areaUnitOpt.${v}`)}</option>)}
               </NativeSelect>
-            </div>
+            </Field>
           </>
         )}
-        <div><label className="lbl">{t('services.ra.terms.occupants')}</label><input inputMode="numeric" value={terms.occupants} onChange={(e) => { setT('occupants', digits(e.target.value)); clearErr('occupants'); }} className={fc('occupants')} placeholder={t('services.ra.terms.occupantsPlaceholder')} /><FieldError show={!!errors.occupants}>{t('services.ra.terms.occupantsErr', { max: MAX_OCCUPANTS })}</FieldError></div>
+        <Field label={t('services.ra.terms.occupants')} error={errors.occupants && t('services.ra.terms.occupantsErr', { max: MAX_OCCUPANTS })}><input inputMode="numeric" value={terms.occupants} onChange={(e) => { setT('occupants', digits(e.target.value)); clearErr('occupants'); }} className={fc('occupants')} placeholder={t('services.ra.terms.occupantsPlaceholder')} /></Field>
       </div>
 
       <label className="lbl">{t('services.ra.terms.regArea')}</label>
@@ -116,19 +111,17 @@ export default function StepTerms({ step, terms, setT, startBounds, errors = {},
       <label className="lbl">{t('services.ra.terms.visit')}</label>
       <p className="text-gray-500 text-xs mb-3" style={{ marginTop: '-2px' }}>{t('services.ra.terms.visitHint')}</p>
       <div className="grid grid-cols-2 gap-3 sm:gap-4 mb-5">
-        <div className="col-span-2 sm:col-span-1">
-          <label className="lbl">{t('services.ra.terms.visitAt')}</label>
+        <Field className="col-span-2 sm:col-span-1" label={t('services.ra.terms.visitAt')}>
           <NativeSelect value={terms.visitAt} title={t('services.ra.terms.visitAt')} onChange={(e) => setT('visitAt', e.target.value)} className="field w-full px-4 py-3 rounded-xl text-white text-sm">
             {VISIT_PLACES.map((v) => <option key={v} value={v}>{t(`services.ra.terms.visitAtOpt.${v}`)}</option>)}
           </NativeSelect>
-        </div>
-        <div><label className="lbl">{t('services.ra.terms.visitDate')}</label><DateField value={terms.visitDate} min={visitBounds.min} max={visitBounds.max} onChange={(v) => { setT('visitDate', v); clearErr('visitDate'); }} className={fc('visitDate')} ariaLabel={t('services.ra.terms.visitDateAria')} /><FieldError show={!!errors.visitDate}>{t('services.ra.terms.visitDateErr', visitBounds)}</FieldError></div>
-        <div>
-          <label className="lbl">{t('services.ra.terms.visitSlot')}</label>
+        </Field>
+        <Field label={t('services.ra.terms.visitDate')} error={errors.visitDate && t('services.ra.terms.visitDateErr', visitBounds)}><DateField value={terms.visitDate} min={visitBounds.min} max={visitBounds.max} onChange={(v) => { setT('visitDate', v); clearErr('visitDate'); }} className={fc('visitDate')} ariaLabel={t('services.ra.terms.visitDateAria')} /></Field>
+        <Field label={t('services.ra.terms.visitSlot')}>
           <NativeSelect value={terms.visitSlot} title={t('services.ra.terms.visitSlot')} onChange={(e) => setT('visitSlot', e.target.value)} className="field w-full px-4 py-3 rounded-xl text-white text-sm">
             {VISIT_SLOTS.map((v) => <option key={v} value={v}>{t(`services.ra.terms.visitSlotOpt.${v}`)}</option>)}
           </NativeSelect>
-        </div>
+        </Field>
       </div>
 
       <label className="lbl">{t('services.ra.terms.furniture')}</label>
@@ -179,8 +172,8 @@ export default function StepTerms({ step, terms, setT, startBounds, errors = {},
         <button type="button" onClick={addCustom} className="btn-outline px-4 py-2.5 rounded-xl text-teal-400 text-sm font-semibold whitespace-nowrap">{t('services.ra.terms.add')}</button>
       </div>
 
-      <label className="lbl">{t('services.ra.terms.specialClauses')}</label>
-      <textarea rows={3} value={clauses} onChange={(e) => setClauses(e.target.value)} className="field w-full px-4 py-3 rounded-xl text-white text-sm resize-none" placeholder={t('services.ra.terms.clausesPlaceholder')} aria-describedby={clauses.length > CLAUSES_SOFT_LIMIT ? 'ra-clauses-len' : undefined} />
+      <label className="lbl" htmlFor="ra-clauses">{t('services.ra.terms.specialClauses')}</label>
+      <textarea id="ra-clauses" rows={3} value={clauses} onChange={(e) => setClauses(e.target.value)} className="field w-full px-4 py-3 rounded-xl text-white text-sm resize-none" placeholder={t('services.ra.terms.clausesPlaceholder')} aria-describedby={clauses.length > CLAUSES_SOFT_LIMIT ? 'ra-clauses-len' : undefined} />
       {clauses.length > CLAUSES_SOFT_LIMIT && (
         <p id="ra-clauses-len" role="status" aria-live="polite" className="text-amber-400 text-xs mt-2 leading-relaxed">
           {t('services.ra.terms.clausesLong', { chars: clauses.length })}

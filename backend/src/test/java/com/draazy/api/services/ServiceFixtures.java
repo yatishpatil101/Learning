@@ -1,5 +1,6 @@
 package com.draazy.api.services;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
@@ -26,6 +27,7 @@ import com.draazy.api.services.request.ServiceRequestStatus;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceContext;
 import java.math.BigDecimal;
+import java.nio.charset.StandardCharsets;
 import java.time.LocalDate;
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -146,10 +148,23 @@ abstract class ServiceFixtures extends AbstractApiTest {
                 + "\"payment\":{\"payment_status\":\"" + (paid ? "SUCCESS" : "FAILED") + "\","
                 + "\"payment_amount\":590.00,"
                 + "\"payment_time\":\"2025-03-05T11:20:00+05:30\"}}}";
+        deliverBody(body);
+    }
+
+    void deliverRefundSigned(String merchantRefundId, String refundStatus) throws Exception {
+        deliverBody("{\"type\":\"REFUND_STATUS_WEBHOOK\",\"data\":{\"refund\":{\"refund_id\":\""
+                + merchantRefundId + "\",\"order_id\":\"order_x\",\"refund_status\":\"" + refundStatus + "\"}}}");
+    }
+
+    private void deliverBody(String body) throws Exception {
         String ts = String.valueOf(System.currentTimeMillis());
+        String signature = webhookSignature.sign(ts, body);
+        // The endpoint answers 200 to every refusal, so isOk() alone cannot tell a settled delivery from a dropped one.
+        assertThat(webhookSignature.verify(signature, ts, body.getBytes(StandardCharsets.UTF_8)))
+                .isEqualTo(WebhookSignature.Verification.VERIFIED);
         mvc.perform(post(Routes.Webhooks.CASHFREE_PAYMENT)
                         .header("x-webhook-timestamp", ts)
-                        .header("x-webhook-signature", webhookSignature.sign(ts, body))
+                        .header("x-webhook-signature", signature)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body))
                 .andExpect(status().isOk());
@@ -244,5 +259,18 @@ abstract class ServiceFixtures extends AbstractApiTest {
 
     static String field(String json, String name) {
         return json.replaceAll("(?s)^.*?\"" + name + "\":\"([^\"]+)\".*$", "$1");
+    }
+
+    void upload(User caller, String id, String category) throws Exception {
+        upload(caller, id, category, 201);
+    }
+
+    void upload(User caller, String id, String category, int expected) throws Exception {
+        mvc.perform(multipart(Routes.ServiceRequests.DOCS, id)
+                        .file(new MockMultipartFile("file", "scan.pdf", "application/pdf",
+                                "%PDF-1.4".getBytes()))
+                        .param("category", category)
+                        .header(HttpHeaders.AUTHORIZATION, bearer(caller)))
+                .andExpect(status().is(expected));
     }
 }

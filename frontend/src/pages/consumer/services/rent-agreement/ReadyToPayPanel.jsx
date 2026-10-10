@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import Icon from '../../../../components/Icon.jsx';
+import ReviewRow from './ReviewRow.jsx';
 import { fmt } from './helpers.js';
 
 export default function ReadyToPayPanel({ request, onPay, busy, unconfirmed }) {
@@ -17,6 +18,15 @@ export default function ReadyToPayPanel({ request, onPay, busy, unconfirmed }) {
       <p className="text-gray-400 text-xs mt-1 leading-relaxed">
         {t(unconfirmed ? 'services.ra.donePaymentPendingDesc' : 'services.ra.pay.desc')}
       </p>
+      {request.details?.property && (
+        <div className="mt-3" data-testid="ra-pay-summary">
+          <ReviewRow k={t('services.ra.review.rowProperty')} v={request.details.property} />
+          <ReviewRow k={t('services.ra.review.rowOwner')} v={request.details.ownerName} />
+          <ReviewRow k={t('services.ra.review.rowTenants')} v={request.details.tenants} />
+          <ReviewRow k={t('services.ra.review.rowMonthlyRent')} v={fmt(request.details.rent)} />
+          <ReviewRow k={t('services.ra.review.rowDeposit')} v={fmt(request.details.deposit)} />
+        </div>
+      )}
       <label className="flex items-start gap-2.5 mt-3 cursor-pointer">
         <input type="checkbox" checked={declare} onChange={(e) => setDeclare(e.target.checked)} className="accent-teal-500 w-4 h-4 mt-0.5" />
         <span className="text-xs text-gray-400">{t('services.ra.review.declaration')}</span>

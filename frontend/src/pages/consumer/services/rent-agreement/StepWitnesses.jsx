@@ -1,7 +1,7 @@
 import { useTranslation } from 'react-i18next';
 import Icon from '../../../../components/Icon.jsx';
 import MobileField from '../../../../components/MobileField.jsx';
-import FieldError from '../../../../components/ui/FieldError.jsx';
+import Field from '../../../../components/ui/Field.jsx';
 import IdentityReminderNote from './IdentityReminderNote.jsx';
 
 export default function StepWitnesses({ step, wit, setWit, errors, fc, clearErr, identityReminders }) {
@@ -24,11 +24,11 @@ export default function StepWitnesses({ step, wit, setWit, errors, fc, clearErr,
             <div key={n} data-testid={`witness-${n}`} className="bg-white/4 border border-white/8 rounded-xl p-4">
               <p className="text-white font-semibold text-sm mb-3">{t('services.ra.witnesses.witness', { n })}</p>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div><label className="lbl req">{t('services.ra.witnesses.fullName')}</label><input value={wit[k('Name')] || ''} onChange={(e) => set(k('Name'), e.target.value)} className={fc(k('Name'))} placeholder={t('services.ra.owner.fullNamePlaceholder')} /><FieldError show={!!errors[k('Name')]}>{t('services.ra.witnesses.nameErr')}</FieldError></div>
-                <div><label className="lbl req">{t('services.ra.witnesses.age')}</label><input inputMode="numeric" value={wit[k('Age')] || ''} onChange={(e) => set(k('Age'), e.target.value.replace(/\D/g, ''))} className={fc(k('Age'))} placeholder={t('services.ra.owner.agePlaceholder')} /><FieldError show={!!errors[k('Age')]}>{t('services.ra.err.adult')}</FieldError></div>
-                <div><label className="lbl req">{t('services.ra.witnesses.mobile')}</label><MobileField value={wit[k('Mobile')] || ''} onChange={(v) => set(k('Mobile'), v)} error={!!errors[k('Mobile')]} placeholder={t('services.ra.owner.mobilePlaceholder')} inputClassName="px-4 py-3" /><FieldError show={!!errors[k('Mobile')]}>{why(k('Mobile'), 'services.ra.owner.mobileErr')}</FieldError></div>
-                <div><label className="lbl req">{t('services.ra.witnesses.aadhaar')}</label><input inputMode="numeric" maxLength={12} value={wit[k('Aadhaar')] || ''} onChange={(e) => set(k('Aadhaar'), e.target.value.replace(/\D/g, ''))} className={fc(k('Aadhaar'))} placeholder={t('services.ra.owner.aadhaarPlaceholder')} /><FieldError show={!!errors[k('Aadhaar')]}>{why(k('Aadhaar'), 'services.ra.owner.aadhaarErr')}</FieldError></div>
-                <div className="sm:col-span-2"><label className="lbl req">{t('services.ra.witnesses.address')}</label><input value={wit[k('Addr')] || ''} onChange={(e) => set(k('Addr'), e.target.value)} className={fc(k('Addr'))} placeholder={t('services.ra.owner.addressPlaceholder')} /><FieldError show={!!errors[k('Addr')]}>{t('services.ra.witnesses.addressErr')}</FieldError></div>
+                <Field label={t('services.ra.witnesses.fullName')} required error={errors[k('Name')] && t('services.ra.witnesses.nameErr')}><input value={wit[k('Name')] || ''} onChange={(e) => set(k('Name'), e.target.value)} className={fc(k('Name'))} placeholder={t('services.ra.owner.fullNamePlaceholder')} /></Field>
+                <Field label={t('services.ra.witnesses.age')} required error={errors[k('Age')] && t('services.ra.err.adult')}><input inputMode="numeric" value={wit[k('Age')] || ''} onChange={(e) => set(k('Age'), e.target.value.replace(/\D/g, ''))} className={fc(k('Age'))} placeholder={t('services.ra.owner.agePlaceholder')} /></Field>
+                <Field label={t('services.ra.witnesses.mobile')} required error={errors[k('Mobile')] && why(k('Mobile'), 'services.ra.owner.mobileErr')}><MobileField value={wit[k('Mobile')] || ''} onChange={(v) => set(k('Mobile'), v)} error={!!errors[k('Mobile')]} placeholder={t('services.ra.owner.mobilePlaceholder')} inputClassName="px-4 py-3" /></Field>
+                <Field label={t('services.ra.witnesses.aadhaar')} required error={errors[k('Aadhaar')] && why(k('Aadhaar'), 'services.ra.owner.aadhaarErr')}><input inputMode="numeric" maxLength={12} value={wit[k('Aadhaar')] || ''} onChange={(e) => set(k('Aadhaar'), e.target.value.replace(/\D/g, ''))} className={fc(k('Aadhaar'))} placeholder={t('services.ra.owner.aadhaarPlaceholder')} /></Field>
+                <Field className="sm:col-span-2" label={t('services.ra.witnesses.address')} required error={errors[k('Addr')] && t('services.ra.witnesses.addressErr')}><input value={wit[k('Addr')] || ''} onChange={(e) => set(k('Addr'), e.target.value)} className={fc(k('Addr'))} placeholder={t('services.ra.owner.addressPlaceholder')} /></Field>
               </div>
             </div>
           );

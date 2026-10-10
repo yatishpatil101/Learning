@@ -2,7 +2,7 @@ import { useEffect, useId, useState } from 'react';
 import { ShieldAlert } from 'lucide-react';
 import { listServiceRequestOverlaps } from '../../../services/serviceRequestService.js';
 
-const MATCH_LABEL = { listing: 'same listing', address: 'same flat, society and pincode' };
+const MATCH_LABEL = { listing: 'same listing', address: 'same flat, society and pincode', record: 'filed agreement record' };
 const shortId = (id) => id.slice(0, 8);
 const term = (row) => (row.startDate && row.endDate ? `${row.startDate} → ${row.endDate}` : 'term not stated');
 

@@ -1,15 +1,15 @@
 import { useId, useState } from 'react';
 import { FolderOpen } from 'lucide-react';
-import { openDocUrl } from '../../../lib/openDoc.js';
 import { classNames } from '../../../lib/format.js';
 import { Fields, deedGroups } from '../service-queue/DeedParticulars.jsx';
 import { PaperRow, PapersNotice, papersCount, usePaperReview } from '../service-queue/DocumentChecklist.jsx';
 import ServiceDocuments from '../service-queue/ServiceDocuments.jsx';
+import { openRequestDoc } from '../service-queue/helpers.js';
 
 const card = 'rounded-xl border border-white/10 bg-black/10 p-4';
 const label = 'text-[11px] uppercase tracking-wide text-gray-500';
 const KEY_TERMS = new Set(['Rent', 'Refundable deposit', 'Term', 'Start date']);
-// Checklist ids are `licensor-0-pan`, `tenant-1-photo`, `ownership-proof`; anything not a person's belongs to the property.
+// Checklist ids look like `licensor-0-pan`, `tenant-1-photo`, `ownership-proof`; any other id is the property's.
 const ownerKey = (id) => /^(licensor|tenant)-\d+/.exec(id)?.[0] || 'property';
 const shortName = (name) => name.split(' — ').slice(1).join(' — ') || name;
 const indexOf = (key) => Number(key.split('-')[1]);
@@ -23,7 +23,6 @@ function partyCards(groups, items, kind, prefix, title) {
   return [...cards, ...extra].sort((a, b) => indexOf(a.key) - indexOf(b.key));
 }
 
-/** The case file as tabs: one per party kind, each card holding that party's own papers, then the flat and the terms. */
 export default function CaseParticulars({ request, checklist, status, onChecklist, onError, onUnavailable, children }) {
   const base = useId();
   const [tab, setTab] = useState('licensor');
@@ -33,7 +32,7 @@ export default function CaseParticulars({ request, checklist, status, onChecklis
   const docs = request.docs || [];
   const claimed = new Set(items.map((i) => i.documentId).filter(Boolean));
   const others = docs.filter((d) => !claimed.has(d.id));
-  const open = (doc) => { if (!openDocUrl(doc.url)) onUnavailable(); };
+  const open = async (doc) => { if (!(await openRequestDoc(request.id, doc.id))) onUnavailable(); };
   const find = (key) => groups.find((g) => g.key === key);
 
   const detailCard = (group) => (
@@ -62,6 +61,7 @@ export default function CaseParticulars({ request, checklist, status, onChecklis
       body: (
         <div className={card}>
           <ServiceDocuments
+            requestId={request.id}
             documents={others}
             onUnavailable={onUnavailable}
             title=""

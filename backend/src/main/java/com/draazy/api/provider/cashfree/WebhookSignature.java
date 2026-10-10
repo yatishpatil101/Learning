@@ -58,10 +58,8 @@ public class WebhookSignature {
         return null;
     }
 
-    /**
-     * Four refusals, because one undifferentiated "signature did not verify" line named the secret
-     * as the suspect when the secret was correct.
-     */
+    /** Four distinct refusals, because one generic "did not verify" line blames the secret
+     * even when the secret is correct. */
     public enum Verification {
         /** Well-formed, matching, recent. The only outcome that settles anything. */
         VERIFIED,
@@ -71,18 +69,14 @@ public class WebhookSignature {
         STALE,
         /** Timestamp not an integer, or signature not Base64 — nothing to compare either way. */
         MALFORMED,
-        /**
-         * Parsed but the HMAC differs. Reachable by any anonymous caller, so one occurrence is not
-         * evidence the key is wrong.
-         */
+        /** Parsed but the HMAC differs. Any anonymous caller can cause this,
+         * so one occurrence is not evidence the key is wrong. */
         MISMATCH
     }
 
-    /**
-     * Authenticity before freshness, so {@link Verification#STALE} cannot be produced by someone
-     * who does not hold the secret. Anything but {@code VERIFIED} is dropped and still answers 200.
-     */
-    public Verification verify(String signature, String timestamp, String rawBody) {
+    /** Authenticity before freshness, so {@link Verification#STALE} cannot be produced by someone without the
+     * secret. Anything but {@code VERIFIED} is dropped and still answers 200. */
+    public Verification verify(String signature, String timestamp, byte[] rawBody) {
         if (signature == null || timestamp == null || rawBody == null) {
             return Verification.MISSING_HEADER;
         }
@@ -105,24 +99,21 @@ public class WebhookSignature {
         return isFresh(sentAt) ? Verification.VERIFIED : Verification.STALE;
     }
 
-    /**
-     * Shared by {@link #verify} and {@link #sign} so the two cannot drift. Thrown rather than
-     * refused: a missing HMAC-SHA256 is this JVM's fault, and would blame the sender in the log.
-     */
-    private byte[] hmac(String timestamp, String rawBody) {
+    /** Shared by {@link #verify} and {@link #sign} so they cannot drift. Thrown, not refused:
+     * a missing HMAC-SHA256 is this JVM's fault and would blame the sender in the log. */
+    private byte[] hmac(String timestamp, byte[] rawBody) {
         try {
             Mac mac = Mac.getInstance(HMAC_SHA256);
             mac.init(new SecretKeySpec(secret, HMAC_SHA256));
-            return mac.doFinal((timestamp + rawBody).getBytes(StandardCharsets.UTF_8));
+            mac.update(timestamp.getBytes(StandardCharsets.UTF_8));
+            return mac.doFinal(rawBody);
         } catch (GeneralSecurityException noHmac) {
             throw new IllegalStateException("HMAC-SHA256 unavailable", noHmac);
         }
     }
 
-    /**
-     * Both units accepted because Cashfree posts seconds and {@link #sign} signs millis; neither
-     * widens the window, since a value misread lands in 1970 or the year 57000.
-     */
+    /** Both units accepted because Cashfree posts seconds and {@link #sign} signs millis; neither
+     * widens the window, since a misread value lands in 1970 or the year 57000. */
     private boolean isFresh(long sentAt) {
         // Math.abs(Long.MIN_VALUE) is itself negative, so now - 2^63 would compare as fresh.
         if (sentAt < 0) {
@@ -135,6 +126,6 @@ public class WebhookSignature {
 
     /** Exists so tests run the real path: a check that is only ever mocked is a check nobody ran. */
     public String sign(String timestamp, String rawBody) {
-        return Base64.getEncoder().encodeToString(hmac(timestamp, rawBody));
+        return Base64.getEncoder().encodeToString(hmac(timestamp, rawBody.getBytes(StandardCharsets.UTF_8)));
     }
 }

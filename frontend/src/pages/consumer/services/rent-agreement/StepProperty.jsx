@@ -3,6 +3,7 @@ import NativeSelect from '../../../../components/ui/NativeSelect.jsx';
 import LocalitySelect from '../../../../components/ui/LocalitySelect.jsx';
 import Icon from '../../../../components/Icon.jsx';
 import FieldError from '../../../../components/ui/FieldError.jsx';
+import Field from '../../../../components/ui/Field.jsx';
 import { Link } from 'react-router';
 import SocietySelect from '../../list-property/SocietySelect.jsx';
 import { cleanText } from '../../list-property/sanitize.js';
@@ -60,52 +61,47 @@ export default function StepProperty({ step, prop, setP, setProp, setSelectedPro
         </p>
       </div>
       <div className="grid grid-cols-2 gap-3 sm:gap-4 mb-5">
-        <div>
-          <label className="lbl">{t('services.ra.property.propertyType')}</label>
+        <Field label={t('services.ra.property.propertyType')} error={errors.propType && t('services.ra.property.propTypeErr')}>
           <NativeSelect value={prop.propType} onChange={(e) => { setP('propType', e.target.value); clearErr('propType'); }} className={fc('propType')}>
             {errors.propType && <option value={prop.propType} disabled>{prop.propType}</option>}
             {RESIDENTIAL_PROPERTY_TYPES.map((o) => <option key={o}>{o}</option>)}
           </NativeSelect>
-          <FieldError show={!!errors.propType}>{t('services.ra.property.propTypeErr')}</FieldError>
-        </div>
-        <div>
-          <label className="lbl">{t('services.ra.property.furnishing')}</label>
+        </Field>
+        <Field label={t('services.ra.property.furnishing')}>
           <NativeSelect value={prop.furnish} onChange={(e) => setP('furnish', e.target.value)} className="field w-full px-4 py-3 rounded-xl text-white text-sm">
             {['Unfurnished', 'Semi-Furnished', 'Furnished'].map((o) => <option key={o}>{o}</option>)}
           </NativeSelect>
-        </div>
+        </Field>
       </div>
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-5">
-          <div><label className="lbl req">{t('services.ra.property.flatNo')}</label><input value={prop.flatNo} onChange={(e) => { clearPropertyBinding(); setP('flatNo', e.target.value); clearErr('flatNo'); }} className={fc('flatNo')} placeholder={t('services.ra.property.flatNoPlaceholder')} /><FieldError show={!!errors.flatNo}>{t('services.ra.property.flatNoErr')}</FieldError></div>
-          <div><label className="lbl req" htmlFor="ra-society">{t('services.ra.property.society')}</label><SocietySelect id="ra-society" value={prop.societyId} name={prop.societyNotOnMaps ? '' : prop.society} notOnMaps={!!prop.societyNotOnMaps} onChange={onSociety} localityLabel={prop.locality} inputClassName={fc('society')} invalid={!!errors.society} placeholder={t('services.ra.property.societyPlaceholder')} /><FieldError show={!!errors.society}>{t('services.ra.property.societyErr')}</FieldError>{prop.societyNotOnMaps ? <input value={prop.society || ''} maxLength={60} onChange={(e) => { clearPropertyBinding(); setP('society', cleanText(e.target.value)); clearErr('society'); }} className="field w-full px-4 py-3 rounded-xl text-white text-sm mt-2" aria-label={t('services.ra.property.buildingText')} placeholder={t('services.ra.property.buildingText')} /> : null}</div>
-          <div><label className="lbl req">{t('services.ra.property.locality')}</label><LocalitySelect value={prop.locality} onChange={onLocality} onSelect={onLocalityPicked} onBusyChange={onLocalityBusy} dataErr="locality" invalid={!!errors.locality} placeholder={t('services.ra.property.localityPlaceholder')} ariaLabel={t('services.ra.property.locality')} className="w-full" /><FieldError show={!!errors.locality}>{t('services.ra.property.localityErr')}</FieldError></div>
+          <Field label={t('services.ra.property.flatNo')} required error={errors.flatNo && t('services.ra.property.flatNoErr')}><input value={prop.flatNo} onChange={(e) => { clearPropertyBinding(); setP('flatNo', e.target.value); clearErr('flatNo'); }} className={fc('flatNo')} placeholder={t('services.ra.property.flatNoPlaceholder')} /></Field>
+          <Field label={t('services.ra.property.society')} required error={errors.society && t('services.ra.property.societyErr')}><SocietySelect value={prop.societyId} name={prop.societyNotOnMaps ? '' : prop.society} notOnMaps={!!prop.societyNotOnMaps} onChange={onSociety} localityLabel={prop.locality} inputClassName={fc('society')} invalid={!!errors.society} placeholder={t('services.ra.property.societyPlaceholder')} />{prop.societyNotOnMaps ? <input value={prop.society || ''} maxLength={60} onChange={(e) => { clearPropertyBinding(); setP('society', cleanText(e.target.value)); clearErr('society'); }} className="field w-full px-4 py-3 rounded-xl text-white text-sm mt-2" aria-label={t('services.ra.property.buildingText')} placeholder={t('services.ra.property.buildingText')} /> : null}</Field>
+          <Field label={t('services.ra.property.locality')} required error={errors.locality && t('services.ra.property.localityErr')}><LocalitySelect value={prop.locality} onChange={onLocality} onSelect={onLocalityPicked} onBusyChange={onLocalityBusy} dataErr="locality" invalid={!!errors.locality} placeholder={t('services.ra.property.localityPlaceholder')} ariaLabel={t('services.ra.property.locality')} className="w-full" /></Field>
         <div className="grid grid-cols-2 gap-3">
-          <div><label className="lbl">{t('services.ra.property.city')}</label><input value={prop.city} onChange={(e) => { clearPropertyBinding(); setP('city', e.target.value); }} className="field w-full px-4 py-3 rounded-xl text-white text-sm" /></div>
-          <div><label className="lbl req">{t('services.ra.property.pincode')}</label><input inputMode="numeric" maxLength={6} value={prop.pincode} onChange={(e) => { clearPropertyBinding(); setP('pincode', e.target.value.replace(/\D/g, '')); clearErr('pincode'); }} className={fc('pincode')} placeholder={t('services.ra.property.pincodePlaceholder')} /><FieldError show={!!errors.pincode}>{errors.pincode === 'state' ? t('services.ra.property.pincodeState') : t('services.ra.property.pincodeErr')}</FieldError></div>
+          <Field label={t('services.ra.property.city')}><input value={prop.city} onChange={(e) => { clearPropertyBinding(); setP('city', e.target.value); }} className="field w-full px-4 py-3 rounded-xl text-white text-sm" /></Field>
+          <Field label={t('services.ra.property.pincode')} required error={errors.pincode && (errors.pincode === 'state' ? t('services.ra.property.pincodeState') : t('services.ra.property.pincodeErr'))}><input inputMode="numeric" maxLength={6} value={prop.pincode} onChange={(e) => { clearPropertyBinding(); setP('pincode', e.target.value.replace(/\D/g, '')); clearErr('pincode'); }} className={fc('pincode')} placeholder={t('services.ra.property.pincodePlaceholder')} /></Field>
         </div>
       </div>
-      <div className="mb-5" data-err="gramPanchayat" role="group" aria-label={t('services.ra.property.gramPanchayat')}>
+      <div className="mb-5" data-err="gramPanchayat" role="group" aria-label={t('services.ra.property.gramPanchayat')} aria-describedby={errors.gramPanchayat ? 'ra-gram-err' : undefined}>
         <label className="lbl req">{t('services.ra.property.gramPanchayat')}</label>
         <div className="grid grid-cols-2 gap-3">
           {[true, false].map((v) => <button type="button" key={String(v)} onClick={() => { setP('gramPanchayat', v); clearErr('gramPanchayat'); }} aria-pressed={prop.gramPanchayat === v} data-testid={v ? 'ra-gram-yes' : 'ra-gram-no'} className={'opt-pill rounded-xl px-4 py-3 text-sm font-medium text-center ' + (prop.gramPanchayat === v ? 'sel' : 'text-gray-400')}>{t(v ? 'services.ra.property.gramPanchayatYes' : 'services.ra.property.gramPanchayatNo')}</button>)}
         </div>
-        <FieldError show={!!errors.gramPanchayat}>{t('services.ra.property.gramPanchayatErr')}</FieldError>
+        <FieldError id="ra-gram-err" alert={false} show={!!errors.gramPanchayat}>{t('services.ra.property.gramPanchayatErr')}</FieldError>
       </div>
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4 mb-5">
-        <div><label className="lbl req">{t('services.ra.property.area')}</label><input inputMode="decimal" value={prop.area} onChange={(e) => { setP('area', e.target.value.replace(/[^\d.]/g, '')); clearErr('area'); }} className={fc('area')} placeholder={t('services.ra.property.areaPlaceholder')} /><FieldError show={!!errors.area}>{t('services.ra.property.areaErr')}</FieldError></div>
-        <div>
-          <label className="lbl">{t('services.ra.property.areaBasis')}</label>
+        <Field label={t('services.ra.property.area')} required error={errors.area && t('services.ra.property.areaErr')}><input inputMode="decimal" value={prop.area} onChange={(e) => { setP('area', e.target.value.replace(/[^\d.]/g, '')); clearErr('area'); }} className={fc('area')} placeholder={t('services.ra.property.areaPlaceholder')} /></Field>
+        <Field label={t('services.ra.property.areaBasis')}>
           <NativeSelect value={prop.areaBasis} title={t('services.ra.property.areaBasis')} onChange={(e) => setP('areaBasis', e.target.value)} className="field w-full px-4 py-3 rounded-xl text-white text-sm">
             {AREA_BASES.map((v) => <option key={v} value={v}>{t(`services.ra.property.areaBasisOpt.${v}`)}</option>)}
           </NativeSelect>
-        </div>
-        <div>
-          <label className="lbl">{t('services.ra.property.areaUnit')}</label>
+        </Field>
+        <Field label={t('services.ra.property.areaUnit')}>
           <NativeSelect value={prop.areaUnit} title={t('services.ra.property.areaUnit')} onChange={(e) => setP('areaUnit', e.target.value)} className="field w-full px-4 py-3 rounded-xl text-white text-sm">
             {AREA_UNITS.map((v) => <option key={v} value={v}>{t(`services.ra.property.areaUnitOpt.${v}`)}</option>)}
           </NativeSelect>
-        </div>
-        <div><label className="lbl">{t('services.ra.property.floor')}</label><input inputMode="numeric" value={prop.floor} onChange={(e) => { setP('floor', e.target.value.replace(/\D/g, '')); clearErr('floor'); }} className={fc('floor')} placeholder={t('services.ra.property.floorPlaceholder')} /><FieldError show={!!errors.floor}>{t('services.ra.property.floorErr', { max: MAX_FLOOR })}</FieldError></div>
+        </Field>
+        <Field label={t('services.ra.property.floor')} error={errors.floor && t('services.ra.property.floorErr', { max: MAX_FLOOR })}><input inputMode="numeric" value={prop.floor} onChange={(e) => { setP('floor', e.target.value.replace(/\D/g, '')); clearErr('floor'); }} className={fc('floor')} placeholder={t('services.ra.property.floorPlaceholder')} /></Field>
       </div>
       <IgrPropertyFields t={t} prop={prop} setP={setP} setProp={setProp} errors={errors} clearErr={clearErr} clearPropertyBinding={clearPropertyBinding} />
     </div>

@@ -1,6 +1,6 @@
 import { useEffect, useId, useState } from 'react';
 import { BadgeCheck, ExternalLink, ShieldAlert, X } from 'lucide-react';
-import { openDocUrl } from '../../../lib/openDoc.js';
+import { openRequestDoc } from './helpers.js';
 import { hasPermission } from '../../../lib/adminModules.js';
 import { useAuth } from '../../../context/AuthContext.jsx';
 import { listServiceRequestRentAgreements, verifyRentAgreement } from '../../../services/serviceRequestService.js';
@@ -74,7 +74,7 @@ export default function RegistrationCheck({ request, onError, onUnavailable }) {
     }
   };
 
-  const copyUrl = rows?.find((row) => row.documentUrl)?.documentUrl;
+  const copyId = rows?.find((row) => row.documentId)?.documentId;
 
   return (
     <section className="rounded-2xl border border-white/10 p-4" aria-labelledby={titleId}>
@@ -85,10 +85,10 @@ export default function RegistrationCheck({ request, onError, onUnavailable }) {
         the person who uploaded the copy cannot confirm it.
       </p>
       {request.registration ? <RegistrationRecord record={request.registration} /> : null}
-      {copyUrl ? (
+      {copyId ? (
         <button
           type="button"
-          onClick={() => { if (!openDocUrl(copyUrl)) onUnavailable(); }}
+          onClick={async () => { if (!(await openRequestDoc(request.id, copyId))) onUnavailable(); }}
           className="mt-2 inline-flex items-center gap-1.5 text-sm text-sky-200 hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-sky-300"
         >
           <ExternalLink className="h-3.5 w-3.5" aria-hidden="true" /> Open the registered copy

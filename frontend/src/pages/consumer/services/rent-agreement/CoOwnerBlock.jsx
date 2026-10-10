@@ -3,7 +3,7 @@ import { Link } from 'react-router';
 import NativeSelect from '../../../../components/ui/NativeSelect.jsx';
 import Icon from '../../../../components/Icon.jsx';
 import MobileField from '../../../../components/MobileField.jsx';
-import FieldError from '../../../../components/ui/FieldError.jsx';
+import Field from '../../../../components/ui/Field.jsx';
 import { pickDoc } from './helpers.js';
 import { coOwnerDocSlots } from './validation.js';
 import { COMMERCIAL_ROUTE } from './constants.js';
@@ -29,20 +29,17 @@ export default function CoOwnerBlock({ index, row, set, remove, errors, fc, clea
         <button type="button" onClick={remove} className="text-gray-500 hover:text-red-400 text-xs flex items-center gap-1"><Icon name="trash-2" className="w-3.5 h-3.5" /> {t('services.ra.tenant.remove')}</button>
       </div>
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-        <div>
-          <label className="lbl">{t('services.ra.party.type')}</label>
+        <Field label={t('services.ra.party.type')} error={errors[p + 'type'] && t('services.ra.party.entityErr')}>
           <NativeSelect value={row.type || 'individual'} onChange={(e) => { set('type', e.target.value); clearErr(p + 'type'); }} className={fc(p + 'type')}>
             <option value="individual">{t('services.ra.party.typeOpt.individual')}</option>
             <option value="entity">{t('services.ra.party.typeOpt.entity')}</option>
           </NativeSelect>
-          <FieldError show={!!errors[p + 'type']}>{t('services.ra.party.entityErr')}</FieldError>
-        </div>
-        <div>
-          <label className="lbl">{t('services.ra.party.residency')}</label>
+        </Field>
+        <Field label={t('services.ra.party.residency')}>
           <NativeSelect value={row.residency || 'resident'} onChange={(e) => { set('residency', e.target.value); setOwnerDocs((d) => { const next = { ...d }; delete next[`${p}-aadhaar`]; delete next[`${p}-passport`]; delete next[`${p}-visa`]; return next; }); clearErr(p + 'residency'); }} className={fc(p + 'residency')}>
             {['resident', 'nri', 'foreign'].map((r) => <option key={r} value={r}>{t(`services.ra.party.residencyOpt.${r}`)}</option>)}
           </NativeSelect>
-        </div>
+        </Field>
         {row.type === 'entity' && (
           <div className="sm:col-span-2 rounded-xl border border-amber-400/25 bg-amber-500/10 p-3 text-xs text-amber-100 leading-relaxed">
             {t('services.ra.party.entityNote')}{' '}
@@ -50,32 +47,31 @@ export default function CoOwnerBlock({ index, row, set, remove, errors, fc, clea
           </div>
         )}
         {offline && <div className="sm:col-span-2 rounded-xl border border-sky-400/20 bg-sky-500/10 p-3 text-xs text-sky-100 leading-relaxed">{t('services.ra.party.offlineNote')}</div>}
-        <div><label className="lbl req">{t('services.ra.owner.fullName')}</label><input {...input('name')} placeholder={t('services.ra.owner.fullNamePlaceholder')} /><FieldError show={!!errors[p + 'name']}>{t('services.ra.owner.coOwners.nameErr')}</FieldError></div>
+        <Field label={t('services.ra.owner.fullName')} required error={errors[p + 'name'] && t('services.ra.owner.coOwners.nameErr')}><input {...input('name')} placeholder={t('services.ra.owner.fullNamePlaceholder')} /></Field>
         <PartyIdentityFields mother={row.mother} dob={row.dob} alias={row.alias} age={row.age} setMother={(v) => set('mother', v)} setDob={(v) => set('dob', v)} setAlias={(v) => set('alias', v)} setAge={(v) => set('age', v)} keys={{ mother: p + 'mother', dob: p + 'dob', alias: p + 'alias', age: p + 'age' }} errors={errors} clearErr={clearErr} />
         <div className="grid grid-cols-2 gap-3">
-          <div><label className="lbl req">{t('services.ra.owner.age')}</label><input inputMode="numeric" {...input('age')} onChange={(e) => { set('age', e.target.value.replace(/\D/g, '')); clearErr(p + 'age'); }} placeholder={t('services.ra.owner.agePlaceholder')} /><FieldError show={!!errors[p + 'age']}>{t(errors[p + 'age'] === 'match' ? 'services.ra.err.ageDob' : 'services.ra.err.adult')}</FieldError></div>
-          <div><label className="lbl">{t('services.ra.owner.gender')}</label><NativeSelect value={row.gender} onChange={(e) => set('gender', e.target.value)} className="field w-full px-4 py-3 rounded-xl text-white text-sm"><option value="">{t('services.ra.owner.genderPlaceholder')}</option>{['Male', 'Female', 'Other'].map((o) => <option key={o}>{o}</option>)}</NativeSelect></div>
+          <Field label={t('services.ra.owner.age')} required error={errors[p + 'age'] && (t(errors[p + 'age'] === 'match' ? 'services.ra.err.ageDob' : 'services.ra.err.adult'))}><input inputMode="numeric" {...input('age')} onChange={(e) => { set('age', e.target.value.replace(/\D/g, '')); clearErr(p + 'age'); }} placeholder={t('services.ra.owner.agePlaceholder')} /></Field>
+          <Field label={t('services.ra.owner.gender')}><NativeSelect value={row.gender} onChange={(e) => set('gender', e.target.value)} className="field w-full px-4 py-3 rounded-xl text-white text-sm"><option value="">{t('services.ra.owner.genderPlaceholder')}</option>{['Male', 'Female', 'Other'].map((o) => <option key={o}>{o}</option>)}</NativeSelect></Field>
         </div>
-        <div><label className="lbl req">{t('services.ra.owner.pan')}</label><input maxLength={10} {...input('pan')} onChange={(e) => { set('pan', e.target.value.toUpperCase()); clearErr(p + 'pan'); }} className={fc(p + 'pan') + ' uppercase'} placeholder="ABCDE1234F" /><FieldError show={!!errors[p + 'pan']}>{t('services.ra.owner.panErr')}</FieldError></div>
+        <Field label={t('services.ra.owner.pan')} required error={errors[p + 'pan'] && t('services.ra.owner.panErr')}><input maxLength={10} {...input('pan')} onChange={(e) => { set('pan', e.target.value.toUpperCase()); clearErr(p + 'pan'); }} className={fc(p + 'pan') + ' uppercase'} placeholder="ABCDE1234F" /></Field>
         {offline ? (
           <>
-            <div><label className="lbl req">{t('services.ra.party.passport')}</label><input maxLength={20} {...input('passport')} onChange={(e) => { set('passport', e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '')); clearErr(p + 'passport'); }} placeholder={t('services.ra.party.passportPlaceholder')} /><FieldError show={!!errors[p + 'passport']}>{t('services.ra.party.passportErr')}</FieldError></div>
-            {row.residency === 'foreign' && <div><label className="lbl req">{t('services.ra.party.visaOci')}</label><input maxLength={40} {...input('visaOci')} placeholder={t('services.ra.party.visaOciPlaceholder')} /><FieldError show={!!errors[p + 'visaOci']}>{t('services.ra.party.visaOciErr')}</FieldError></div>}
-            {row.residency === 'foreign' && <div><label className="lbl">{t('services.ra.party.frro')}</label><input maxLength={40} {...input('frro')} placeholder={t('services.ra.party.frroPlaceholder')} /></div>}
+            <Field label={t('services.ra.party.passport')} required error={errors[p + 'passport'] && t('services.ra.party.passportErr')}><input maxLength={20} {...input('passport')} onChange={(e) => { set('passport', e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '')); clearErr(p + 'passport'); }} placeholder={t('services.ra.party.passportPlaceholder')} /></Field>
+            {row.residency === 'foreign' && <Field label={t('services.ra.party.visaOci')} required error={errors[p + 'visaOci'] && t('services.ra.party.visaOciErr')}><input maxLength={40} {...input('visaOci')} placeholder={t('services.ra.party.visaOciPlaceholder')} /></Field>}
+            {row.residency === 'foreign' && <Field label={t('services.ra.party.frro')}><input maxLength={40} {...input('frro')} placeholder={t('services.ra.party.frroPlaceholder')} /></Field>}
           </>
         ) : (
-          <div><label className="lbl req">{t('services.ra.owner.aadhaar')}</label><input inputMode="numeric" maxLength={12} {...input('aadhaar')} onChange={(e) => { set('aadhaar', e.target.value.replace(/\D/g, '')); clearErr(p + 'aadhaar'); }} placeholder={t('services.ra.owner.aadhaarPlaceholder')} /><FieldError show={!!errors[p + 'aadhaar']}>{why('aadhaar', 'services.ra.owner.aadhaarErr')}</FieldError></div>
+          <Field label={t('services.ra.owner.aadhaar')} required error={errors[p + 'aadhaar'] && why('aadhaar', 'services.ra.owner.aadhaarErr')}><input inputMode="numeric" maxLength={12} {...input('aadhaar')} onChange={(e) => { set('aadhaar', e.target.value.replace(/\D/g, '')); clearErr(p + 'aadhaar'); }} placeholder={t('services.ra.owner.aadhaarPlaceholder')} /></Field>
         )}
-        <div><label className="lbl req">{t('services.ra.owner.mobile')}</label><MobileField value={row.mobile} onChange={(v) => { set('mobile', v); clearErr(p + 'mobile'); }} error={!!errors[p + 'mobile']} placeholder={t('services.ra.owner.mobilePlaceholder')} inputClassName="px-4 py-3" /><FieldError show={!!errors[p + 'mobile']}>{why('mobile', 'services.ra.owner.mobileErr')}</FieldError></div>
-        <div><label className="lbl">{t('services.ra.owner.email')}</label><input type="email" {...input('email')} placeholder="you@example.com" /><FieldError show={!!errors[p + 'email']}>{t('services.ra.err.email')}</FieldError></div>
-        <div><label className="lbl">{t('services.ra.tenant.occupation')}</label><input {...input('occupation')} placeholder={t('services.ra.owner.occupationPlaceholder')} /></div>
-        <div className="sm:col-span-2"><label className="lbl req">{t('services.ra.owner.address')}</label><textarea rows={2} {...input('addr')} className={fc(p + 'addr') + ' resize-none'} placeholder={t('services.ra.owner.addressPlaceholder')} /><FieldError show={!!errors[p + 'addr']}>{t('services.ra.owner.addressErr')}</FieldError></div>
-        <div>
-          <label className="lbl">{t('services.ra.owner.capacity')}</label>
+        <Field label={t('services.ra.owner.mobile')} required error={errors[p + 'mobile'] && why('mobile', 'services.ra.owner.mobileErr')}><MobileField value={row.mobile} onChange={(v) => { set('mobile', v); clearErr(p + 'mobile'); }} error={!!errors[p + 'mobile']} placeholder={t('services.ra.owner.mobilePlaceholder')} inputClassName="px-4 py-3" /></Field>
+        <Field label={t('services.ra.owner.email')} error={errors[p + 'email'] && t('services.ra.err.email')}><input type="email" {...input('email')} placeholder="you@example.com" /></Field>
+        <Field label={t('services.ra.tenant.occupation')}><input {...input('occupation')} placeholder={t('services.ra.owner.occupationPlaceholder')} /></Field>
+        <Field className="sm:col-span-2" label={t('services.ra.owner.address')} required error={errors[p + 'addr'] && t('services.ra.owner.addressErr')}><textarea rows={2} {...input('addr')} className={fc(p + 'addr') + ' resize-none'} placeholder={t('services.ra.owner.addressPlaceholder')} /></Field>
+        <Field label={t('services.ra.owner.capacity')}>
           <NativeSelect value={row.capacity} onChange={(e) => set('capacity', e.target.value)} className="field w-full px-4 py-3 rounded-xl text-white text-sm">
             {['co-owner', 'poa'].map((c) => <option key={c} value={c}>{t(`services.ra.owner.capacityOpt.${c}`)}</option>)}
           </NativeSelect>
-        </div>
+        </Field>
         {row.capacity === 'poa' && <PoaFields prefix={p} row={row} set={set} errors={errors} clearErr={clearErr} fc={fc} today={today} />}
       </div>
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-4">

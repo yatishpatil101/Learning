@@ -1,5 +1,6 @@
 import { useTranslation } from 'react-i18next';
 import Icon from '../../../../components/Icon.jsx';
+import { ServiceBreadcrumbs } from '../../../../components/Breadcrumbs.jsx';
 
 export default function Hero() {
   const { t } = useTranslation();
@@ -9,6 +10,7 @@ export default function Hero() {
       <section className="hero theme-dark relative overflow-hidden">
         <div className="absolute inset-0 opacity-20" style={{ backgroundImage: 'radial-gradient(circle at 20% 30%,rgb(var(--dz-c-pure-white) / .3) 0,transparent 40%),radial-gradient(circle at 80% 70%,rgb(var(--dz-c-teal-500) / .5) 0,transparent 40%)' }} />
         <div className="relative max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-16 text-center">
+          <ServiceBreadcrumbs k="rentAgreement" className="mb-4 text-left" />
           <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-white/10 border border-white/15 text-teal-200 text-sm font-medium mb-5"><Icon name="file-signature" className="w-4 h-4" /> {t('services.ra.hero.badge')}</div>
           <h1 className="text-3xl sm:text-5xl font-extrabold text-white leading-tight">{t('services.ra.hero.title1')}<br /><span className="gradient-text">{t('services.ra.hero.titleAccent')}</span></h1>
           <p className="text-gray-200 text-base sm:text-lg mt-5 max-w-2xl mx-auto">{t('services.ra.hero.subtitle')}</p>

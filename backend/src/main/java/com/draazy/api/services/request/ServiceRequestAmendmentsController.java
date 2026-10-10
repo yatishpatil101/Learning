@@ -40,7 +40,8 @@ public class ServiceRequestAmendmentsController {
     public ServiceRequestDto proposeServiceRequestAmendment(@CurrentUser AuthPrincipal principal,
             @PathVariable String id, @Valid @RequestBody AmendmentRequest body) {
         return amendments.propose(principal, id, new ServiceRequestAmendments.Terms(body.rent(),
-                body.deposit(), body.nrDeposit(), body.months(), body.increment(), body.regArea()),
+                body.deposit(), body.nrDeposit(), body.months(), body.increment(), body.incrementEvery(),
+                body.regArea()),
                 body.reason());
     }
 
@@ -60,7 +61,7 @@ public class ServiceRequestAmendmentsController {
 
     public record AmendmentRequest(@Positive Long rent, @PositiveOrZero Long deposit,
             @PositiveOrZero Long nrDeposit, @Positive Long months,
-            @DecimalMin("0") @DecimalMax("100") BigDecimal increment,
+            @DecimalMin("0") @DecimalMax("100") BigDecimal increment, @Positive Long incrementEvery,
             @Pattern(regexp = "urban|rural") String regArea,
             @NotBlank @Size(max = 300) String reason) {
     }

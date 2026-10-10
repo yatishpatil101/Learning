@@ -4,6 +4,7 @@ import { Trans, useTranslation } from 'react-i18next';
 import Icon from '../Icon.jsx';
 import HScroll from '../ui/HScroll.jsx';
 import Select from '../ui/Select.jsx';
+import DateField from '../ui/DateField.jsx';
 import { fmtINR } from '../../lib/format.js';
 import {
   myRentals, addRental, updateRental, deleteRental,
@@ -354,6 +355,7 @@ function RentalForm({ initial, onCancel, onDone, onError }) {
   });
   const [busy, setBusy] = useState(false);
   const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }));
+  const setDate = (k) => (iso) => setForm((f) => ({ ...f, [k]: iso }));
 
   const complete = form.address.trim() && Number(form.monthlyRent) > 0 && form.leaseStart;
   const datesOrdered = !form.leaseEnd || !form.leaseStart || form.leaseEnd >= form.leaseStart;
@@ -392,15 +394,15 @@ function RentalForm({ initial, onCancel, onDone, onError }) {
             <input type="number" inputMode="numeric" min="0" value={form.deposit} onChange={set('deposit')} className={input} />
           </Field>
           <Field label={t('wallet.formStart')}>
-            <input type="date" value={form.leaseStart} onChange={set('leaseStart')} required className={input} />
+            <DateField value={form.leaseStart} onChange={setDate('leaseStart')} ariaLabel={t('wallet.formStart')} className={input} />
           </Field>
           <Field label={t('wallet.formEnd')} hint={t('wallet.optional')}>
-            <input
-              type="date"
+            <DateField
               value={form.leaseEnd}
-              onChange={set('leaseEnd')}
-              aria-invalid={!datesOrdered}
-              aria-describedby={datesOrdered ? undefined : 'rental-dates-error'}
+              onChange={setDate('leaseEnd')}
+              min={form.leaseStart || undefined}
+              ariaLabel={t('wallet.formEnd')}
+              invalid={!datesOrdered}
               className={input}
             />
           </Field>

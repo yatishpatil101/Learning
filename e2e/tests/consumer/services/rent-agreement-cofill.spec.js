@@ -257,6 +257,8 @@ test.describe('Rent Agreement co-fill — the invite the server addresses', () =
 
     await page.goto(`${BASE}/services/rent-agreement`, { waitUntil: 'networkidle' });
     await expect(page.getByTestId('ra-pay-panel').getByText('The owner has filled in their part')).toBeVisible();
+    const summary = page.getByTestId('ra-pay-summary');
+    await expect(summary, 'the pay panel states the deed being paid for').toContainText('Rahul Nair');
   });
 
   test('an invite addressed to one account is invisible to another, and a signed-out invitee is sent to sign in and back — the SERVER withholds it, and the mobile never enters the URL', async ({ page, browser }) => {

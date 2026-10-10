@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { BadgeCheck, ShieldCheck } from 'lucide-react';
 import { useAuth } from '../../../context/AuthContext.jsx';
 import { hasPermission } from '../../../lib/adminModules.js';
+import DateField from '../../../components/ui/DateField.jsx';
 import { confirmServiceRequestPoliceIntimation } from '../../../services/serviceRequestService.js';
 
 export default function PoliceIntimation({ request, onUpdated, onError }) {
@@ -57,15 +58,15 @@ export default function PoliceIntimation({ request, onUpdated, onError }) {
             placeholder="Optional"
           />
         </label>
-        <label className="text-xs text-gray-400">
+        <div className="text-xs text-gray-400">
           Submission date
-          <input
-            type="date"
+          <DateField
             value={submittedOn}
-            onChange={(e) => setSubmittedOn(e.target.value)}
+            onChange={setSubmittedOn}
+            ariaLabel="Submission date"
             className="mt-1 field w-full rounded-xl px-3 py-2 text-sm text-white"
           />
-        </label>
+        </div>
       </div>
       {canWrite ? (
         <button type="button" disabled={busy} onClick={confirm} className="dz-btn dz-btn-primary mt-3 disabled:opacity-50">

@@ -1,5 +1,6 @@
 package com.draazy.api.services;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.hasSize;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -91,6 +92,47 @@ class RentAgreementOverlapTest extends ServiceFixtures {
                 .andExpect(jsonPath("$", hasSize(1)))
                 .andExpect(jsonPath("$[0].requestId").value(first))
                 .andExpect(jsonPath("$[0].match").value("address"))
+                .andExpect(jsonPath("$[0].licensorDiffers").value(false));
+    }
+
+    @Test
+    @DisplayName("a flat typed as 'Flat No. 0402' and as '402' is the same flat, in SQL and in the index")
+    void aFlatTypedTwoWaysIsTheSameFlat() throws Exception {
+        User desk = staff("9820005032", Teams.RENTAL);
+        String first = raise(customer("9820005031"), null, "Asha Deshpande", "Flat No. 0402", "Green Park, Baner",
+                "2026-04-01", true);
+        String second = raise(customer("9820005033"), null, "Asha Deshpande", "402", "Green Park, Baner",
+                "2026-06-01", true);
+
+        overlaps(desk, second).andExpect(jsonPath("$", hasSize(1)))
+                .andExpect(jsonPath("$[0].requestId").value(first));
+        assertThat(jdbc.queryForObject("select rent_agreement_flat_key('{\"_state\":{\"prop\":{\"flatNo\":"
+                + "\"Flat No. 0402\",\"society\":\"Green Park, Baner\",\"pincode\":\"411 045\"}}}'::jsonb)",
+                String.class)).isEqualTo("402|greenparkbaner|411045");
+        assertThat(jdbc.queryForObject("select rent_agreement_flat_key('{\"_state\":{\"prop\":{\"flatNo\":\"7\"}}}'::jsonb)",
+                String.class)).isNull();
+        assertThat(jdbc.queryForObject("select count(*) from pg_indexes where indexname = ?", Integer.class,
+                "idx_service_requests_rent_agreement_flat")).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("an agreement filed outside any paid request still overlaps on the same listing")
+    void aLegacyAgreementRecordIsCompared() throws Exception {
+        User owner = customer("9820005041");
+        User desk = staff("9820005042", Teams.RENTAL);
+        Property flat = listing(owner);
+        String insert = "insert into rent_agreements (property_id, owner_id, start_date, duration_months, status)"
+                + " values (?, ?, cast(? as date), 11, ?) returning id";
+        UUID overlapping = jdbc.queryForObject(insert, UUID.class, flat.getId(), owner.getId(), "2026-04-01", "registered");
+        jdbc.queryForObject(insert, UUID.class, flat.getId(), owner.getId(), "2026-04-01", "expired");
+        jdbc.queryForObject(insert, UUID.class, flat.getId(), owner.getId(), "2028-04-01", "active");
+        String current = raise(owner, flat, "Asha Deshpande", "402", "Green Park", "2026-10-01", true);
+
+        overlaps(desk, current).andExpect(jsonPath("$", hasSize(1)))
+                .andExpect(jsonPath("$[0].requestId").value(overlapping.toString()))
+                .andExpect(jsonPath("$[0].match").value("record"))
+                .andExpect(jsonPath("$[0].status").value("registered"))
+                .andExpect(jsonPath("$[0].endDate").value("2027-03-01"))
                 .andExpect(jsonPath("$[0].licensorDiffers").value(false));
     }
 

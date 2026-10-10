@@ -1,5 +1,6 @@
 package com.draazy.api.services;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.hasItem;
 import static org.hamcrest.Matchers.startsWith;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -7,6 +8,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.draazy.api.common.trust.Notifier;
 import com.draazy.api.common.web.Routes;
 import com.draazy.api.identity.user.User;
 import com.draazy.api.security.Teams;
@@ -107,6 +109,10 @@ class RentAgreementRefundTest extends ServiceFixtures {
 
         mvc.perform(get(Routes.ServiceRequests.BY_ID, id).header(HttpHeaders.AUTHORIZATION, bearer(owner)))
                 .andExpect(jsonPath("$.timeline[*].event", hasItem("refund.approved")));
+        assertThat(jdbc.queryForMap("select title, link from notifications where user_id = ? and type = ?",
+                owner.getId(), "service.refund-approved"))
+                .containsEntry("title", Notifier.rupees(paid) + " refund on its way")
+                .containsEntry("link", "/services/rent-agreement");
     }
 
     @Test
@@ -130,6 +136,65 @@ class RentAgreementRefundTest extends ServiceFixtures {
                 .andExpect(jsonPath("$.refunds[0].status").value("rejected"))
                 .andExpect(jsonPath("$.refunded").value(0));
         ask(maker, id, 500, true, GRN).andExpect(status().isCreated());
+    }
+
+    private String approvedRefund(User maker, User checker, String id, long amount) throws Exception {
+        ask(maker, id, amount, false, null).andExpect(status().isCreated());
+        String refund = openRefund(checker, id);
+        decideRefund(checker, id, refund, true).andExpect(status().isOk());
+        return refund;
+    }
+
+    @Test
+    @DisplayName("a refund of everything paid closes the request; a partial one leaves it open")
+    void aFullRefundClosesTheRequest() throws Exception {
+        User owner = customer("9820009041");
+        User maker = staff("9820009042", Teams.RENTAL);
+        User checker = staff("9820009043", Teams.RENTAL);
+        String partial = raiseWithTerms(owner);
+        String full = raiseWithTerms(owner);
+        setStatus(maker, partial, "assigned", 200);
+        setStatus(maker, full, "assigned", 200);
+
+        approvedRefund(maker, checker, partial, 500);
+        expectStatus(owner, partial, "assigned");
+
+        approvedRefund(maker, checker, full, paid(full));
+        expectStatus(owner, full, "cancelled");
+        mvc.perform(get(Routes.ServiceRequests.BY_ID, full).header(HttpHeaders.AUTHORIZATION, bearer(owner)))
+                .andExpect(jsonPath("$.timeline[*].event", hasItem("refund.cancelled-request")));
+        assertThat(jdbc.queryForMap("select title from notifications where user_id = ? and type = ?",
+                owner.getId(), "service.refund-cancelled")).containsEntry("title", "Request cancelled");
+    }
+
+    @Test
+    @DisplayName("the gateway's refund webhook reopens a cancelled refund once, and ignores success and strangers")
+    void theRefundWebhookReportsWhatTheGatewayDid() throws Exception {
+        User owner = customer("9820009051");
+        User maker = staff("9820009052", Teams.RENTAL);
+        User checker = staff("9820009053", Teams.RENTAL);
+        String id = raiseWithTerms(owner);
+        setStatus(maker, id, "assigned", 200);
+        long paid = paid(id);
+        String merchantId = "rf_" + approvedRefund(maker, checker, id, 500).replace("-", "");
+
+        deliverRefundSigned(merchantId, "SUCCESS");
+        deliverRefundSigned("rf_00000000000000000000000000000000", "CANCELLED");
+        deliverRefundSigned("not-ours", "CANCELLED");
+        summary(maker, id).andExpect(jsonPath("$.refunds[0].status").value("approved"))
+                .andExpect(jsonPath("$.refunded").value(500));
+
+        deliverRefundSigned(merchantId, "CANCELLED");
+        deliverRefundSigned(merchantId, "CANCELLED");
+        summary(maker, id).andExpect(jsonPath("$.refunds[0].status").value("failed"))
+                .andExpect(jsonPath("$.refunded").value(0))
+                .andExpect(jsonPath("$.refundableBeforeDuty").value(paid));
+        mvc.perform(get(Routes.ServiceRequests.BY_ID, id).header(HttpHeaders.AUTHORIZATION, bearer(owner)))
+                .andExpect(jsonPath("$.timeline[?(@.event == 'refund.failed')]", org.hamcrest.Matchers.hasSize(1)));
+        assertThat(jdbc.queryForList("select 1 from notifications where user_id = ? and type = ?",
+                maker.getId(), "service.refund-failed")).hasSize(1);
+
+        ask(maker, id, 500, false, null).andExpect(status().isCreated());
     }
 
     @Test

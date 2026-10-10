@@ -45,7 +45,8 @@ class RentAgreementReuseTest extends ServiceFixtures {
                             .header(HttpHeaders.AUTHORIZATION, bearer(owner)))
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.documents[0].category").value("licensor-0-pan"))
-                    .andExpect(jsonPath("$.documents[0].url").isNotEmpty());
+                    .andExpect(jsonPath("$.documents[0].fileName").value("pan.pdf"))
+                    .andExpect(jsonPath("$.documents[0].url").doesNotExist());
         }
 
         @Test
@@ -112,6 +113,16 @@ class RentAgreementReuseTest extends ServiceFixtures {
             User tenant = customer("9820000822");
             String id = create(owner);
             decide(tenant, field(invite(owner, id, tenant, 201), "id"), "accept");
+            assertThat(notifications.findAll())
+                    .filteredOn(n -> "service.party-invited".equals(n.getType()))
+                    .filteredOn(n -> n.getUserId().equals(owner.getId()) || n.getUserId().equals(tenant.getId()))
+                    .singleElement()
+                    .satisfies(n -> {
+                        assertThat(n.getUserId()).isEqualTo(tenant.getId());
+                        assertThat(n.getTitle()).startsWith("You were added as the ");
+                        assertThat(n.getLink()).startsWith("/services/rent-agreement?party=")
+                                .endsWith("&request=" + id);
+                    });
 
             mvc.perform(put(Routes.ServiceRequests.PARTY_DETAILS, id)
                             .header(HttpHeaders.AUTHORIZATION, bearer(tenant))

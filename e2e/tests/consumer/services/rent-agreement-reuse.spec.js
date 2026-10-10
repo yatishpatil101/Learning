@@ -191,8 +191,7 @@ test.describe('Rent Agreement — reuse what the platform holds, live', () => {
     await other.context().close();
   });
 
-  test('a co-fill filing that fell short is topped up in place, keeping the tenant\'s invitation', async ({ page, browser }) => {
-    test.slow();
+  async function filedShortToTenant(page, browser) {
     const tenantMobile = uniqueMobile();
     const { accessToken: tenantToken } = await apiLogin(tenantMobile, { api: API });
     const ownerMobile = await signedInAsNew(page, { api: API });
@@ -214,6 +213,12 @@ test.describe('Rent Agreement — reuse what the platform holds, live', () => {
     await other.goto(`${BASE}/services/rent-agreement`, { waitUntil: 'networkidle' });
     await expect(other.getByText(/shared with your tenant and stay as filed/)).toBeVisible();
     await other.getByTestId('ra-continue-filed').click();
+    return { other, requestId, tenantToken };
+  }
+
+  test('a co-fill filing that fell short is topped up in place, keeping the tenant\'s invitation', async ({ page, browser }) => {
+    test.slow();
+    const { other, requestId, tenantToken } = await filedShortToTenant(page, browser);
 
     const sent = [];
     other.on('request', (r) => {
@@ -237,6 +242,30 @@ test.describe('Rent Agreement — reuse what the platform holds, live', () => {
 
     const rows = await invitesFor(tenantToken);
     expect(rows.map((r) => r.requestId), 'the tenant\'s invitation survived').toContain(requestId);
+    await other.context().close();
+  });
+
+  test('a top-up that edits the shared answers is refused, and nothing is sent', async ({ page, browser }) => {
+    test.slow();
+    const { other } = await filedShortToTenant(page, browser);
+
+    const sent = [];
+    other.on('request', (r) => {
+      const path = new URL(r.url()).pathname;
+      if (['POST', 'PUT'].includes(r.method()) && /\/service-requests(\/co-fill)?$|\/identities$|\/docs(\/from-vault)?$|\/cancel$/.test(path)) sent.push(path);
+    });
+    await fillProperty(other);
+    await fillOwner(other, { docs: false });
+    await clickNext(other, 3);
+    await fillTerms(other, { next: false });
+    await active(other).getByPlaceholder('e.g. 25000').fill('31000');
+    await clickNext(other, 4);
+    await fillWitnesses(other);
+    await active(other).getByRole('checkbox').check();
+    await active(other).getByRole('button', { name: /Retry payment/ }).click();
+
+    await expect(other.getByText(/shared with your tenant and can't be changed here/)).toBeVisible();
+    expect(sent, 'the refused top-up sent nothing').toEqual([]);
     await other.context().close();
   });
 

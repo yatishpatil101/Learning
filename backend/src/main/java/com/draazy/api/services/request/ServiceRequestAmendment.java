@@ -42,6 +42,9 @@ public class ServiceRequestAmendment extends BaseEntity {
     @Column(name = "payment_ref")
     private String paymentRef;
 
+    @Column(name = "paid_at")
+    private Instant paidAt;
+
     @Column(name = "proposed_by", updatable = false)
     private UUID proposedBy;
 
@@ -74,6 +77,10 @@ public class ServiceRequestAmendment extends BaseEntity {
 
     void attachOrder(String orderId) {
         this.paymentRef = orderId;
+    }
+
+    void markPaid(Instant at) {
+        this.paidAt = at;
     }
 
     void releaseOrder() {

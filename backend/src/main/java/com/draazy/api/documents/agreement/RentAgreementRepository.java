@@ -23,14 +23,23 @@ public interface RentAgreementRepository extends JpaRepository<RentAgreement, UU
 
     List<RentAgreement> findByServiceRequestIdOrderByCreatedAtAsc(UUID serviceRequestId);
 
+    /** Filed outside a paid request, so no service request carries them and the overlap check would miss them. */
+    @Query("""
+            select a from RentAgreement a
+            where a.propertyId = :propertyId
+              and a.serviceRequestId is null
+              and a.status in ('e-sign-pending', 'registered', 'active')
+            order by a.createdAt asc
+            """)
+    List<RentAgreement> findFiledOnListing(@Param("propertyId") UUID propertyId);
+
     /** Two checkers deciding one row at once must not both pass the ladder and let the last write win. */
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select a from RentAgreement a where a.id = :id")
     Optional<RentAgreement> lockById(@Param("id") UUID id);
 
-    /** Sole evidence behind a badge granted with no human in the loop: an archive column added to
-     * {@code RentAgreement} must be excluded here in the same change. Matches the licensee, not the
-     * landlord, and only rows a paid request produced and a second staff member verified. */
+    /** Sole evidence for a badge granted with no human in the loop: a new archive column on {@code RentAgreement}
+     * must be excluded here. Matches the licensee only, on paid requests a second staff member verified. */
     @Query("""
             select count(a) > 0 from RentAgreement a
             where a.propertyId = :propertyId

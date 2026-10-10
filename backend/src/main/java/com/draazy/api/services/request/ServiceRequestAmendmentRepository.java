@@ -16,7 +16,7 @@ public interface ServiceRequestAmendmentRepository extends JpaRepository<Service
 
     List<ServiceRequestAmendment> findByServiceRequestIdInAndStatus(Collection<UUID> serviceRequestIds, String status);
 
-    List<ServiceRequestAmendment> findByServiceRequestIdAndStatusAndPaymentRefNotNull(UUID serviceRequestId, String status);
+    List<ServiceRequestAmendment> findByServiceRequestIdAndPaymentRefNotNull(UUID serviceRequestId);
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select a from ServiceRequestAmendment a where a.serviceRequestId = :requestId and a.status = 'proposed'")

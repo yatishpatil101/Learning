@@ -13,6 +13,9 @@ public interface ServiceRequestRefundRepository extends JpaRepository<ServiceReq
 
     List<ServiceRequestRefund> findByServiceRequestIdOrderByCreatedAtDesc(UUID serviceRequestId);
 
+    @Query("select coalesce(sum(r.amount), 0) from ServiceRequestRefund r where r.serviceRequestId = :requestId and r.status = 'approved'")
+    long approvedTotal(@Param("requestId") UUID requestId);
+
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select r from ServiceRequestRefund r where r.serviceRequestId = :requestId and r.status = 'requested'")
     Optional<ServiceRequestRefund> findOpenForUpdate(@Param("requestId") UUID requestId);

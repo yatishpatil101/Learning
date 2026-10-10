@@ -3,6 +3,7 @@ import NativeSelect from '../../../../components/ui/NativeSelect.jsx';
 import DateField from '../../../../components/ui/DateField.jsx';
 import Icon from '../../../../components/Icon.jsx';
 import FieldError from '../../../../components/ui/FieldError.jsx';
+import Field from '../../../../components/ui/Field.jsx';
 import { BANKS, CASH_LIMIT, DEPOSIT_PAY_FIELDS, MAX_DEPOSIT_PAYMENTS } from './constants.js';
 import { todayIst } from './validation.js';
 import { digits, fmt, num } from './helpers.js';
@@ -34,16 +35,12 @@ export default function DepositPayments({ terms, setT, errors = {}, clearErr }) 
           ? <input value={r.ref || ''} autoCapitalize="characters" onChange={(e) => setRow(i, 'ref', e.target.value.replace(/[^A-Za-z0-9]/g, '').toUpperCase().slice(0, 30))} className={cls} />
           : <input value={r[f] || ''} maxLength={80} list={f === 'bank' ? 'ra-banks' : undefined} onChange={(e) => setRow(i, f, e.target.value)} className={cls} />;
     return (
-      <div key={f} className={WIDE.has(f) ? 'col-span-2 sm:col-span-1' : ''}>
-        <label className={'lbl' + (f === 'branch' ? '' : ' req')}>{label(r.mode, f)}</label>
-        {control}
-        <FieldError show={!!errors[key]}>{t(`services.ra.terms.depositPay.err.${errors[key]}`)}</FieldError>
-      </div>
+      <Field key={f} className={WIDE.has(f) ? 'col-span-2 sm:col-span-1' : ''} label={label(r.mode, f)} required={f !== 'branch'} error={errors[key] && t(`services.ra.terms.depositPay.err.${errors[key]}`)}>{control}</Field>
     );
   };
 
   return (
-    <section className="mb-5" data-testid="ra-deposit-payments" aria-labelledby="ra-deposit-pay-title">
+    <section className="mb-5" data-testid="ra-deposit-payments" aria-labelledby="ra-deposit-pay-title" aria-describedby={errors.depositPayments ? 'ra-deposit-pay-err' : undefined}>
       <p id="ra-deposit-pay-title" className="lbl req">{t('services.ra.terms.depositPay.title')}</p>
       <p role="status" className={'text-xs mb-3 ' + (paid === deposit ? 'text-emerald-400' : 'text-amber-400')}>{t('services.ra.terms.depositPay.total', { paid: fmt(paid), deposit: fmt(deposit) })}</p>
       <datalist id="ra-banks">{BANKS.map((b) => <option key={b} value={b} />)}</datalist>
@@ -51,12 +48,11 @@ export default function DepositPayments({ terms, setT, errors = {}, clearErr }) 
         {rows.map((r, i) => (
           <div key={i} className="rounded-xl border border-white/10 p-3 sm:p-4" data-testid={`ra-deposit-payment-${i}`}>
             <div className="flex items-end gap-2 mb-3">
-              <div className="flex-1">
-                <label className="lbl req">{t('services.ra.terms.depositPay.mode')}</label>
+              <Field className="flex-1" label={t('services.ra.terms.depositPay.mode')} required>
                 <NativeSelect value={r.mode} title={t('services.ra.terms.depositPay.mode')} onChange={(e) => setMode(i, e.target.value)} className={FIELD}>
                   {Object.keys(DEPOSIT_PAY_FIELDS).map((m) => <option key={m} value={m}>{t(`services.ra.terms.depositPay.modeOpt.${m}`)}</option>)}
                 </NativeSelect>
-              </div>
+              </Field>
               <button type="button" onClick={() => save(rows.filter((_, idx) => idx !== i))} className="p-3 rounded-xl text-gray-400 hover:text-red-400" title={t('services.ra.terms.depositPay.remove')} aria-label={t('services.ra.terms.depositPay.remove')}><Icon name="x" className="w-4 h-4" /></button>
             </div>
             <div className="grid grid-cols-2 gap-3">{(DEPOSIT_PAY_FIELDS[r.mode] || []).map((f) => field(i, r, f))}</div>
@@ -67,7 +63,7 @@ export default function DepositPayments({ terms, setT, errors = {}, clearErr }) 
       {rows.length < MAX_DEPOSIT_PAYMENTS && (
         <button type="button" onClick={add} className="btn-outline px-4 py-2.5 rounded-xl text-teal-400 text-sm font-semibold flex items-center gap-2"><Icon name="plus-circle" className="w-4 h-4" /> {t('services.ra.terms.depositPay.add')}</button>
       )}
-      <FieldError show={!!errors.depositPayments}>{t(`services.ra.terms.depositPay.err.${errors.depositPayments}`, { paid: fmt(paid), deposit: fmt(deposit) })}</FieldError>
+      <FieldError id="ra-deposit-pay-err" alert={false} show={!!errors.depositPayments}>{t(`services.ra.terms.depositPay.err.${errors.depositPayments}`, { paid: fmt(paid), deposit: fmt(deposit) })}</FieldError>
     </section>
   );
 }

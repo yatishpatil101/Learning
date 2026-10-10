@@ -1,6 +1,6 @@
 import { useTranslation } from 'react-i18next';
 import Icon from '../../../../components/Icon.jsx';
-import FieldError from '../../../../components/ui/FieldError.jsx';
+import Field from '../../../../components/ui/Field.jsx';
 import MobileField from '../../../../components/MobileField.jsx';
 import NativeSelect from '../../../../components/ui/NativeSelect.jsx';
 import { ADDRESS_PROOF_TYPES, FAMILY_MEMBER_TYPES, FAMILY_RELATIONS, MAX_POLICE_OCCUPANTS } from './constants.js';
@@ -57,26 +57,18 @@ export default function TenantPoliceRecord({ tenant, index, setTenant, errors = 
   };
   const renderAddress = (group, required) => (
     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-      <div>
-        <label className={'lbl' + (required ? ' req' : '')}>{t('services.ra.tenant.police.pincode')}</label>
+      <Field label={t('services.ra.tenant.police.pincode')} required={required} error={errors[`${prefix}${group[0].toUpperCase() + group.slice(1)}Pincode`] && t('services.ra.tenant.police.pincodeErr')}>
         <input inputMode="numeric" maxLength={6} value={police[group].pincode} onChange={(e) => setAddress(group, 'pincode', digits(e.target.value).slice(0, 6))} className={fieldClass(`${prefix}${group[0].toUpperCase() + group.slice(1)}Pincode`)} placeholder="411004" />
-        <FieldError show={!!errors[`${prefix}${group[0].toUpperCase() + group.slice(1)}Pincode`]}>{t('services.ra.tenant.police.pincodeErr')}</FieldError>
-      </div>
-      <div>
-        <label className={'lbl' + (required ? ' req' : '')}>{t('services.ra.tenant.police.village')}</label>
+      </Field>
+      <Field label={t('services.ra.tenant.police.village')} required={required} error={errors[`${prefix}${group[0].toUpperCase() + group.slice(1)}Village`] && t('services.ra.tenant.police.required')}>
         <input maxLength={80} value={police[group].village} onChange={(e) => setAddress(group, 'village', e.target.value)} className={fieldClass(`${prefix}${group[0].toUpperCase() + group.slice(1)}Village`)} placeholder={t('services.ra.tenant.police.villagePlaceholder')} />
-        <FieldError show={!!errors[`${prefix}${group[0].toUpperCase() + group.slice(1)}Village`]}>{t('services.ra.tenant.police.required')}</FieldError>
-      </div>
-      <div>
-        <label className={'lbl' + (required ? ' req' : '')}>{t('services.ra.tenant.police.policeStation')}</label>
+      </Field>
+      <Field label={t('services.ra.tenant.police.policeStation')} required={required} error={errors[`${prefix}${group[0].toUpperCase() + group.slice(1)}PoliceStation`] && t('services.ra.tenant.police.required')}>
         <input maxLength={80} value={police[group].policeStation} onChange={(e) => setAddress(group, 'policeStation', e.target.value)} className={fieldClass(`${prefix}${group[0].toUpperCase() + group.slice(1)}PoliceStation`)} placeholder={t('services.ra.tenant.police.policeStationPlaceholder')} />
-        <FieldError show={!!errors[`${prefix}${group[0].toUpperCase() + group.slice(1)}PoliceStation`]}>{t('services.ra.tenant.police.required')}</FieldError>
-      </div>
-      <div className="sm:col-span-2">
-        <label className={'lbl' + (required ? ' req' : '')}>{t('services.ra.tenant.police.address')}</label>
+      </Field>
+      <Field className="sm:col-span-2" label={t('services.ra.tenant.police.address')} required={required} error={errors[`${prefix}${group[0].toUpperCase() + group.slice(1)}Address`] && t('services.ra.tenant.police.addressErr')}>
         <textarea rows={2} maxLength={200} value={police[group].address} onChange={(e) => setAddress(group, 'address', e.target.value)} className={fieldClass(`${prefix}${group[0].toUpperCase() + group.slice(1)}Address`) + ' resize-none'} placeholder={t('services.ra.tenant.police.addressPlaceholder')} />
-        <FieldError show={!!errors[`${prefix}${group[0].toUpperCase() + group.slice(1)}Address`]}>{t('services.ra.tenant.police.addressErr')}</FieldError>
-      </div>
+      </Field>
     </div>
   );
 
@@ -90,11 +82,11 @@ export default function TenantPoliceRecord({ tenant, index, setTenant, errors = 
         </label>
         {!police.permanentSameAsCurrent && renderAddress('permanent', true)}
         <div>
-          <label className="lbl req">{t('services.ra.tenant.police.addressProofType')}</label>
-          <NativeSelect value={police.addressProofType || ''} title={t('services.ra.tenant.police.addressProofType')} onChange={(e) => setProof('addressProofType', e.target.value, 'addressproof')} className={fieldClass(`${prefix}AddressProofType`)}>
-            {ADDRESS_PROOF_TYPES.map((value) => <option key={value} value={value}>{option('addressProofOpt', value)}</option>)}
-          </NativeSelect>
-          <FieldError show={!!errors[`${prefix}AddressProofType`]}>{t('services.ra.tenant.police.required')}</FieldError>
+          <Field label={t('services.ra.tenant.police.addressProofType')} required error={errors[`${prefix}AddressProofType`] && t('services.ra.tenant.police.required')}>
+            <NativeSelect value={police.addressProofType || ''} title={t('services.ra.tenant.police.addressProofType')} onChange={(e) => setProof('addressProofType', e.target.value, 'addressproof')} className={fieldClass(`${prefix}AddressProofType`)}>
+              {ADDRESS_PROOF_TYPES.map((value) => <option key={value} value={value}>{option('addressProofOpt', value)}</option>)}
+            </NativeSelect>
+          </Field>
           {addressProofUploadRequired(tenant) ? proofUpload('addressproof') : <p className="mt-2 text-xs text-gray-500">{t('services.ra.tenant.police.uidProofHint')}</p>}
         </div>
         <label className="flex items-start gap-2 text-xs text-gray-300">
@@ -105,26 +97,22 @@ export default function TenantPoliceRecord({ tenant, index, setTenant, errors = 
           <>
             {renderAddress('previous', true)}
             <div>
-              <label className="lbl req">{t('services.ra.tenant.police.previousAddressProofType')}</label>
-              <NativeSelect value={police.previousAddressProofType || ''} title={t('services.ra.tenant.police.previousAddressProofType')} onChange={(e) => setProof('previousAddressProofType', e.target.value, 'prevaddressproof')} className={fieldClass(`${prefix}PreviousAddressProofType`)}>
-                {ADDRESS_PROOF_TYPES.map((value) => <option key={value} value={value}>{option('addressProofOpt', value)}</option>)}
-              </NativeSelect>
-              <FieldError show={!!errors[`${prefix}PreviousAddressProofType`]}>{t('services.ra.tenant.police.required')}</FieldError>
+              <Field label={t('services.ra.tenant.police.previousAddressProofType')} required error={errors[`${prefix}PreviousAddressProofType`] && t('services.ra.tenant.police.required')}>
+                <NativeSelect value={police.previousAddressProofType || ''} title={t('services.ra.tenant.police.previousAddressProofType')} onChange={(e) => setProof('previousAddressProofType', e.target.value, 'prevaddressproof')} className={fieldClass(`${prefix}PreviousAddressProofType`)}>
+                  {ADDRESS_PROOF_TYPES.map((value) => <option key={value} value={value}>{option('addressProofOpt', value)}</option>)}
+                </NativeSelect>
+              </Field>
               {previousAddressProofUploadRequired(tenant) ? proofUpload('prevaddressproof') : <p className="mt-2 text-xs text-gray-500">{t('services.ra.tenant.police.uidProofHint')}</p>}
             </div>
           </>
         )}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          <div className="sm:col-span-2">
-            <label className={'lbl' + (workRequired ? ' req' : '')}>{t('services.ra.tenant.police.workplaceAddress')}</label>
+          <Field className="sm:col-span-2" label={t('services.ra.tenant.police.workplaceAddress')} required={workRequired} error={errors[`${prefix}WorkplaceAddress`] && t('services.ra.tenant.police.workplaceErr')}>
             <textarea rows={2} maxLength={200} value={police.workplaceAddress || ''} onChange={(e) => set('workplaceAddress', e.target.value)} className={fieldClass(`${prefix}WorkplaceAddress`) + ' resize-none'} placeholder={t('services.ra.tenant.police.workplacePlaceholder')} />
-            <FieldError show={!!errors[`${prefix}WorkplaceAddress`]}>{t('services.ra.tenant.police.workplaceErr')}</FieldError>
-          </div>
-          <div className="sm:col-span-2">
-            <label className={'lbl' + (workRequired ? ' req' : '')}>{t('services.ra.tenant.police.workIdProofType')}</label>
+          </Field>
+          <Field className="sm:col-span-2" label={t('services.ra.tenant.police.workIdProofType')} required={workRequired} error={errors[`${prefix}WorkIdProofType`] && t('services.ra.tenant.police.required')}>
             <input maxLength={80} value={police.workIdProofType || ''} onChange={(e) => set('workIdProofType', e.target.value)} className={fieldClass(`${prefix}WorkIdProofType`)} placeholder={t('services.ra.tenant.police.workIdPlaceholder')} />
-            <FieldError show={!!errors[`${prefix}WorkIdProofType`]}>{t('services.ra.tenant.police.required')}</FieldError>
-          </div>
+          </Field>
         </div>
         <div>
           <div className="flex items-center justify-between gap-3 mb-2">
@@ -135,26 +123,23 @@ export default function TenantPoliceRecord({ tenant, index, setTenant, errors = 
             {police.occupants.map((row, rowIndex) => (
               <div key={rowIndex} className="rounded-xl border border-white/10 p-3" data-testid={`tenant-police-occupant-${index}-${rowIndex}`}>
                 <div className="flex items-end gap-2 mb-3">
-                  <div className="flex-1">
-                    <label className="lbl">{t('services.ra.tenant.police.occupantType')}</label>
+                  <Field className="flex-1" label={t('services.ra.tenant.police.occupantType')}>
                     <NativeSelect value={row.type || 'family'} title={t('services.ra.tenant.police.occupantType')} onChange={(e) => setOccupant(rowIndex, 'type', e.target.value)} className={FIELD}>
                       {FAMILY_MEMBER_TYPES.map((value) => <option key={value} value={value}>{option('occupantTypeOpt', value)}</option>)}
                     </NativeSelect>
-                  </div>
+                  </Field>
                   <button type="button" onClick={() => setOccupants(police.occupants.filter((_, i) => i !== rowIndex))} className="p-3 rounded-xl text-gray-400 hover:text-red-400" title={t('services.ra.tenant.police.removeOccupant')} aria-label={t('services.ra.tenant.police.removeOccupant')}><Icon name="x" className="w-4 h-4" /></button>
                 </div>
                 <div className="grid grid-cols-2 gap-3">
-                  <div><label className="lbl req">{t('services.ra.tenant.police.fullName')}</label><input maxLength={80} value={row.fullName || ''} onChange={(e) => setOccupant(rowIndex, 'fullName', e.target.value)} className={fieldClass(`${prefix}Occ${rowIndex}fullName`)} /><FieldError show={!!errors[`${prefix}Occ${rowIndex}fullName`]}>{t('services.ra.tenant.police.nameErr')}</FieldError></div>
-                  <div>
-                    <label className="lbl req">{t('services.ra.tenant.police.relation')}</label>
+                  <Field label={t('services.ra.tenant.police.fullName')} required error={errors[`${prefix}Occ${rowIndex}fullName`] && t('services.ra.tenant.police.nameErr')}><input maxLength={80} value={row.fullName || ''} onChange={(e) => setOccupant(rowIndex, 'fullName', e.target.value)} className={fieldClass(`${prefix}Occ${rowIndex}fullName`)} /></Field>
+                  <Field label={t('services.ra.tenant.police.relation')} required error={errors[`${prefix}Occ${rowIndex}relation`] && t('services.ra.tenant.police.required')}>
                     <NativeSelect value={row.relation || ''} title={t('services.ra.tenant.police.relation')} onChange={(e) => setOccupant(rowIndex, 'relation', e.target.value)} className={fieldClass(`${prefix}Occ${rowIndex}relation`)}>
                       <option value="">{t('services.ra.tenant.police.selectRelation')}</option>
                       {FAMILY_RELATIONS.map((value) => <option key={value} value={value}>{option('relationOpt', value)}</option>)}
                     </NativeSelect>
-                    <FieldError show={!!errors[`${prefix}Occ${rowIndex}relation`]}>{t('services.ra.tenant.police.required')}</FieldError>
-                  </div>
-                  <div><label className="lbl req">{t('services.ra.tenant.police.age')}</label><input inputMode="numeric" maxLength={3} value={row.age || ''} onChange={(e) => setOccupant(rowIndex, 'age', digits(e.target.value).slice(0, 3))} className={fieldClass(`${prefix}Occ${rowIndex}age`)} placeholder="35" /><FieldError show={!!errors[`${prefix}Occ${rowIndex}age`]}>{t('services.ra.tenant.police.ageErr')}</FieldError></div>
-                  <div><label className="lbl req">{t('services.ra.tenant.police.mobile')}</label><MobileField value={row.mobile || ''} onChange={(v) => setOccupant(rowIndex, 'mobile', v)} error={!!errors[`${prefix}Occ${rowIndex}mobile`]} placeholder={t('services.ra.tenant.mobilePlaceholder')} inputClassName="px-4 py-3" /><FieldError show={!!errors[`${prefix}Occ${rowIndex}mobile`]}>{t('services.ra.tenant.mobileErr')}</FieldError></div>
+                  </Field>
+                  <Field label={t('services.ra.tenant.police.age')} required error={errors[`${prefix}Occ${rowIndex}age`] && t('services.ra.tenant.police.ageErr')}><input inputMode="numeric" maxLength={3} value={row.age || ''} onChange={(e) => setOccupant(rowIndex, 'age', digits(e.target.value).slice(0, 3))} className={fieldClass(`${prefix}Occ${rowIndex}age`)} placeholder="35" /></Field>
+                  <Field label={t('services.ra.tenant.police.mobile')} required error={errors[`${prefix}Occ${rowIndex}mobile`] && t('services.ra.tenant.mobileErr')}><MobileField value={row.mobile || ''} onChange={(v) => setOccupant(rowIndex, 'mobile', v)} error={!!errors[`${prefix}Occ${rowIndex}mobile`]} placeholder={t('services.ra.tenant.mobilePlaceholder')} inputClassName="px-4 py-3" /></Field>
                 </div>
               </div>
             ))}

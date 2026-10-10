@@ -74,7 +74,8 @@
   Before drafting, the desk's **Overlap check** lists other paid, uncancelled agreements on the same
   listing — or, for an unlisted flat, the same flat number + society + pincode — whose months
   overlap this one, and calls out a licensor named differently. It is advisory: an early renewal
-  overlaps too, so the drafter decides.
+  overlaps too, so the drafter decides. A flat typed two ways ("Flat No. 0402" and "402") is one flat, and an agreement
+  filed outside any request on the same listing (`match: record`) is compared too.
   The desk shows the **Deed particulars** the customer typed (property, terms, licensors with their
   capacity and power of attorney, licensees, witnesses — mobiles masked), and a rent-agreement draft
   is shared only once the drafter ticks five checks: ID numbers match the scans, the ownership proof
@@ -102,13 +103,19 @@
   on the tracker). A higher fee is paid through its own checkout, and the terms apply when that
   payment's webhook settles. A lower fee applies on acceptance, and the overpayment stays on record
   until it is refunded. One revision is open at a time, only while drafting, and the
-  draft cannot be shared while it is open. The holder can withdraw it.
+  draft cannot be shared while it is open. The holder can withdraw it. Revisions are priced against what
+  is net paid (paid less approved refunds), and the other co-fill parties are told when one is proposed or
+  applied. If a checkout's order has expired, accepting again opens a fresh one (an order already paid is
+  refused). A payment that lands on withdrawn terms is kept as credit and flagged to the desk for a refund.
   **Refunds** (D-b, *Refunds* on the desk, `…/refunds`). Everything paid can be refunded until the
   stamp duty is paid on GRAS; after that, only what exceeds the quoted statutory charges comes back.
   A registered copy proves the duty was paid; before that, the maker states it with the GRN. The
   holder asks, and a different operator approves (the maker gets 403) or rejects with a note. Only
   on approval does the gateway refund the order the money came in on. `refund.approved` is written
-  to the timeline and the customer is notified. A refund does not cancel the request.
+  to the timeline and the customer is notified. A refund that returns everything paid cancels the request
+  (`refund.cancelled-request`); a partial one does not. The gateway's refund webhook (Cashfree
+  `REFUND_STATUS_WEBHOOK`) is applied too: a `CANCELLED` or `FAILED` refund is marked `failed`,
+  written to the timeline and audit, and the customer is told, so the desk can ask again.
   **Draft approvals** (MC-4/MC-8). Every executing party approves the current draft version:
   in-app for account holders, by OTP for inline parties (witnesses are not asked). Any rejection
   sends it back to changes-requested, and a new version resets every approval. A risky draft
@@ -379,7 +386,7 @@ regArea label (overwritten server-side from the locality), and `_state` = the fu
   `party.details-submitted` event always means the tenant wrote the tenant rows.
 - **No tenant OTP.** A typed tenant is not asked to confirm by code. The owner's declaration and
   payment are the commitment, and the tenant's identity is checked by the desk with the papers. The
-  V45/V51 `rent_agreement_tenant_consents` table is kept for erasure until it is dropped.
+  V45/V51 `rent_agreement_tenant_consents` table was dropped in V99.
 - **One invitation per tenant** (UX-6). Each tenant row can be invited separately (V52
   `service_request_parties.party_index`); an invitee writes, uploads and is recovered only for
   their own row. An old invite-mode draft's `invite.invMobile` is moved onto `tenants[0]` on restore.

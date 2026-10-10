@@ -34,13 +34,25 @@ export default function RentAgreementDesk() {
   const [summary, setSummary] = useState(null);
   const tickets = useDeskTickets(summary?.openTickets);
   const summarySeq = useRef(0);
-  const loadSummary = useCallback(() => {
+  const summaryKey = useRef('');
+  const [reloadToken, setReloadToken] = useState(0);
+  // A poll re-reads the list only when the summary moved; a user-driven load always does.
+  const loadSummary = useCallback((polling = false) => {
     const seq = ++summarySeq.current;
-    const settle = (value) => { if (seq === summarySeq.current) setSummary(value); };
-    getServiceRequestQueueSummary('rental').then(settle, () => settle(null));
+    getServiceRequestQueueSummary('rental').then((value) => {
+      if (seq !== summarySeq.current) return;
+      const key = JSON.stringify(value);
+      const moved = key !== summaryKey.current;
+      summaryKey.current = key;
+      setSummary(value);
+      if (polling && moved) setReloadToken((n) => n + 1);
+    }, () => {
+      if (seq !== summarySeq.current || polling) return;
+      summaryKey.current = '';
+      setSummary(null);
+    });
   }, []);
   useEffect(() => { loadSummary(); }, [loadSummary]);
-  const [reloadToken, setReloadToken] = useState(0);
   const reload = useCallback(() => { loadSummary(); setReloadToken((n) => n + 1); }, [loadSummary]);
 
   const active = TABS.find((t) => t.key === tab);
@@ -51,11 +63,13 @@ export default function RentAgreementDesk() {
   const total = queue.page?.total ?? 0;
   const pageCount = Math.ceil(total / PAGE_SIZE);
 
-  // A desk left open must still escalate rows to overdue and notice a colleague taking the open case.
+  // A desk left open still escalates rows to overdue, but a hidden tab polls nothing.
   useEffect(() => {
-    const t = setInterval(reload, 60_000);
-    return () => clearInterval(t);
-  }, [reload]);
+    const poll = () => { if (!document.hidden) loadSummary(true); };
+    const t = setInterval(poll, 60_000);
+    document.addEventListener('visibilitychange', poll);
+    return () => { clearInterval(t); document.removeEventListener('visibilitychange', poll); };
+  }, [loadSummary]);
 
   // The open case is held as an object: taking it can move it off this tab, and the modal must stay put.
   const [open, setOpen] = useState(null);
@@ -124,7 +138,6 @@ export default function RentAgreementDesk() {
         onNext={() => setOpen(next)}
         onClose={close}
         onChanged={reload}
-        reloadToken={reloadToken}
       />
     </div>
   );

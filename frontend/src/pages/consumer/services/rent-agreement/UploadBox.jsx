@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useId, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import Icon from '../../../../components/Icon.jsx';
 import FieldError from '../../../../components/ui/FieldError.jsx';
@@ -8,6 +8,7 @@ export default function UploadBox({ label, fileName, onPick, preview, vaultState
   const { t } = useTranslation();
   const [busy, setBusy] = useState(false);
   const busyRef = useRef(false);
+  const errId = useId();
   const refused = preview?.error ? preview : preview?.rejected;
   const invalid = !!(error || refused);
   const accepted = fileName && docReady(preview);
@@ -31,11 +32,11 @@ export default function UploadBox({ label, fileName, onPick, preview, vaultState
         )}
       </label>
       <label className={'upload-box flex items-center gap-3 px-4 py-3 rounded-xl cursor-pointer focus-within:ring-2 focus-within:ring-teal-400' +       (accepted ? ' has-file' : '') + (invalid ? ' err' : '')}>
-              <input type="file" className="sr-only" aria-label={label} aria-invalid={invalid || undefined} aria-disabled={busy || undefined} accept="image/*,.pdf" onChange={pick} />
+              <input type="file" className="sr-only" aria-label={label} aria-invalid={invalid || undefined} aria-describedby={!busy && invalid ? errId : undefined} aria-disabled={busy || undefined} accept="image/*,.pdf" onChange={pick} />
         <Icon name="upload-cloud" className="w-5 h-5 text-teal-400 flex-shrink-0" />
         <span className="upload-name text-sm text-gray-400 truncate" aria-live="polite">{busy ? t('services.ra.upload.preparing') : accepted ? fileName : preview?.reattach ? t('services.ra.upload.reattach', { name: preview.fileName }) : t('services.ra.upload.clickToUpload')}</span>
       </label>
-      <FieldError show={!busy && invalid}>{refused ? t('services.ra.upload.failed', { name: refused.fileName, reason: refused.error }) : t('services.ra.err.docRequired')}</FieldError>
+      <FieldError id={errId} alert={false} show={!busy && invalid}>{refused ? t('services.ra.upload.failed', { name: refused.fileName, reason: refused.error }) : t('services.ra.err.docRequired')}</FieldError>
       {preview?.dataUrl && (
         <div className="mt-2">
           {preview.mime?.startsWith('image/') ? (

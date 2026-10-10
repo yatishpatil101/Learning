@@ -3,6 +3,7 @@ import { execFileSync } from 'node:child_process';
 import { test, expect } from '@playwright/test';
 import { ACTORS, BASELINE_STAFF, STAFF } from '../../fixtures/live.js';
 import { API, apiLogin, uploadedListingPhotos, signIn, uniqueMobile } from '../../helpers/liveAuth.js';
+import { pickDate } from '../../helpers/datePicker.helper.js';
 
 const PSQL = process.env.PSQL || 'C:\\Program Files\\PostgreSQL\\13\\bin\\psql.exe';
 const TENANT_NAME = 'Live Check Tenant';
@@ -236,7 +237,7 @@ test.describe('Ops → Drafting desk → registration check (live)', () => {
 
     await dialog.getByLabel('Document number').fill(entry.documentNo);
     await dialog.getByLabel('Sub-Registrar office').fill(entry.sro);
-    await dialog.getByLabel('Registration date').fill(entry.registeredOn);
+    await pickDate(page, '[aria-label="Registration date"]:visible', entry.registeredOn);
     await dialog.getByLabel('GRAS challan GRN').fill(entry.grn.toLowerCase());
     await dialog.getByLabel('Stamp duty paid (₹)').fill('1');
     await expect(submit).toBeDisabled();
@@ -562,7 +563,7 @@ test.describe('Ops → Drafting desk → registration check (live)', () => {
     const panel = dialog.getByRole('region', { name: 'Police intimation' });
     await expect(panel).toContainText('Pending');
     await panel.getByLabel('Reference / acknowledgement no.').fill('PCMC-LIVE-42');
-    await panel.getByLabel('Submission date').fill(today());
+    await pickDate(page, '[aria-label="Submission date"]:visible', today());
     await panel.getByRole('button', { name: 'Owner confirmed they submitted it' }).click();
     await expect(panel).toContainText('Confirmed');
 

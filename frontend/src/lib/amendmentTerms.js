@@ -9,6 +9,7 @@ export const AMENDABLE_TERMS = [
   { key: 'nrDeposit', label: 'Non-refundable deposit', show: (v) => fmtINR(Number(v)) },
   { key: 'months', label: 'Term', show: (v) => `${v} months` },
   { key: 'increment', label: 'Yearly rent increase', show: (v) => `${v}%` },
+  { key: 'incrementEvery', label: 'Increase every', show: (v) => `${v} months` },
   {
     key: 'regArea', label: 'Registration area (from Index II)', options: ['urban', 'rural'],
     show: (v) => (rural(v) ? 'Rural / Gram Panchayat' : 'Municipal / Urban'),

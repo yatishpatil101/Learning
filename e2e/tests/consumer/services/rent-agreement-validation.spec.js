@@ -56,6 +56,13 @@ test.describe('Rent Agreement — what the Sub-Registrar will refuse is refused 
     await expect(p.getByText('Enter a valid email address.')).toBeVisible();
     await expect(p.getByText(AGE_ERR)).toBeVisible();
 
+    const email = p.getByPlaceholder('you@example.com');
+    await expect(email, 'the failing field is flagged invalid').toHaveAttribute('aria-invalid', 'true');
+    const emailErr = await email.getAttribute('aria-describedby');
+    await expect(p.locator(`[id="${emailErr}"]`), 'aria-describedby resolves to the visible error').toHaveText('Enter a valid email address.');
+    await expect(p.locator(`label[for="${await email.getAttribute('id')}"]`), 'the field has a programmatic label').toHaveCount(1);
+    await expect(p.getByRole('alert'), 'field errors are not individual alerts').toHaveCount(0);
+    await expect(page.getByTestId('ra-error-count'), 'one polite region announces the count').toHaveText(/^\d+ fields? need/);
     await p.getByPlaceholder('12-digit Aadhaar').fill(AADHAAR.owner);
     await p.getByPlaceholder('you@example.com').fill('anita@example.com');
     await uploadAll(p, 'owner-doc');

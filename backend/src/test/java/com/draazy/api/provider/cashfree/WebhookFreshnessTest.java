@@ -3,36 +3,34 @@ package com.draazy.api.provider.cashfree;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.draazy.api.provider.cashfree.WebhookSignature.Verification;
+import java.nio.charset.StandardCharsets;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
 import org.springframework.mock.env.MockEnvironment;
 
-/**
- * The header carries no unit and Cashfree sends seconds while the fixtures sign millis. Signer and
- * verifier are the same object, so the suite agreed with itself no matter which unit was real.
- */
+/** The header carries no unit and Cashfree sends seconds while fixtures sign millis; signer and verifier
+ * are the same object, so agreement proves nothing about which unit is real. */
 @DisplayName("the webhook freshness window accepts the unit Cashfree actually sends")
 class WebhookFreshnessTest {
 
     private static final String SECRET = "test-secret-not-the-committed-default";
     private static final String BODY = "{\"type\":\"PAYMENT_SUCCESS_WEBHOOK\"}";
+    private static final byte[] BODY_BYTES = BODY.getBytes(StandardCharsets.UTF_8);
 
     /** The environment is only consulted when the secret is the committed default; this is not. */
     private final WebhookSignature signature =
             new WebhookSignature(SECRET, false, new MockEnvironment());
 
-    /**
-     * The regression proper: a correctly signed callback in Cashfree's own unit (seconds) is
-     * accepted. Milliseconds stay valid, because every fixture in this suite signs with them.
-     */
+    /** A correctly signed callback in Cashfree's own unit (seconds) is accepted; milliseconds stay valid
+     * because every fixture in this suite signs with them. */
     @ParameterizedTest(name = "{0} verifies")
     @CsvSource({"epoch seconds,1000", "epoch milliseconds,1"})
     void aFreshTimestampVerifies(String unit, long divisor) {
         String timestamp = String.valueOf(System.currentTimeMillis() / divisor);
 
-        assertThat(signature.verify(signature.sign(timestamp, BODY), timestamp, BODY))
+        assertThat(signature.verify(signature.sign(timestamp, BODY), timestamp, BODY_BYTES))
                 .isEqualTo(Verification.VERIFIED);
     }
 
@@ -42,28 +40,34 @@ class WebhookFreshnessTest {
     void theHmacStillHasToMatch() {
         String timestamp = String.valueOf(System.currentTimeMillis() / 1000L);
 
-        assertThat(signature.verify(signature.sign(timestamp, "{}"), timestamp, BODY))
+        assertThat(signature.verify(signature.sign(timestamp, "{}"), timestamp, BODY_BYTES))
                 .isEqualTo(Verification.MISMATCH);
     }
 
-    /**
-     * The ordinary negative case only. The {@code sentAt < 0} guard's one killing value is
-     * {@code now + Long.MIN_VALUE}, and {@code now} is read inside the verifier — untestable.
-     */
+    /** The sentAt < 0 guard's one killing value is now + Long.MIN_VALUE, but now is read inside the
+     * verifier, so only the ordinary negative case is testable. */
     @Test
     @DisplayName("a negative timestamp is never fresh")
     void negativeIsRefused() {
         for (String timestamp : new String[] {"-1", String.valueOf(Long.MIN_VALUE)}) {
-            assertThat(signature.verify(signature.sign(timestamp, BODY), timestamp, BODY))
+            assertThat(signature.verify(signature.sign(timestamp, BODY), timestamp, BODY_BYTES))
                     .as("timestamp %s", timestamp)
                     .isEqualTo(Verification.STALE);
         }
     }
 
-    /**
-     * The one assertion not self-referential: the expected value was computed outside this codebase,
-     * so reversing the concatenation or switching to hex has to disagree with something.
-     */
+    @Test
+    @DisplayName("the MAC covers the bytes on the wire, multi-byte characters included")
+    void multiByteBodiesVerify() {
+        String timestamp = String.valueOf(System.currentTimeMillis() / 1000L);
+        String body = "{\"payment_amount\":\"₹590\"}";
+
+        assertThat(signature.verify(signature.sign(timestamp, body), timestamp,
+                body.getBytes(StandardCharsets.UTF_8))).isEqualTo(Verification.VERIFIED);
+    }
+
+    /** The one non-self-referential assertion: the expected value is computed outside this codebase, so
+     * reversing the concatenation or switching to hex must disagree. */
     @Test
     @DisplayName("the MAC is Base64 HMAC-SHA256 over timestamp + body, in that order")
     void theWireFormatIsTheVendorsOwn() {
@@ -71,10 +75,8 @@ class WebhookFreshnessTest {
                 .isEqualTo("MFc5Evb/LIyj+Nfm11rW5pqXAB4LjBD4QHo3gA1mC2g=");
     }
 
-    /**
-     * Pins the window's <em>size</em>, which the hour-old test does not. The five-second margin is
-     * because {@code now} is read inside the verifier, so an exact boundary is a coin flip on CI.
-     */
+    /** Pins the window's size, which the hour-old test does not; the five-second margin is because now is
+     * read inside the verifier, so an exact boundary is a coin flip on CI. */
     @Test
     @DisplayName("the window is five minutes wide in seconds and in milliseconds")
     void theWindowEdgesHold() {
@@ -85,7 +87,7 @@ class WebhookFreshnessTest {
         for (String fresh : new String[] {
                 String.valueOf(nowMillis - (skewMillis - marginMillis)),
                 String.valueOf((nowMillis - (skewMillis - marginMillis)) / 1000L)}) {
-            assertThat(signature.verify(signature.sign(fresh, BODY), fresh, BODY))
+            assertThat(signature.verify(signature.sign(fresh, BODY), fresh, BODY_BYTES))
                     .as("just inside the window: %s", fresh)
                     .isEqualTo(Verification.VERIFIED);
         }
@@ -93,7 +95,7 @@ class WebhookFreshnessTest {
         for (String expired : new String[] {
                 String.valueOf(nowMillis - (skewMillis + marginMillis)),
                 String.valueOf((nowMillis - (skewMillis + marginMillis)) / 1000L)}) {
-            assertThat(signature.verify(signature.sign(expired, BODY), expired, BODY))
+            assertThat(signature.verify(signature.sign(expired, BODY), expired, BODY_BYTES))
                     .as("just outside the window: %s", expired)
                     .isEqualTo(Verification.STALE);
         }
@@ -107,11 +109,11 @@ class WebhookFreshnessTest {
         String timestamp = String.valueOf(System.currentTimeMillis() / 1000L);
         String valid = signature.sign(timestamp, BODY);
 
-        assertThat(signature.verify(null, timestamp, BODY)).isEqualTo(Verification.MISSING_HEADER);
-        assertThat(signature.verify(valid, null, BODY)).isEqualTo(Verification.MISSING_HEADER);
+        assertThat(signature.verify(null, timestamp, BODY_BYTES)).isEqualTo(Verification.MISSING_HEADER);
+        assertThat(signature.verify(valid, null, BODY_BYTES)).isEqualTo(Verification.MISSING_HEADER);
         assertThat(signature.verify(valid, timestamp, null)).isEqualTo(Verification.MISSING_HEADER);
-        assertThat(signature.verify(valid, "not-a-number", BODY)).isEqualTo(Verification.MALFORMED);
-        assertThat(signature.verify("not~base64!", timestamp, BODY))
+        assertThat(signature.verify(valid, "not-a-number", BODY_BYTES)).isEqualTo(Verification.MALFORMED);
+        assertThat(signature.verify("not~base64!", timestamp, BODY_BYTES))
                 .isEqualTo(Verification.MALFORMED);
     }
 }

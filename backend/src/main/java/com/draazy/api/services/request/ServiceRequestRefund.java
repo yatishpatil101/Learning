@@ -16,6 +16,7 @@ public class ServiceRequestRefund extends BaseEntity {
     static final String REQUESTED = "requested";
     static final String APPROVED = "approved";
     static final String REJECTED = "rejected";
+    static final String FAILED = "failed";
 
     @Column(name = "service_request_id", nullable = false, updatable = false)
     private UUID serviceRequestId;
@@ -74,6 +75,10 @@ public class ServiceRequestRefund extends BaseEntity {
     void approve(String gatewayRefund, UUID by, String note) {
         this.gatewayRefundId = gatewayRefund;
         close(APPROVED, by, note);
+    }
+
+    void markFailed() {
+        this.status = FAILED;
     }
 
     void reject(UUID by, String note) {

@@ -181,4 +181,33 @@ test.describe('LIVE: plans, pricing and the checkout hand-off', () => {
     // would work. Asserting the new message alone would still pass if both were rendered.
     await expect(alert).not.toContainText('please try again');
   });
+
+  test('the plan cards state the seeded entitlements, with listing counts read from the catalogue', async ({ page }) => {
+    await page.context().clearCookies();
+    await seedConsent(page);
+    const { plans } = await (await fetch(`${API}/bootstrap`)).json();
+    const limit = (name) => plans.find((p) => p.name === name).listingLimit;
+    await page.goto('/plans');
+
+    const card = (name) => page.locator('h3', { hasText: new RegExp(`^${name}$`) }).last().locator('xpath=ancestor::div[contains(@class,"glass")][1]');
+    await expect(card('Seeker Free')).toContainText('15 owner contacts in total', { timeout: 20000 });
+    await expect(card('Seeker Plus')).toContainText('Unlimited owner contacts');
+    await expect(card('Owner Free')).toContainText('Verified owner badge');
+    await expect(card('Owner Plus')).toContainText(`List up to ${limit('Owner Plus')} properties`);
+    await expect(card('Owner Plus')).not.toContainText('Verified owner badge');
+    await expect(card('Owner Pro')).toContainText(`List up to ${limit('Owner Pro')} properties`);
+    await expect(card('Owner Pro')).toContainText('Rent agreement included');
+  });
+
+  test('a held paid plan carries its own listing limit, not the one-listing floor', async ({ page }) => {
+    await signedInAsNew(page);
+    await seedConsent(page);
+    const { plans } = await (await fetch(`${API}/bootstrap`)).json();
+    const pro = plans.find((p) => p.name === 'Owner Pro');
+    await page.route('**/api/me/subscription', (route) => (route.request().method() === 'GET'
+      ? route.fulfill({ json: { id: 's1', planId: pro.id, status: 'active', paymentRef: null, paymentSessionId: null } })
+      : route.continue()));
+    await page.goto('/dashboard#billing');
+    await expect(page.getByText(`Up to ${pro.listingLimit} properties`)).toBeVisible({ timeout: 20000 });
+  });
 });

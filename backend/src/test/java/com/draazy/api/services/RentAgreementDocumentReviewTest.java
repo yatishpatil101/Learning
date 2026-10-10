@@ -28,13 +28,6 @@ class RentAgreementDocumentReviewTest extends ServiceFixtures {
     private static final String[] PAPERS = {"licensor-0-pan", "licensor-0-aadhaar", "licensor-0-photo",
         "ownership-proof", "tenant-0-pan", "tenant-0-aadhaar", "tenant-0-photo"};
 
-    private void upload(User caller, String id, String category) throws Exception {
-        mvc.perform(multipart(Routes.ServiceRequests.DOCS, id)
-                        .file(new MockMultipartFile("file", "scan.pdf", "application/pdf", "%PDF-1.4".getBytes()))
-                        .param("category", category)
-                        .header(HttpHeaders.AUTHORIZATION, bearer(caller)))
-                .andExpect(status().isCreated());
-    }
 
     private String documentId(User caller, String id, int item) throws Exception {
         return JsonPath.read(mvc.perform(get(Routes.ServiceRequests.CHECKLIST, id)

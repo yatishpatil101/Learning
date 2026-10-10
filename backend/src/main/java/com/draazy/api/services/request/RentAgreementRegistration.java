@@ -11,9 +11,6 @@ import com.draazy.api.documents.agreement.PreparedAgreement;
 import com.draazy.api.documents.agreement.RentAgreement;
 import com.draazy.api.documents.agreement.RentAgreementRepository;
 import com.draazy.api.documents.agreement.RentAgreementService;
-import com.draazy.api.documents.vault.Document;
-import com.draazy.api.documents.vault.DocumentMapper;
-import com.draazy.api.documents.vault.DocumentRepository;
 import com.draazy.api.identity.user.User;
 import com.draazy.api.identity.user.UserRepository;
 import com.draazy.api.security.AuthPrincipal;
@@ -24,9 +21,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
-import java.util.Set;
 import java.util.UUID;
-import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -42,25 +37,19 @@ public class RentAgreementRegistration {
     private final RentAgreementRepository agreementRows;
     private final PropertyRepository properties;
     private final UserRepository users;
-    private final DocumentRepository documents;
-    private final DocumentMapper documentMapper;
 
     public RentAgreementRegistration(ServiceRequestService requests,
             ServiceRequestPartyRepository parties,
             RentAgreementService agreements,
             RentAgreementRepository agreementRows,
             PropertyRepository properties,
-            UserRepository users,
-            DocumentRepository documents,
-            DocumentMapper documentMapper) {
+            UserRepository users) {
         this.requests = requests;
         this.parties = parties;
         this.agreements = agreements;
         this.agreementRows = agreementRows;
         this.properties = properties;
         this.users = users;
-        this.documents = documents;
-        this.documentMapper = documentMapper;
     }
 
     // Runs inside the final-document upload's transaction, so a failed upload leaves no rows.
@@ -129,8 +118,6 @@ public class RentAgreementRegistration {
             List<RentAgreement> rows) {
         Map<String, String> verified = request == null ? Map.of() : verifiedTenants(request);
         Map<String, String> names = request == null ? Map.of() : tenants(request, verified);
-        Set<UUID> docIds = rows.stream().map(RentAgreement::getFinalDocumentId).filter(Objects::nonNull).collect(Collectors.toSet());
-        Map<UUID, String> urls = documents.findAllById(docIds).stream().collect(Collectors.toMap(Document::getId, d -> documentMapper.toDto(d).url()));
         return rows.stream().map(a -> new RentAgreementRecordDto(a.getId().toString(),
                         names.get(a.getTenantMobile()),
                         a.getTenantMobile(),
@@ -138,7 +125,7 @@ public class RentAgreementRegistration {
                         nameOf(a.getPreparedBy()),
                         nameOf(a.getVerifiedBy()),
                         caller.userId().equals(a.getPreparedBy()),
-                        urls.get(a.getFinalDocumentId()),
+                        a.getFinalDocumentId() == null ? null : a.getFinalDocumentId().toString(),
                         verified.containsKey(a.getTenantMobile()))).toList();
     }
 

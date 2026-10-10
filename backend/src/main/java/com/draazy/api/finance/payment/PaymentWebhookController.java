@@ -2,8 +2,11 @@ package com.draazy.api.finance.payment;
 
 import com.draazy.api.billing.BillingPayments;
 import com.draazy.api.common.web.Routes;
+import com.draazy.api.provider.PaymentGateway;
+import com.draazy.api.provider.ProviderCalls;
 import com.draazy.api.provider.cashfree.WebhookSignature;
 import com.draazy.api.services.request.ServiceRequestAmendments;
+import com.draazy.api.services.request.ServiceRequestRefunds;
 import com.draazy.api.services.request.ServiceRequestService;
 import java.math.BigDecimal;
 import java.time.Instant;
@@ -32,20 +35,26 @@ public class PaymentWebhookController {
     /** Provider status meaning the money moved. */
     private static final String PROVIDER_SUCCESS = "SUCCESS";
 
+    private static final String REFUND_EVENT = "REFUND_STATUS_WEBHOOK";
+
     private final BillingPayments billingPayments;
     private final ServiceRequestService serviceRequests;
     private final ServiceRequestAmendments amendments;
+    private final ServiceRequestRefunds refunds;
     private final WebhookSignature webhookSignature;
     private final ObjectMapper objectMapper;
+    private final ProviderCalls calls;
 
     public PaymentWebhookController(BillingPayments billingPayments,
             ServiceRequestService serviceRequests, ServiceRequestAmendments amendments,
-            WebhookSignature webhookSignature, ObjectMapper objectMapper) {
+            ServiceRequestRefunds refunds, WebhookSignature webhookSignature, ObjectMapper objectMapper, ProviderCalls calls) {
         this.billingPayments = billingPayments;
         this.serviceRequests = serviceRequests;
         this.amendments = amendments;
+        this.refunds = refunds;
         this.webhookSignature = webhookSignature;
         this.objectMapper = objectMapper;
+        this.calls = calls;
     }
 
     /** {@code POST /webhooks/cashfree/payment}; timestamp is signed so a callback cannot be replayed. */
@@ -54,16 +63,22 @@ public class PaymentWebhookController {
     public void cashfreePaymentWebhook(
             @RequestHeader(name = "x-webhook-signature", required = false) String signature,
             @RequestHeader(name = "x-webhook-timestamp", required = false) String timestamp,
-            @RequestBody(required = false) String rawBody) {
+            @RequestBody(required = false) byte[] rawBody) {
 
         WebhookSignature.Verification verification =
                 webhookSignature.verify(signature, timestamp, rawBody);
         if (verification != WebhookSignature.Verification.VERIFIED) {
             logRefusal(verification, timestamp);
+            calls.record(ProviderCalls.CASHFREE, PaymentGateway.WEBHOOK, ProviderCalls.Outcome.FAILED,
+                    null, null, "signature " + verification, null);
             return;
         }
         try {
             JsonNode root = objectMapper.readTree(rawBody);
+            if (REFUND_EVENT.equals(root.path("type").asString(null))) {
+                settleRefund(root.path("data").path("refund"));
+                return;
+            }
             JsonNode data = root.path("data");
             JsonNode payment = data.path("payment");
 
@@ -82,7 +97,8 @@ public class PaymentWebhookController {
                     settle("service-request", () -> serviceRequests.applyWebhookOutcome(orderId, paid, amount)),
                     settle("amendment", () -> amendments.applyWebhookOutcome(orderId, paid, amount)));
 
-            if (paid && !outcomes.contains(Settlement.CLAIMED)) {
+            boolean unreconciled = paid && !outcomes.contains(Settlement.CLAIMED);
+            if (unreconciled) {
 
                 if (outcomes.contains(Settlement.FAILED)) {
                     log.error("Paid webhook for order {} was not settled: a handler failed (see the "
@@ -92,13 +108,32 @@ public class PaymentWebhookController {
                             + "or amendment; the payment is unreconciled", orderId);
                 }
             }
+            calls.record(ProviderCalls.CASHFREE, PaymentGateway.WEBHOOK,
+                    unreconciled ? ProviderCalls.Outcome.FAILED : ProviderCalls.Outcome.OK,
+                    null, orderId, unreconciled ? providerStatus + " unreconciled" : providerStatus, null);
 
         } catch (Exception unprocessable) {
 
             // why: a signed-but-unreadable payload is our bug or a provider change, not the
             // sender's problem. Retrying will not help, so we swallow it and keep the 200 contract.
             log.error("Signed payment webhook could not be processed", unprocessable);
+            calls.record(ProviderCalls.CASHFREE, PaymentGateway.WEBHOOK, ProviderCalls.Outcome.FAILED,
+                    null, null, "unprocessable", null);
         }
+    }
+
+    // Refund status events share this endpoint but carry no payment, so they must not reach settlement families.
+    private void settleRefund(JsonNode refund) {
+        String refundId = refund.path("refund_id").asString(null);
+        String status = refund.path("refund_status").asString(null);
+        Settlement outcome = settle("refund", () -> refunds.applyWebhookOutcome(refundId, status));
+        boolean ok = outcome == Settlement.CLAIMED;
+        if (outcome == Settlement.NOT_MINE) {
+            log.warn("Refund webhook {} matched no refund of ours", refundId);
+        }
+        calls.record(ProviderCalls.CASHFREE, PaymentGateway.WEBHOOK,
+                ok ? ProviderCalls.Outcome.OK : ProviderCalls.Outcome.FAILED,
+                null, refund.path("order_id").asString(null), "refund " + status, null);
     }
 
     // Only HMAC-authenticated stale callbacks cost money, so only they log as errors.

@@ -9,7 +9,6 @@ import static org.hamcrest.Matchers.not;
 import static org.hamcrest.Matchers.notNullValue;
 import static org.hamcrest.Matchers.nullValue;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -28,7 +27,6 @@ import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
-import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.test.web.servlet.ResultActions;
 
 @DisplayName("A rent agreement is not paid for until the Sub-Registrar could register it")
@@ -465,6 +463,14 @@ class RentAgreementReadinessTest extends ServiceFixtures {
             read(admin("9820000717"), id)
                     .andExpect(jsonPath(url("licensor-0-pan")).value(contains(notNullValue())))
                     .andExpect(jsonPath(url("tenant-0-aadhaar")).value(contains(notNullValue())));
+
+            User desk = admin("9820000720");
+            mint(owner, id, "licensor-0-pan", desk, 200);
+            mint(owner, id, "tenant-0-aadhaar", desk, 404);
+            mint(tenant, id, "tenant-0-aadhaar", desk, 200);
+            mint(tenant, id, "licensor-0-pan", desk, 404);
+            mint(tenant, id, "ownership-proof", desk, 200);
+            mint(desk, id, "tenant-0-aadhaar", desk, 200);
         }
 
         @Test
@@ -603,18 +609,7 @@ class RentAgreementReadinessTest extends ServiceFixtures {
         }
     }
 
-    private void upload(User caller, String id, String category) throws Exception {
-        upload(caller, id, category, 201);
-    }
 
-    private void upload(User caller, String id, String category, int expected) throws Exception {
-        mvc.perform(multipart(Routes.ServiceRequests.DOCS, id)
-                        .file(new MockMultipartFile("file", category + ".pdf", "application/pdf",
-                                "%PDF-1.4".getBytes()))
-                        .param("category", category)
-                        .header(HttpHeaders.AUTHORIZATION, bearer(caller)))
-                .andExpect(status().is(expected));
-    }
 
     private ResultActions read(User caller, String id) throws Exception {
         return mvc.perform(get(Routes.ServiceRequests.BY_ID, id)
@@ -622,8 +617,17 @@ class RentAgreementReadinessTest extends ServiceFixtures {
                 .andExpect(status().isOk());
     }
 
+    private void mint(User caller, String id, String category, User reader, int expected) throws Exception {
+        String body = read(reader, id).andReturn().getResponse().getContentAsString();
+        String docId = com.jayway.jsonpath.JsonPath.<java.util.List<String>>read(body,
+                "$.documents[?(@.category=='" + category + "')].id").get(0);
+        mvc.perform(get(Routes.ServiceRequests.DOC_URL, id, docId)
+                        .header(HttpHeaders.AUTHORIZATION, bearer(caller)))
+                .andExpect(status().is(expected));
+    }
+
     private static String url(String category) {
-        return "$.documents[?(@.category=='" + category + "')].url";
+        return "$.documents[?(@.category=='" + category + "')].fileName";
     }
 
     private ResultActions checkout(User caller, String id, int expected)

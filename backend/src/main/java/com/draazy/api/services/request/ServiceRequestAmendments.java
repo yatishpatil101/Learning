@@ -15,6 +15,8 @@ import java.time.Instant;
 import java.util.EnumSet;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import org.slf4j.Logger;
@@ -40,6 +42,8 @@ public class ServiceRequestAmendments {
     private final ServiceRequestService requests;
     private final ServiceRequestRepository requestRows;
     private final ServiceRequestAmendmentRepository amendments;
+    private final ServiceRequestRefundRepository refunds;
+    private final ServiceRequestPartyRepository parties;
     private final ServiceRequestPricing pricing;
     private final ServiceRequestMapper mapper;
     private final PaymentGateway gateway;
@@ -49,12 +53,15 @@ public class ServiceRequestAmendments {
     private final TransactionTemplate transactions;
 
     public ServiceRequestAmendments(ServiceRequestService requests, ServiceRequestRepository requestRows,
-            ServiceRequestAmendmentRepository amendments, ServiceRequestPricing pricing,
+            ServiceRequestAmendmentRepository amendments, ServiceRequestRefundRepository refunds,
+            ServiceRequestPartyRepository parties, ServiceRequestPricing pricing,
             ServiceRequestMapper mapper, PaymentGateway gateway, UserRepository users, AuditService audit,
             Notifier notifier, PlatformTransactionManager transactionManager) {
         this.requests = requests;
         this.requestRows = requestRows;
         this.amendments = amendments;
+        this.refunds = refunds;
+        this.parties = parties;
         this.pricing = pricing;
         this.mapper = mapper;
         this.gateway = gateway;
@@ -65,7 +72,7 @@ public class ServiceRequestAmendments {
     }
 
     public record Terms(Long rent, Long deposit, Long nrDeposit, Long months, BigDecimal increment,
-            String regArea) {
+            Long incrementEvery, String regArea) {
 
         Map<String, Object> changes() {
             Map<String, Object> out = new LinkedHashMap<>();
@@ -83,6 +90,9 @@ public class ServiceRequestAmendments {
             }
             if (increment != null) {
                 out.put("increment", increment.stripTrailingZeros().toPlainString());
+            }
+            if (incrementEvery != null) {
+                out.put("incrementEvery", incrementEvery);
             }
             if (regArea != null) {
                 out.put("regArea", "rural".equals(regArea) ? RegistrationArea.RURAL : RegistrationArea.URBAN);
@@ -113,7 +123,7 @@ public class ServiceRequestAmendments {
         if (changes.isEmpty() || ServiceRequestPricing.samePricedTerms(request.getDetails(), next)) {
             throw new ValidationException("These are the terms already priced. Change the draft without an amendment.");
         }
-        long before = request.getAmount() == null ? 0L : request.getAmount();
+        long before = (request.getAmount() == null ? 0L : request.getAmount()) - refunds.approvedTotal(request.getId());
         long after = pricing.repriced(before, request.getDetails(), next);
         ServiceRequestAmendment amendment = amendments.save(new ServiceRequestAmendment(
                 request.getId(), changes, why, before, after, caller.userId()));
@@ -124,9 +134,12 @@ public class ServiceRequestAmendments {
         long delta = amendment.delta();
         notifier.notify(request.getRequesterId(), "service.amendment-proposed",
                 "Revised terms to accept",
-                delta > 0 ? "The new terms add \u20b9" + delta + " of charges. Accept and pay to continue."
+                delta > 0 ? "The new terms add " + Notifier.rupees(delta) + " of charges. Accept and pay to continue."
                         : "Accept the new terms so our team can revise your draft.",
                 ServiceRequestTypes.pageFor(request.getType()));
+        notifyOtherParties(request, "service.amendment-proposed", "Revised terms proposed",
+                "Our team proposed new terms. " + displayName(request.getRequesterId())
+                        + " decides whether to accept them.");
         return mapper.toDto(request, caller);
     }
 
@@ -164,16 +177,21 @@ public class ServiceRequestAmendments {
         }
         String openOrder = transactions.execute(tx -> acceptable(caller, id, amendmentId).getPaymentRef());
         if (openOrder != null) {
-            String session = gateway.resumeSession(openOrder).orElseThrow(() -> new ConflictException(
-                    "This payment can no longer be resumed. If you have just paid, it will show in a few"
-                            + " minutes; otherwise ask our team to send the revised terms again."));
-            return transactions.execute(tx -> {
-                ServiceRequestAmendment amendment = acceptable(caller, id, amendmentId);
-                if (!openOrder.equals(amendment.getPaymentRef())) {
-                    throw new ConflictException("Checkout changed while it was being resumed. Try again.");
-                }
-                return mapper.toDto(locked(amendment.getServiceRequestId()), caller).withPaymentSessionId(session);
-            });
+            Optional<String> session = gateway.resumeSession(openOrder);
+            if (session.isPresent()) {
+                return transactions.execute(tx -> {
+                    ServiceRequestAmendment amendment = acceptable(caller, id, amendmentId);
+                    if (!openOrder.equals(amendment.getPaymentRef())) {
+                        throw new ConflictException("Checkout changed while it was being resumed. Try again.");
+                    }
+                    return mapper.toDto(locked(amendment.getServiceRequestId()), caller)
+                            .withPaymentSessionId(session.get());
+                });
+            }
+            if (gateway.paid(openOrder)) {
+                throw new ConflictException("This payment has gone through and will show in a few minutes.");
+            }
+            transactions.executeWithoutResult(tx -> releaseExpiredOrder(caller, id, amendmentId, openOrder));
         }
         long delta = transactions.execute(tx -> acceptable(caller, id, amendmentId).delta());
         String phone = users.findById(caller.userId()).map(User::getMobile).orElse(null);
@@ -218,12 +236,13 @@ public class ServiceRequestAmendments {
             log.error("Amount mismatch on amendment {}: billed {} but provider charged {}",
                     amendment.getId(), amendment.delta(), providerAmount);
         }
+        boolean firstPayment = paid && amendment.getPaidAt() == null;
+        if (firstPayment) {
+            amendment.markPaid(Instant.now());
+        }
         if (!amendment.open() || !AMENDABLE.contains(request.getStatus())) {
-            if (paid) {
-                log.error("Payment settled for amendment {} on service request {}, but the amendment is {} and"
-                        + " the request {} \u2014 the customer has been charged for terms nobody applied."
-                        + " Refund or reconcile.", amendment.getId(), request.getId(), amendment.getStatus(),
-                        request.getStatus());
+            if (firstPayment && !ServiceRequestAmendment.APPLIED.equals(amendment.getStatus())) {
+                keepAsCredit(request, amendment);
             }
             return true;
         }
@@ -234,6 +253,48 @@ public class ServiceRequestAmendments {
             requests.record(request, "amendment.payment-failed", null);
         }
         return true;
+    }
+
+    // The money is real, so it joins what was paid and can be refunded; only the terms stay unapplied.
+    private void keepAsCredit(ServiceRequest request, ServiceRequestAmendment amendment) {
+        request.charge(amendment.delta());
+        requestRows.saveAndFlush(request);
+        requests.record(request, "amendment.payment-unapplied", null);
+        log.warn("Payment settled for amendment {} on service request {}, but the amendment is {} and the request"
+                + " {}; {} is held as a refundable credit.", amendment.getId(), request.getId(),
+                amendment.getStatus(), request.getStatus(), amendment.delta());
+        notifier.notify(request.getRequesterId(), "service.amendment-credit",
+                "Payment received for withdrawn terms",
+                Notifier.rupees(amendment.delta()) + " reached us after those terms were withdrawn. Our team"
+                        + " will refund it.", ServiceRequestTypes.pageFor(request.getType()));
+        if (request.getAssigneeId() != null) {
+            notifier.notify(request.getAssigneeId(), "service.amendment-credit",
+                    "Refund due on a withdrawn amendment",
+                    Notifier.rupees(amendment.delta()) + " was paid for terms that are no longer open.",
+                    "/ops/drafting-desk");
+        }
+    }
+
+    private void releaseExpiredOrder(AuthPrincipal caller, String id, String amendmentId, String openOrder) {
+        ServiceRequestAmendment amendment = acceptable(caller, id, amendmentId);
+        if (!openOrder.equals(amendment.getPaymentRef())) {
+            return;
+        }
+        amendment.releaseOrder();
+        amendments.saveAndFlush(amendment);
+        requests.record(locked(amendment.getServiceRequestId()), "amendment.checkout-expired", null);
+    }
+
+    private void notifyOtherParties(ServiceRequest request, String type, String title, String body) {
+        parties.findByRequestId(request.getId()).stream()
+                .filter(p -> CoFillParties.ACCEPTED.equals(p.getStatus()) && p.getUserId() != null
+                        && !p.getUserId().equals(request.getRequesterId()))
+                .forEach(p -> notifier.notify(p.getUserId(), type, title, body,
+                        ServiceRequestTypes.pageFor(request.getType())));
+    }
+
+    private String displayName(UUID userId) {
+        return Objects.requireNonNullElse(requests.displayName(userId), "The requester");
     }
 
     void requireNoneOpen(ServiceRequest request) {
@@ -251,6 +312,8 @@ public class ServiceRequestAmendments {
         amendment.close(ServiceRequestAmendment.APPLIED, by, Instant.now());
         requestRows.saveAndFlush(request);
         requests.record(request, "amendment.applied", by == null ? null : requests.displayName(by));
+        notifyOtherParties(request, "service.amendment-applied", "Terms revised",
+                "The revised terms were accepted. The draft will be updated to match.");
         if (request.getAssigneeId() != null) {
             notifier.notify(request.getAssigneeId(), "service.amendment-applied",
                     "Revised terms accepted", "The customer accepted the revised terms. Share the revised draft.",

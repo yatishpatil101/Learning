@@ -15,6 +15,7 @@ import { collectDocs as collectFormDocs, draftDocRefs, removeIndexedDocs, slotFo
 import { useRaFurniture } from './useRaFurniture.js';
 import { useRaPayment } from './useRaPayment.js';
 import { getDealFees } from '../../../../services/feesService.js';
+import { leaveLicenceStamp } from '../../../../lib/toolCalc.js';
 import { myListing, myListings } from '../../../../services/propertyService.js';
 import {
   addServiceRequestDoc,
@@ -474,10 +475,9 @@ export function useRentAgreement() {
     const years = Math.ceil(months / 12);
     /* `stampDuty`/`registration` arrive `null` because neither is a flat figure; anything derived here lands in
        `computed`, so the sidebar labels it an estimate. */
-    const taxableTenths = (rentForTerm(rent, months, terms.increment, terms.incrementEvery) + nr) * 10 + dep * years;
     const computed = [];
     let stamp = feeRow.stampDuty;
-    if (stamp == null) { stamp = Math.max(100, Math.ceil(taxableTenths / 400000) * 100); computed.push('stamp'); }
+    if (stamp == null) { stamp = leaveLicenceStamp(rentForTerm(rent, months, terms.increment, terms.incrementEvery), nr, dep, years); computed.push('stamp'); }
     let reg = feeRow.registration;
     if (reg == null) { reg = regArea === 'rural' ? 500 : 1000; computed.push('reg'); }
     const dhc = 300;

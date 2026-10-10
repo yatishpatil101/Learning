@@ -8,6 +8,7 @@ import { classNames, fmtINR } from '../../../lib/format.js';
 import { useToast } from '../../../context/ToastContext.jsx';
 import Modal from '../../../components/ui/Modal.jsx';
 import Badge from '../../../components/ui/Badge.jsx';
+import Loading from '../../../components/ui/Loading.jsx';
 import InternalNote, { saveNoteIfAny } from '../../../components/ui/InternalNote.jsx';
 import AgeTone from '../service-queue/AgeTone.jsx';
 import AmendTerms from '../service-queue/AmendTerms.jsx';
@@ -26,6 +27,7 @@ import { STAGES, caseSummary, nextStep, stagesDone } from './stages.js';
 
 const card = 'rounded-xl border border-white/10 bg-black/10 p-4';
 const CLOSED = new Set(['completed', 'cancelled']);
+const PRE_DRAFT = new Set(['submitted', 'docs_review', 'changes_requested']);
 const NEXT_TONE = {
   desk: 'border-brand-teal/40 bg-brand-teal/10 text-teal-100',
   customer: 'border-white/10 bg-white/5 text-gray-300',
@@ -35,7 +37,7 @@ const NEXT_TONE = {
 const NEXT_WHO = { desk: 'Your move', customer: "Customer's move", colleague: 'Colleague check', done: 'Closed' };
 
 /** One rent agreement case: everything to read on the left, every action in the rail on the right. */
-export default function RaCaseModal({ request, nextId, onNext, onClose, onChanged, reloadToken }) {
+export default function RaCaseModal({ request, nextId, onNext, onClose, onChanged }) {
   const s = request ? caseSummary(request.details) : null;
   const footer = (
     <>
@@ -51,12 +53,30 @@ export default function RaCaseModal({ request, nextId, onNext, onClose, onChange
       size="xl"
       footer={footer}
     >
-      {request ? <CaseBody key={request.id} initial={request} onChanged={onChanged} reloadToken={reloadToken} /> : null}
+      {request ? <CaseBody key={request.id} id={request.id} onChanged={onChanged} /> : null}
     </Modal>
   );
 }
 
-function CaseBody({ initial, onChanged, reloadToken }) {
+/** A queue row is a summary, so the full case is read once when it opens and refreshed by the desk's own actions. */
+function CaseBody({ id, onChanged }) {
+  const [initial, setInitial] = useState(null);
+  const [failed, setFailed] = useState(false);
+
+  useEffect(() => {
+    let live = true;
+    getServiceRequest(id)
+      .then((res) => { if (live) { if (res) setInitial(res); else setFailed(true); } })
+      .catch(() => { if (live) setFailed(true); });
+    return () => { live = false; };
+  }, [id]);
+
+  if (failed) return <p role="alert" className="p-4 text-sm text-gray-300">This case could not be opened. Close it and try again.</p>;
+  if (!initial) return <Loading label="Opening the case…" />;
+  return <CaseView initial={initial} onChanged={onChanged} />;
+}
+
+function CaseView({ initial, onChanged }) {
   const { toast } = useToast();
   const [detail, setDetail] = useState(initial);
   const [checklist, setChecklist] = useState(null);
@@ -64,13 +84,6 @@ function CaseBody({ initial, onChanged, reloadToken }) {
   const [internalNote, setInternalNote] = useState('');
   const [cancelOpen, setCancelOpen] = useState(false);
   const [taking, setTaking] = useState(false);
-
-  // Re-read on every desk reload so a takeover or close by someone else remounts the identity panel.
-  useEffect(() => {
-    let live = true;
-    getServiceRequest(initial.id).then((fresh) => { if (live && fresh) setDetail(fresh); }).catch(() => {});
-    return () => { live = false; };
-  }, [initial.id, reloadToken]);
 
   useEffect(() => {
     let live = true;
@@ -179,7 +192,7 @@ function CaseBody({ initial, onChanged, reloadToken }) {
           <PartyIdentities key={`${detail.id}:${detail.assignedTo || ''}:${closed}`} requestId={detail.id} className={card} />
         </CaseParticulars>
 
-        {detail.status !== 'cancelled' ? <OverlapCheck key={`overlap-${detail.id}`} request={detail} /> : null}
+        {PRE_DRAFT.has(detail.status) ? <OverlapCheck key={`overlap-${detail.id}`} request={detail} /> : null}
 
         {detail.draft ? <DraftStatus request={detail} /> : null}
 
@@ -188,7 +201,7 @@ function CaseBody({ initial, onChanged, reloadToken }) {
         ) : null}
 
         <AmendTerms key={`amend-${detail.id}`} request={detail} onUpdated={applyUpdate} />
-        <Refunds key={`refunds-${detail.id}`} request={detail} />
+        {detail.amount > 0 ? <Refunds key={`refunds-${detail.id}`} request={detail} /> : null}
 
         <MessageThread messages={detail.messages} onSend={sendMessage} />
 

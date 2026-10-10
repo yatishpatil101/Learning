@@ -14,7 +14,10 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -29,6 +32,10 @@ public class ServiceRequestRefunds {
     private static final Logger log = LoggerFactory.getLogger(ServiceRequestRefunds.class);
 
     private static final int TEXT_MAX = 300;
+
+    private static final Set<String> GATEWAY_REFUSED = Set.of("CANCELLED", "FAILED");
+
+    private static final Pattern GATEWAY_REFUND_ID = Pattern.compile("rf_([0-9a-f]{8})([0-9a-f]{4})([0-9a-f]{4})([0-9a-f]{4})([0-9a-f]{12})");
 
     private final ServiceRequestService requests;
     private final ServiceRequestRepository requestRows;
@@ -121,13 +128,41 @@ public class ServiceRequestRefunds {
             throw unrecorded;
         }
         requests.record(request, "refund.approved", requests.displayName(caller.userId()));
+        cancelWhenFullyRefunded(request, caller);
         audit.record(caller, "service-request.refund-approved", "service_request", id,
                 "refund", refundId, "amount", refund.getAmount(), "gatewayRefund", gatewayRef);
         notifier.notify(request.getRequesterId(), "service.refund-approved",
-                "\u20b9" + refund.getAmount() + " refund on its way",
+                Notifier.rupees(refund.getAmount()) + " refund on its way",
                 "It goes back to the card or account you paid with. Banks usually take 5\u20137 working days.",
                 ServiceRequestTypes.pageFor(request.getType()));
         return summaryOf(caller, request);
+    }
+
+    /** Applies the gateway's refund status callback; false when the refund id is not one of ours. */
+    @Transactional
+    public boolean applyWebhookOutcome(String merchantRefundId, String providerStatus) {
+        UUID refundId = refundIdOf(merchantRefundId);
+        ServiceRequestRefund refund = refundId == null ? null : refunds.findById(refundId).orElse(null);
+        if (refund == null) {
+            return false;
+        }
+        ServiceRequest request = locked(refund.getServiceRequestId());
+        if (!ServiceRequestRefund.APPROVED.equals(refund.getStatus()) || !GATEWAY_REFUSED.contains(providerStatus)) {
+            return true;
+        }
+        refund.markFailed();
+        refunds.saveAndFlush(refund);
+        requests.record(request, "refund.failed", null);
+        audit.record("system", "admin", "service-request.refund-failed", "service_request",
+                request.getId().toString());
+        log.error("Gateway {} refund {} of {} on order {}; the money has not gone back. Ask again or refund by hand.",
+                providerStatus, refund.getId(), refund.getAmount(), refund.getOrderId());
+        if (refund.getRequestedBy() != null) {
+            notifier.notify(refund.getRequestedBy(), "service.refund-failed",
+                    Notifier.rupees(refund.getAmount()) + " refund did not go through",
+                    "The payment gateway cancelled it. It can be requested again.", "/ops/drafting-desk");
+        }
+        return true;
     }
 
     @Transactional
@@ -139,6 +174,27 @@ public class ServiceRequestRefunds {
         audit.record(caller, "service-request.refund-rejected", "service_request", id,
                 "refund", refundId, "note", refund.getDecisionNote());
         return summaryOf(caller, request);
+    }
+
+    // The refund that took everything back leaves nothing to deliver, so the request ends with it.
+    private void cancelWhenFullyRefunded(ServiceRequest request, AuthPrincipal caller) {
+        if (refunds.approvedTotal(request.getId()) < paid(request)
+                || !request.getStatus().canTransitionTo(ServiceRequestStatus.CANCELLED)) {
+            return;
+        }
+        requests.transition(request, ServiceRequestStatus.CANCELLED);
+        amendments.findOpenForUpdate(request.getId())
+                .ifPresent(open -> open.close(ServiceRequestAmendment.WITHDRAWN, caller.userId(), Instant.now()));
+        requests.record(request, "refund.cancelled-request", requests.displayName(caller.userId()));
+        notifier.notify(request.getRequesterId(), "service.refund-cancelled",
+                "Request cancelled", "Everything you paid is being refunded, so this request is closed.",
+                ServiceRequestTypes.pageFor(request.getType()));
+    }
+
+    private static UUID refundIdOf(String merchantRefundId) {
+        Matcher m = merchantRefundId == null ? null : GATEWAY_REFUND_ID.matcher(merchantRefundId);
+        return m == null || !m.matches() ? null
+                : UUID.fromString(m.group(1) + "-" + m.group(2) + "-" + m.group(3) + "-" + m.group(4) + "-" + m.group(5));
     }
 
     private ServiceRequest rentAgreement(AuthPrincipal caller, String id) {
@@ -183,8 +239,9 @@ public class ServiceRequestRefunds {
 
     // The first checkout, then each paid top-up; amount is their sum, so the first is the rest.
     private List<Leg> legs(ServiceRequest request) {
-        List<Leg> topUps = amendments.findByServiceRequestIdAndStatusAndPaymentRefNotNull(request.getId(),
-                        ServiceRequestAmendment.APPLIED).stream().filter(a -> a.delta() > 0).map(a -> new Leg(a.getPaymentRef(), a.delta())).toList();
+        List<Leg> topUps = amendments.findByServiceRequestIdAndPaymentRefNotNull(request.getId()).stream()
+                .filter(a -> a.delta() > 0 && (ServiceRequestAmendment.APPLIED.equals(a.getStatus()) || a.getPaidAt() != null))
+                .map(a -> new Leg(a.getPaymentRef(), a.delta())).toList();
         List<Leg> out = new ArrayList<>();
         if (request.getPaymentRef() != null) {
             out.add(new Leg(request.getPaymentRef(), paid(request) - topUps.stream().mapToLong(Leg::amount).sum()));

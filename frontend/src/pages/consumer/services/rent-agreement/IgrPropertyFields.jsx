@@ -1,6 +1,7 @@
 import NativeSelect from '../../../../components/ui/NativeSelect.jsx';
 import Icon from '../../../../components/Icon.jsx';
 import FieldError from '../../../../components/ui/FieldError.jsx';
+import Field from '../../../../components/ui/Field.jsx';
 import { AREA_UNITS, PROPERTY_ATTRIBUTE_KINDS, PUNE_POLICE_STATIONS, PUNE_TALUKAS } from './constants.js';
 
 const FIELD = 'field w-full px-4 py-3 rounded-xl text-white text-sm';
@@ -31,28 +32,22 @@ export default function IgrPropertyFields({ t, prop, setP, setProp, errors = {},
   return (
     <section className="space-y-5 mb-5" data-testid="ra-igr-property">
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-        <div>
-          <label className="lbl req">{t('services.ra.property.taluka')}</label>
+        <Field label={t('services.ra.property.taluka')} required error={errors.taluka && t('services.ra.property.talukaErr')}>
           <NativeSelect value={prop.taluka} title={t('services.ra.property.taluka')} onChange={(e) => setBound('taluka', e.target.value)} invalid={!!errors.taluka}>
             <option value="">{t('services.ra.property.talukaPlaceholder')}</option>
             {PUNE_TALUKAS.map((name) => <option key={name} value={name}>{name}</option>)}
           </NativeSelect>
-          <FieldError show={!!errors.taluka}>{t('services.ra.property.talukaErr')}</FieldError>
-        </div>
-        <div>
-          <label className="lbl req">{t('services.ra.property.villageCity')}</label>
+        </Field>
+        <Field label={t('services.ra.property.villageCity')} required error={errors.villageCity && t('services.ra.property.villageCityErr')}>
           <input value={prop.villageCity || ''} maxLength={80} onChange={(e) => setBound('villageCity', e.target.value)} className={(FIELD + (errors.villageCity ? ' err' : ''))} placeholder={t('services.ra.property.villageCityPlaceholder')} />
-          <FieldError show={!!errors.villageCity}>{t('services.ra.property.villageCityErr')}</FieldError>
-        </div>
-        <div>
-          <label className="lbl">{t('services.ra.property.roadName')}</label>
+        </Field>
+        <Field label={t('services.ra.property.roadName')}>
           <input value={prop.roadName || ''} maxLength={120} onChange={(e) => setBound('roadName', e.target.value)} className={FIELD} placeholder={t('services.ra.property.roadNamePlaceholder')} />
-        </div>
-        <div>
-          <label className="lbl">{t('services.ra.property.policeStation')}</label>
+        </Field>
+        <Field label={t('services.ra.property.policeStation')}>
           <input value={prop.policeStation || ''} maxLength={80} list="ra-police-stations" onChange={(e) => setBound('policeStation', e.target.value)} className={FIELD} placeholder={t('services.ra.property.policeStationPlaceholder')} />
           <datalist id="ra-police-stations">{PUNE_POLICE_STATIONS.map((name) => <option key={name} value={name} />)}</datalist>
-        </div>
+        </Field>
       </div>
 
       <div>
@@ -66,37 +61,30 @@ export default function IgrPropertyFields({ t, prop, setP, setProp, errors = {},
         <div className="space-y-2">
           {attributes.map((row, i) => (
             <div key={i} className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] gap-2 rounded-xl border border-white/10 p-2" data-testid={`ra-property-attribute-${i}`}>
-              <div>
-                <label className="lbl req">{t('services.ra.property.attributeKind')}</label>
+              <Field label={t('services.ra.property.attributeKind')} required error={errors[`pa${i}kind`] && t('services.ra.property.attributeKindErr')}>
                 <NativeSelect value={row.kind || ''} title={t('services.ra.property.attributeKind')} onChange={(e) => setAttribute(i, 'kind', e.target.value)} invalid={!!errors[`pa${i}kind`]}>
                   {PROPERTY_ATTRIBUTE_KINDS.map((kind) => <option key={kind} value={kind}>{kind}</option>)}
                 </NativeSelect>
-                <FieldError show={!!errors[`pa${i}kind`]}>{t('services.ra.property.attributeKindErr')}</FieldError>
-              </div>
-              <div>
-                <label className="lbl req">{t('services.ra.property.attributeNumber')}</label>
+              </Field>
+              <Field label={t('services.ra.property.attributeNumber')} required error={errors[`pa${i}number`] && t('services.ra.property.attributeNumberErr')}>
                 <input value={row.number || ''} maxLength={80} onChange={(e) => setAttribute(i, 'number', e.target.value)} className={FIELD + (errors[`pa${i}number`] ? ' err' : '')} placeholder={t('services.ra.property.attributeNumberPlaceholder')} />
-                <FieldError show={!!errors[`pa${i}number`]}>{t('services.ra.property.attributeNumberErr')}</FieldError>
-              </div>
+              </Field>
               <button type="button" onClick={() => saveAttributes(attributes.filter((_, idx) => idx !== i))} className="self-end p-3 rounded-xl text-gray-400 hover:text-red-400" title={t('services.ra.tenant.remove')} aria-label={t('services.ra.tenant.remove')}><Icon name="x" className="w-4 h-4" /></button>
             </div>
           ))}
         </div>
-        <FieldError show={!!errors.propertyAttributes}>{t('services.ra.property.attributesErr')}</FieldError>
+        <FieldError alert={false} show={!!errors.propertyAttributes}>{t('services.ra.property.attributesErr')}</FieldError>
       </div>
 
       <div className="grid grid-cols-2 gap-3 sm:gap-4 max-w-[640px]">
-        <div>
-          <label className="lbl">{t('services.ra.property.galleryArea')}</label>
+        <Field label={t('services.ra.property.galleryArea')} error={errors.galleryArea && t('services.ra.property.optionalAreaErr')}>
           <input inputMode="decimal" value={prop.galleryArea || ''} onChange={(e) => { setP('galleryArea', e.target.value.replace(/[^\d.]/g, '')); clearErr('galleryArea'); }} className={areaClass} placeholder={t('services.ra.property.smallAreaPlaceholder')} />
-          <FieldError show={!!errors.galleryArea}>{t('services.ra.property.optionalAreaErr')}</FieldError>
-        </div>
-        <div>
-          <label className="lbl">{t('services.ra.property.areaUnit')}</label>
+        </Field>
+        <Field label={t('services.ra.property.areaUnit')}>
           <NativeSelect value={prop.galleryAreaUnit || 'sqft'} title={t('services.ra.property.galleryAreaUnit')} onChange={(e) => setP('galleryAreaUnit', e.target.value)}>
             {AREA_UNITS.map((v) => <option key={v} value={v}>{t(`services.ra.property.areaUnitOpt.${v}`)}</option>)}
           </NativeSelect>
-        </div>
+        </Field>
       </div>
     </section>
   );

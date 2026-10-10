@@ -56,6 +56,7 @@ export default function RentAgreement() {
         {/* Form + Summary */}
 
         <section ref={formRef} className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 section-y">
+          <p role="status" aria-live="polite" className="sr-only" data-testid="ra-error-count">{Object.keys(errors).length ? tr('services.ra.errorCount', { count: Object.keys(errors).length }) : ''}</p>
           <div className={`grid grid-cols-1 gap-6${locked ? '' : ' lg:grid-cols-[1fr_340px]'}`}>
             {/* Wizard */}
             <div className="glass-card rounded-2xl p-6 sm:p-8">
@@ -221,7 +222,7 @@ export default function RentAgreement() {
                       </div>
                     </div>
                   )}
-                  {/* Invited tenant: they can view the whole agreement the owner set up, but only their own Tenant step is editable. */}
+                  {/* Invited tenant: sees the whole agreement, but can edit only their own Tenant step. */}
 
                   {mode === 'invite' && (
                     step === ownStep ? (

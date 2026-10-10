@@ -77,17 +77,7 @@ export const emptyCoOwner = () => ({ name: '', age: '', gender: '', occupation: 
 export const emptyInvite = () => ({ invMobile: '', invName: '', invMessage: '' });
 export const emptyTerms = () => ({ startDate: '', months: '11', rent: '', deposit: '', nrDeposit: '', increment: '5', incrementEvery: '11', lockin: '6', notice: '2', dueDay: '5', payMode: 'Bank Transfer / NEFT', utilitiesBy: 'Tenant', taxBy: 'Owner', costBy: 'Split', parking: 'none', parkingArea: '', parkingAreaUnit: 'sqft', occupants: '', language: 'English', visitAt: 'property', visitDate: '', visitSlot: 'any', depositPayments: [] });
 
-export const rentForTerm = (rent, months, incrementPct, every) => {
-  const pct = Number(incrementPct);
-  const bps = Number.isFinite(pct) && pct >= 0 && pct <= 100 ? Math.round(pct * 100) : 0;
-  const step = parseInt(every, 10) === 12 ? 12 : 11;
-  let monthly = rent, total = 0;
-  for (let paid = 0; paid < months; paid += step) {
-    if (paid > 0) monthly = Math.floor((monthly * (10000 + bps) + 5000) / 10000);
-    total += monthly * Math.min(step, months - paid);
-  }
-  return total;
-};
+export { rentForTerm } from '../../../../lib/toolCalc.js';
 export const emptyWit = () => ({ w1Name: '', w1Age: '', w1Mobile: '', w1Addr: '', w1Aadhaar: '', w2Name: '', w2Age: '', w2Mobile: '', w2Addr: '', w2Aadhaar: '' });
 
 export const fillBlanks = (cur, add) => ({
