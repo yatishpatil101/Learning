@@ -272,7 +272,8 @@ jobs:
             fi
           done
 
-      # Wrangler needs dist/ and functions/ side by side to publish the site and /api proxy.
+      # Wrangler needs dist/ and functions/ side by side to publish the site and /api proxy,
+      # with edge/, src/ and scripts/ for SSR/SEO Pages Functions to resolve their imports.
       - name: Upload the built site
         uses: actions/upload-artifact@v4
         with:
@@ -280,6 +281,9 @@ jobs:
           path: |
             frontend/dist
             frontend/functions
+            frontend/edge
+            frontend/src
+            frontend/scripts
           if-no-files-found: error
           retention-days: 1
 
