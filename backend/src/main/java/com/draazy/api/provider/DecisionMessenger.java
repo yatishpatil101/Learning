@@ -6,23 +6,20 @@ import org.slf4j.LoggerFactory;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 
-/**
- * Seam for a business-initiated WhatsApp message that is not a login code. Best-effort and never
- * throws, unlike {@link OtpSender}: a decision notice is duplicated by the in-app inbox row.
- */
+/** Best-effort and never throws, unlike {@link OtpSender}: the in-app inbox row
+ * duplicates a decision notice. */
 public interface DecisionMessenger {
 
-    /**
-     * Send {@code line} as the template's single body parameter. Missing configuration or a vendor
-     * refusal is logged and swallowed.
-     */
+    String IDENTITY_DECISION = "identity-decision";
+    String WAITING_DIGEST = "waiting-digest";
+
     void sendIdentityDecision(String mobile, String line);
+
+    /** Returns whether the vendor accepted it, so the caller can retry later rather than count it as sent. */
+    boolean sendWaitingDigest(String mobile, String waiting);
 }
 
-/**
- * Wherever WhatsApp is off: record that a send would have happened. Not profile-bound — a bean that
- * threw here would roll back the very decision it was announcing.
- */
+/** Not profile-bound: a bean that threw here would roll back the very decision it announces. */
 @Component
 @ConditionalOnProperty(prefix = "draazy.providers.whatsapp", name = "enabled",
         havingValue = "false", matchIfMissing = true)
@@ -30,8 +27,24 @@ class LoggingDecisionMessenger implements DecisionMessenger {
 
     private static final Logger log = LoggerFactory.getLogger(LoggingDecisionMessenger.class);
 
+    private final ProviderCalls calls;
+
+    LoggingDecisionMessenger(ProviderCalls calls) {
+        this.calls = calls;
+    }
+
     @Override
     public void sendIdentityDecision(String mobile, String line) {
         log.info("[MOCK WHATSAPP] identity decision to {}: {}", MobileMask.mask(mobile), line);
+        calls.record(ProviderCalls.WHATSAPP, IDENTITY_DECISION, ProviderCalls.Outcome.SKIPPED, mobile, null,
+                "mock", null);
+    }
+
+    @Override
+    public boolean sendWaitingDigest(String mobile, String waiting) {
+        log.info("[MOCK WHATSAPP] waiting digest to {}: {}", MobileMask.mask(mobile), waiting);
+        calls.record(ProviderCalls.WHATSAPP, WAITING_DIGEST, ProviderCalls.Outcome.SKIPPED, mobile, null,
+                "mock", null);
+        return false;
     }
 }

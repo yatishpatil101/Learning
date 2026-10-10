@@ -51,6 +51,11 @@ public class NotificationPublisher implements Notifier {
         }
     }
 
+    @Override
+    public boolean allowsWhatsapp(UUID userId) {
+        return preferences.effective(userId).whatsapp();
+    }
+
     void useClock(Clock pinned) {
         this.clock = pinned;
     }

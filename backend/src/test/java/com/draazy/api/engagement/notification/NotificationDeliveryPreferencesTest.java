@@ -25,19 +25,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpHeaders;
 import org.springframework.test.util.AopTestUtils;
 
-/**
- * The writer half of tech debt D94: server-written notifications honour the stored preferences.
- *
- * <p><strong>Written against the {@link Notifier} port, deliberately.</strong> That interface is
- * the object all eight server-side notification writers hold — visits, offers, contact requests,
- * messages, document grants and listing moderation each inject {@code Notifier} and call
- * {@code notify}. Asserting through it proves the rule for every one of them, and for the ninth
- * writer nobody has written yet, which asserting through any single writer would not.
- *
- * <p>The clock is pinned on the real bean (via the target behind its transactional proxy) so a
- * write can be placed at 23:00 or 03:00 without waiting for either, and restored afterwards so no
- * later test in the shared context inherits a fixed instant.
- */
+/** Written against the {@link Notifier} port because every server-side writer injects it, so one assertion
+ * covers all of them and future writers; the pinned clock is restored so later tests do not inherit it. */
 @DisplayName("Notification delivery — quiet hours defer, the master switch drops (D94)")
 class NotificationDeliveryPreferencesTest extends AbstractApiTest {
 
@@ -185,5 +174,17 @@ class NotificationDeliveryPreferencesTest extends AbstractApiTest {
                         + "offer on the user's own listing still arrives")
                 .isEqualTo(delivered);
         assertThat(inboxSize(u)).isEqualTo(delivered);
+    }
+
+    @Test
+    @DisplayName("the WhatsApp toggle gates the WhatsApp channel; a user with no row still gets it")
+    void whatsappToggle() {
+        User silent = user("9800000211");
+        NotificationPreference row = new NotificationPreference(silent.getId());
+        row.replace(true, false, false, true, false, "22:00", "07:00", "en");
+        preferences.saveAndFlush(row);
+
+        assertThat(notifier.allowsWhatsapp(silent.getId())).isFalse();
+        assertThat(notifier.allowsWhatsapp(user("9800000212").getId())).isTrue();
     }
 }

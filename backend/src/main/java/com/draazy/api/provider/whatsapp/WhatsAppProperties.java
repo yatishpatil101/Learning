@@ -14,7 +14,9 @@ public record WhatsAppProperties(
         String otpTemplateName,
         String otpTemplateLang,
         String identityTemplateName,
-        String identityTemplateLang) {
+        String identityTemplateLang,
+        String digestTemplateName,
+        String digestTemplateLang) {
 
     // Redact the bearer token; accidental logging would require rotation.
     @Override
@@ -28,6 +30,8 @@ public record WhatsAppProperties(
                 + ", otpTemplateName=" + otpTemplateName
                 + ", otpTemplateLang=" + otpTemplateLang
                 + ", identityTemplateName=" + identityTemplateName
-                + ", identityTemplateLang=" + identityTemplateLang + "]";
+                + ", identityTemplateLang=" + identityTemplateLang
+                + ", digestTemplateName=" + digestTemplateName
+                + ", digestTemplateLang=" + digestTemplateLang + "]";
     }
 }

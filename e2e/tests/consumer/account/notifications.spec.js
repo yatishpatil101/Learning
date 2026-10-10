@@ -1,5 +1,6 @@
 import { test, expect, ACTORS } from '../../../fixtures/live.js';
-import { API, authHeaders, signedInAs, uniqueMobile } from '../../../helpers/liveAuth.js';
+import { API, authHeaders, signedInAs, uniqueMobile, uploadedListingPhotos } from '../../../helpers/liveAuth.js';
+import { rejectListingWithFetch } from '../../../helpers/moderation.js';
 
 const SEED_TITLES = [
   '3 new properties match your search',
@@ -100,6 +101,49 @@ test.describe('Notifications — live API', () => {
     }
 
     expect(await legacyNotificationKeys(page), 'legacy notification storage keys leaked into a live inbox').toEqual([]);
+  });
+
+  test('the top-bar badge appears only for real unread notifications and clears once they are read', async ({ page }) => {
+    const mobile = uniqueMobile();
+    await seedConsent(page);
+    await signedInAs(page, mobile);
+    await page.goto('/');
+
+    const bell = page.getByRole('button', { name: /^Notifications, \d+ unread$/ }).locator('visible=true');
+    await expect(bell).toHaveAccessibleName('Notifications, 0 unread');
+    await expect(bell, 'an empty inbox must not show a badge').toHaveText('');
+
+    const ownerHeaders = await authHeaders(mobile);
+    const posted = await fetch(`${API}/me/listings`, {
+      method: 'POST',
+      headers: ownerHeaders,
+      body: JSON.stringify({
+        deal: 'rent', propertyType: 'Flat', price: 24000, city: 'Pune', bhk: 2, area: 720, locality: 'Baner',
+        title: `Zztest badge ${Date.now().toString(36)}`,
+        images: await uploadedListingPhotos(ownerHeaders),
+      }),
+    });
+    const listing = await posted.json();
+    expect(posted.status, JSON.stringify(listing)).toBe(201);
+    const rejected = await rejectListingWithFetch(listing.id, await authHeaders(ACTORS.admin));
+    expect(rejected.status, JSON.stringify(rejected.body)).toBe(200);
+
+    const unread = (await inbox(mobile)).filter((row) => !row.read);
+    expect(unread.map((row) => row.type)).toContain('listing.rejected');
+
+    await page.reload();
+    await expect(bell).toHaveAccessibleName(`Notifications, ${unread.length} unread`);
+    await expect(bell).toHaveText(String(unread.length));
+
+    await bell.click();
+    const marked = page.waitForResponse((response) =>
+      new URL(response.url()).pathname.endsWith('/api/notifications/read') && response.status() === 204);
+    await page.getByRole('dialog').getByRole('button', { name: 'Mark all read' }).click();
+    await marked;
+
+    await expect(bell).toHaveAccessibleName('Notifications, 0 unread');
+    await expect(bell, 'the badge must go once nothing is unread').toHaveText('');
+    expect((await inbox(mobile)).every((row) => row.read)).toBe(true);
   });
 
   // Destructive tests — mutate ACTORS.buyer state; these run last so earlier baseline-dependent tests pass first.

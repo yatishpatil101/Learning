@@ -28,20 +28,8 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-/**
- * The offer negotiation lifecycle: submit, respond (accept/decline/counter), and the two
- * list reads (my offers, offers on my listings).
- *
- * <p><strong>Direction inference (reconciliation item b).</strong> The caller is either the offer's
- * author (the buyer) or the listing owner — determined server-side from the JWT and the stored
- * rows. Anyone else gets 404 (not 403). The inferred side is written into
- * {@code offer_history.by}, preserving two-sided negotiation without trusting the client to
- * declare which side it is.
- *
- * <p><strong>Cross-context reads.</strong> This service reads {@code catalog.property} and
- * {@code identity.user} repositories directly — same documented exception as the contacts feature
- * (see slice-3 cross-context decision in {@code tasks/todo.md}).
- */
+/** Caller side (buyer or owner) is inferred from the JWT and stored rows, never client-declared;
+ * strangers get 404, not 403. */
 @Service
 public class OfferService {
 
@@ -68,20 +56,6 @@ public class OfferService {
         this.tenantProfiles = tenantProfiles;
     }
 
-    /**
-     * Contract {@code submitOffer} — buyer submits a price offer on a listing.
-     *
-     * <p>Invariants enforced:
-     * <ul>
-     *   <li>Property must exist and not be archived (404).</li>
-     *   <li>No closed deal on this property (409).</li>
-     *   <li>No existing live offer by this user on this property (409 — duplicate).</li>
-     *   <li>A history row is appended with {@code by='buyer'} (the submit event).</li>
-     * </ul>
-     *
-     * @throws NotFoundException when the property does not exist
-     * @throws ConflictException when a closed deal blocks or a live offer already exists
-     */
     @Transactional
     public OfferDto submit(UUID callerId, OfferCreateRequest body) {
         // The property is loaded rather than merely existence-checked because the notification
@@ -118,71 +92,35 @@ public class OfferService {
 
         User buyer = users.findById(callerId).orElse(null);
 
-        // Tell the owner an offer landed (tech-debt D92). The owner is the one party who cannot
-        // already know: submitting is the buyer's own action, and nothing else on the platform
-        // announced it — an owner who did not happen to reopen the listing never saw the price.
-        // Only the submit is announced here; a counter is answered inside a negotiation both sides
-        // are already looking at, and accept/decline are the owner's own decision.
-        //
-        // The amount and the buyer's name go in the body; the buyer's mobile does not. D5/Q2 is a
-        // global policy and a notification body is a surface — the number stays behind the contact
-        // gate exactly as OfferMapper's ContactVisibility keeps it out of the offer DTO.
-        //
-        // Nothing here forbids an owner offering on their own listing, so the self-notify guard is
-        // real rather than defensive — the same check ConversationService makes before announcing a
-        // message. Telling someone their own news is the one way this writer could be worse than
-        // the silence it replaces.
+        // The body carries amount and buyer name but never the mobile: a notification is a surface,
+        // and the number stays behind the contact gate.
         UUID ownerId = property.getOwner().getId();
         if (!ownerId.equals(callerId)) {
             notifier.notify(ownerId, "offer.received",
                     "New offer on " + property.getTitle(),
                     (buyer == null || buyer.getName() == null || buyer.getName().isBlank()
                             ? "Someone" : buyer.getName())
-                            + " offered \u20b9" + offer.getAmount() + ". Open the listing to respond.",
+                            + " offered " + Notifier.rupees(offer.getAmount()) + ". Open the listing to respond.",
                     "/property/" + propertyId);
         }
 
-        // Route the created-resource response through the same visibility rule as the list reads
-        // rather than hardcoding a value here. The answer happens to be "revealed" -- the caller
-        // is the buyer, so it is their own number -- but a second, hand-picked visibility at this
-        // callsite is how the two drift apart the moment the rule changes.
+        // Visibility goes through the same rule as the list reads; a hand-picked value drifts if the rule changes.
         ContactVisibility visibility = buyerMobileVisibility(callerId, callerId);
-        // Same reason the badge is resolved by user id everywhere else (D114): the caller's own
-        // number is revealed on this one response, so a mobile lookup would happen to work here and
-        // fail on every list read. Asking the identity question of the identity keeps the two paths
-        // answering the same way.
+        // Badge is resolved by user id, not mobile: the caller's own number is revealed only on this response,
+        // so a mobile lookup would work here and fail on every list read.
         boolean verified = tenantProfiles.verifiedAmong(List.of(callerId)).contains(callerId);
         return OfferMapper.toDto(offer, buyer, List.of(entry), visibility, verified);
     }
 
-    /**
-     * Contract {@code respondOffer} — accept, decline, or counter an offer.
-     *
-     * <p><strong>Scoping.</strong> The caller must be either the offer's author (buyer) or the
-     * property's owner. Anyone else → 404 (not 403 — do not confirm existence).
-     *
-     * <p><strong>Who may do what.</strong> {@code accept} and {@code decline} are the owner's
-     * decision alone (403 for the buyer). {@code counter} is two-sided — either participant may
-     * counter, which is what makes this a negotiation.
-     *
-     * <p><strong>Direction inference.</strong> If the caller is the author, direction = buyer.
-     * If the caller is the property owner, direction = owner. This determines which side the
-     * history entry records.
-     *
-     * <p><strong>Withdraw.</strong> Only the offer's author may withdraw. The spec has no
-     * explicit withdraw endpoint in the four ops, but {@code canTransition} models the state.
-     *
-     * @throws NotFoundException when the offer is unknown or the caller is not a participant
-     * @throws ConflictException on an illegal state transition
-     */
+    /** Accept/decline are owner-only; counter is two-sided. Strangers get 404 so existence is not confirmed. */
     @Transactional
     public void respond(UUID callerId, UUID offerId, OfferRespondRequest body) {
         Offer offer = offers.findById(offerId)
                 .orElseThrow(() -> NotFoundException.of("Offer"));
 
-        UUID ownerId = properties.findById(offer.getPropertyId())
-                .map(p -> p.getOwner().getId())
+        Property property = properties.findById(offer.getPropertyId())
                 .orElseThrow(() -> NotFoundException.of("Offer"));
+        UUID ownerId = property.getOwner().getId();
 
         boolean isBuyer = callerId.equals(offer.getFromUserId());
         boolean isOwner = callerId.equals(ownerId);
@@ -190,13 +128,8 @@ public class OfferService {
             throw NotFoundException.of("Offer");
         }
 
-        // Accept and decline are the owner's decision alone. Counter is the one two-sided action:
-        // either side may counter, which is what makes this a negotiation rather than a form
-        // submission. Without this split a buyer could accept their own offer -- marking a price
-        // as agreed with no owner involvement at all, and (via the status-driven reveal below)
-        // unmasking a mobile the owner never chose to see. 403 rather than 404 here on purpose:
-        // the buyer is a legitimate participant who may read this offer, they just may not decide
-        // it, so hiding its existence would be a lie.
+        // Accept/decline are owner-only: otherwise a buyer could accept their own offer and unmask a mobile the
+        // owner never chose to reveal. 403 not 404: the buyer is a legitimate participant, so hiding it would lie.
         if (!isOwner && !OfferActions.COUNTER.equals(body.action())) {
             throw new ForbiddenException("Only the listing owner can " + body.action() + " an offer");
         }
@@ -229,38 +162,31 @@ public class OfferService {
             String by = isBuyer ? OfferStatuses.BY_BUYER : OfferStatuses.BY_OWNER;
             history.save(new OfferHistory(offer.getId(), body.counterAmount(), by));
         }
+
+        UUID other = isOwner ? offer.getFromUserId() : ownerId;
+        if (!other.equals(callerId)) {
+            String title = property.getTitle();
+            String[] note = switch (targetStatus) {
+                case OfferStatuses.ACCEPTED -> new String[] {"Your offer was accepted",
+                        "The owner accepted " + Notifier.rupees(offer.getAmount()) + " for " + title + "."};
+                case OfferStatuses.DECLINED -> new String[] {"Your offer was declined",
+                        "The owner declined your offer on " + title + "."};
+                default -> new String[] {"New counter-offer on " + title,
+                        (isOwner ? "The owner" : "The buyer") + " countered at "
+                                + Notifier.rupees(offer.getAmount()) + ". Open the listing to respond."};
+            };
+            notifier.notify(other, "offer." + targetStatus, note[0], note[1], "/property/" + property.getId());
+        }
     }
 
-    /**
-     * Contract {@code myOffers} — one page of the offers the caller MADE, newest first.
-     *
-     * <p><strong>Paged (D77).</strong> A buyer's own offer book grows with their own activity, but
-     * it is the mirror image of {@code offersOnMine} over the same table and the same projection;
-     * paging one side and not the other would leave a call site guessing which shape it gets back.
-     *
-     * <p>N+1-safe: one query for the page of offers, one for the users, one for the history entries
-     * — of that page only, which is the point: the history join used to be over the whole book.
-     */
+    /** Paged like {@code offersOnMine} so both sides of the offer book return the same shape. */
     @Transactional(readOnly = true)
     public Page<OfferDto> myOffers(UUID callerId, Pageable pageable) {
         Page<Offer> rows = offers.findByFromUserIdOrderByCreatedAtDesc(callerId, pageable);
         return projectPage(rows, callerId);
     }
 
-    /**
-     * Contract {@code offersOnMine} — one page of the offers on the caller's own listings, newest
-     * first.
-     *
-     * <p>Strictly owner-scoped: the property-id set comes from {@code properties.owner_id}, so a
-     * caller can never see offers against someone else's listing.
-     *
-     * <p><strong>Paged (D77).</strong> Every row here is written by <em>somebody else</em>, so the
-     * collection grows with how well the listing is doing — the owner an unpaged read punishes is
-     * exactly the successful one. §5.1's "one user's own actions" test does not reach it.
-     *
-     * <p>N+1-safe: one query for the owner's listing ids, one for the page of offers, one for the
-     * buyers on that page, one for their history entries.
-     */
+    /** Paged because every row is written by someone else, so a successful listing's offer count is unbounded. */
     @Transactional(readOnly = true)
     public Page<OfferDto> offersOnMine(UUID callerId, Pageable pageable) {
         List<UUID> ownedPropertyIds = properties.findIdsByOwnerId(callerId);
@@ -271,24 +197,12 @@ public class OfferService {
         return projectPage(rows, callerId);
     }
 
-    /**
-     * Project one page of offers, keeping the batch loads batched.
-     *
-     * <p>Deliberately not {@code Page.map}: that projects one element at a time, which would put
-     * the buyer lookup and the history lookup back inside the loop this method exists to hoist out
-     * of it.
-     */
+    /** Not {@code Page.map}: it projects per element, which would put the batch loads back inside a loop. */
     private Page<OfferDto> projectPage(Page<Offer> rows, UUID viewerId) {
         return new PageImpl<>(projectOffers(rows.getContent(), viewerId),
                 rows.getPageable(), rows.getTotalElements());
     }
 
-    /**
-     * Project a list of offers into DTOs with N+1-safe batch loading.
-     *
-     * @param rows     the offer entities
-     * @param viewerId the viewer (to determine mobile visibility)
-     */
     private List<OfferDto> projectOffers(List<Offer> rows, UUID viewerId) {
         if (rows.isEmpty()) {
             return List.of();
@@ -304,11 +218,8 @@ public class OfferService {
         Map<UUID, List<OfferHistory>> historyMap = history.findByOfferIdInOrderByAtAsc(offerIds)
                 .stream().collect(Collectors.groupingBy(OfferHistory::getOfferId));
 
-        // Batch load: which of those buyers carry the Verified Tenant badge (D114). Asked by user
-        // id, not by mobile -- the mobile on the way out is masked for every viewer but the buyer
-        // themselves, and a mask cannot be turned back into the number the badge is stored against.
-        // Deriving the badge from what the projection emits would answer "unverified" for the whole
-        // page, which is exactly the live bug this replaces.
+        // Badge is asked by user id, not mobile: the projected mobile is masked for every viewer but the buyer,
+        // and a mask cannot be turned back into the number the badge is stored against.
         Set<UUID> verifiedBuyers = tenantProfiles.verifiedAmong(buyerMap.keySet());
 
         return rows.stream().map(offer -> {
@@ -320,12 +231,7 @@ public class OfferService {
         }).toList();
     }
 
-    /**
-     * The reverse contact-gate question (D5 global policy): may the viewer see the <em>buyer's</em>
-     * mobile? Only if the viewer is the buyer themselves — each party sees only their own number.
-     * The counterparty's mobile stays masked at every offer status; an accepted offer unlocks the
-     * in-app conversation, not the digits, and no raw number is exchanged before a signed deal.
-     */
+    /** Each party sees only their own number; an accepted offer unlocks the conversation, not the digits. */
     private ContactVisibility buyerMobileVisibility(UUID viewerId, UUID buyerUserId) {
         return viewerId.equals(buyerUserId) ? ContactVisibility.REVEALED : ContactVisibility.MASKED;
     }

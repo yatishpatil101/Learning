@@ -39,7 +39,7 @@ test.describe('Dashboard settings', () => {
     });
   });
 
-  test('Light mode repaints the page, keeps teal fills, and persists on this device', async ({ page, login }) => {
+  test('Light mode is the default, keeps teal fills, and a switch to dark persists on this device', async ({ page, login }) => {
     await login.asBuyer();
     await page.goto('/dashboard#profile');
     const html = page.locator('html');
@@ -47,18 +47,12 @@ test.describe('Dashboard settings', () => {
     const bodyBg = () => page.evaluate(() => getComputedStyle(document.body).backgroundColor);
     const favicon = page.locator('link[rel="icon"]');
     const lightTile = /fill='%23f3f7f6'/;
+    const darkTile = /fill='%230f0d1a'/;
 
-    await expect(html).not.toHaveClass(/\blight\b/);
-    await expect(favicon).toHaveAttribute('href', /fill='%230f0d1a'/);
-    await lightMode.click();
-    await expect(html).toHaveClass(/\blight\b/);
-    expect(await bodyBg()).toBe('rgb(243, 247, 246)');
-    await expect(page.locator('meta[name="theme-color"]')).toHaveAttribute('content', '#f3f7f6');
-    await expect(favicon).toHaveAttribute('href', lightTile);
-
-    await page.reload();
     await expect(html).toHaveClass(/\blight\b/);
     await expect(lightMode).toHaveAttribute('aria-checked', 'true');
+    expect(await bodyBg()).toBe('rgb(243, 247, 246)');
+    await expect(page.locator('meta[name="theme-color"]')).toHaveAttribute('content', '#f3f7f6');
     await expect(favicon).toHaveAttribute('href', lightTile);
     const tealFill = await page.evaluate(() => {
       const probe = Object.assign(document.createElement('div'), { className: 'bg-teal-500 text-white' });
@@ -73,17 +67,26 @@ test.describe('Dashboard settings', () => {
     await lightMode.click();
     await expect(html).not.toHaveClass(/\blight\b/);
     expect(await bodyBg()).not.toBe('rgb(243, 247, 246)');
-    await expect(favicon).toHaveAttribute('href', /fill='%230f0d1a'/);
+    await expect(page.locator('meta[name="theme-color"]')).toHaveAttribute('content', '#0f0d1a');
+    await expect(favicon).toHaveAttribute('href', darkTile);
+
+    await page.reload();
+    await expect(html).not.toHaveClass(/\blight\b/);
+    await expect(lightMode).toHaveAttribute('aria-checked', 'false');
+    await expect(favicon).toHaveAttribute('href', darkTile);
+
+    await lightMode.click();
+    await expect(html).toHaveClass(/\blight\b/);
+    await expect(favicon).toHaveAttribute('href', lightTile);
   });
 
-  test('the admin header toggles light mode, and tiles stand off the light page', async ({ page, login }) => {
+  test('the admin header toggles the theme, and tiles stand off the light page', async ({ page, login }) => {
     await login.asAdmin();
     await page.goto('/admin');
     const html = page.locator('html');
     const tile = page.locator('.dz-card').first();
     await expect(tile).toBeVisible();
 
-    await page.getByRole('button', { name: 'Switch to light mode' }).click();
     await expect(html).toHaveClass(/\blight\b/);
     const [pageBg, tileBg] = await page.evaluate(() => [
       getComputedStyle(document.body).backgroundColor,
@@ -93,10 +96,33 @@ test.describe('Dashboard settings', () => {
     expect(tileBg).not.toBe(pageBg);
     expect(tileBg).not.toMatch(/^rgba?\(255, 255, 255/);
 
-    await page.reload();
-    await expect(html).toHaveClass(/\blight\b/);
     await page.getByRole('button', { name: 'Switch to dark mode' }).click();
     await expect(html).not.toHaveClass(/\blight\b/);
+    await page.reload();
+    await expect(html).not.toHaveClass(/\blight\b/);
+    await page.getByRole('button', { name: 'Switch to light mode' }).click();
+    await expect(html).toHaveClass(/\blight\b/);
+  });
+
+  test('the consumer account menu toggles the theme on desktop and in the phone drawer', async ({ page, login }) => {
+    await login.asBuyer();
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto('/');
+    const html = page.locator('html');
+    const toggle = page.getByTestId('theme-toggle').filter({ visible: true });
+    await expect(html).toHaveClass(/\blight\b/);
+
+    await page.getByRole('button', { name: 'Account menu' }).click();
+    await toggle.click();
+    await expect(html).not.toHaveClass(/\blight\b/);
+    await expect(toggle).toHaveAccessibleName('Switch to light mode');
+    await page.reload();
+    await expect(html).not.toHaveClass(/\blight\b/);
+
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.getByRole('button', { name: 'Account menu' }).click();
+    await page.getByRole('dialog', { name: 'Account' }).getByTestId('theme-toggle').click();
+    await expect(html).toHaveClass(/\blight\b/);
   });
 
   test('a notification channel toggle is a server write, not a localStorage write', async ({ page, login, request }) => {
