@@ -37,13 +37,14 @@ export function FloorPlan({ p }) {
   if (isResidential && balconies != null) {
     areaRows.push({ k: 'balconies', lbl: t('property.balconies'), val: String(balconies), tipKey: 'floorplan.balconies' });
   }
-  useScrollLock(zoom);
+  const lightboxOpen = zoom && Boolean(planImg);
+  useScrollLock(lightboxOpen);
   useEffect(() => {
-    if (!zoom) return undefined;
+    if (!lightboxOpen) return undefined;
     const onKey = (e) => { if (e.key === 'Escape') setZoom(false); };
     document.addEventListener('keydown', onKey);
     return () => document.removeEventListener('keydown', onKey);
-  }, [zoom]);
+  }, [lightboxOpen]);
   const row = (k, lbl, val, border = true, tipKey) => (
     <Tip key={k} k={tipKey}>
       <div className={'flex items-center justify-between py-2 ' + (border ? 'border-b border-white/6' : '')}>
@@ -94,7 +95,7 @@ export function FloorPlan({ p }) {
           </div>
         </div>
       </MobileCollapse>
-      {zoom ? (
+      {lightboxOpen ? (
         <div className="dz-lightbox" role="dialog" aria-modal="true" aria-label={t('property.floorPlanAlt')} onClick={(e) => { if (e.target === e.currentTarget) setZoom(false); }}>
           <button className="dz-lb-close" onClick={() => setZoom(false)} aria-label={t('property.close')}><Icon name="x" className="w-6 h-6" /></button>
           <div className="dz-lb-stage">

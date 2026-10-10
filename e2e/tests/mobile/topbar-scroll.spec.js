@@ -15,12 +15,20 @@ async function scrollDown(page, y = 600) {
   );
   await page.evaluate((to) => window.scrollTo(0, to), y);
   await page.waitForFunction(() => window.scrollY > 0);
-  await page.waitForTimeout(400);
+  await page.waitForFunction(() => document.documentElement.classList.contains('dz-nav-hidden'));
+  await settled(page);
 }
 
 async function scrollUp(page, y = 400) {
   await page.evaluate((to) => window.scrollTo(0, to), y);
-  await page.waitForTimeout(400);
+  await page.waitForFunction(() => !document.documentElement.classList.contains('dz-nav-hidden'));
+  await settled(page);
+}
+
+async function settled(page) {
+  await page.evaluate(() => Promise.all(document.getAnimations()
+    .filter((a) => a instanceof CSSTransition)
+    .map((a) => a.finished.catch(() => {}))));
 }
 
 test.describe('Mobile top bar — hide on scroll', () => {
@@ -56,7 +64,7 @@ test.describe('Mobile top bar — hide on scroll', () => {
       await scrollDown(page);
       expect(await navHidden()).toBe(true);
       await page.evaluate(() => window.scrollTo(0, 0));
-      await page.waitForTimeout(400);
+      await page.waitForFunction(() => !document.documentElement.classList.contains('dz-nav-hidden'));
       expect(await navHidden()).toBe(false);
     });
 

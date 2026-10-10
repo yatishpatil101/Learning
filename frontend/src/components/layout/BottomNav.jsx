@@ -16,7 +16,7 @@ function Tab({ to, icon, label, active, onClick, slotRef, ...rest }) {
       /* Explicit name so the visible label can be dropped in landscape, where vertical space is scarce, without
          leaving the tab unnamed. */
       {...rest}
-      /* gray-300, not gray-400: the bar is translucent, so a bright gallery or reel can sit directly behind these labels. */
+      /* gray-300, not gray-400: the bar is translucent, so a bright gallery or reel can sit behind the labels. */
       aria-label={label}
       className={
         'dz-bottom-nav__tab relative flex flex-1 flex-col items-center justify-center gap-0.5 min-w-[52px] transition-colors ' +
@@ -95,6 +95,7 @@ export default function BottomNav() {
       ref={navRef}
       aria-label={t('nav.primaryMobile', 'Primary')}
       className="dz-bottom-nav lg:hidden"
+      data-kbd-hide
     >
       <span
         aria-hidden="true"

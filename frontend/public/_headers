@@ -32,9 +32,10 @@
   # here. If this line ever needs a backend host, the topology has drifted and the refresh cookie
   # has already stopped being delivered.
   #
-  # TODO(prod): drop 'unsafe-inline' from script-src once Maps + GA are re-tested — it is the one
-  # control that actually contains XSS, and Vite emits no inline scripts. 'unsafe-eval' is already
-  # gone: the Maps SDK has not needed it since the 2019 loader change, and PDF.js probes for eval
+  # script-src has no 'unsafe-inline': the two inline scripts in index.html (pre-paint theme and the
+  # bootstrap fetch) are allowed by sha256, and scripts/check-csp.mjs recomputes both from index.html,
+  # so editing either without updating the three copies of the hash fails `npm run check:csp`.
+  # 'unsafe-eval' is already gone: the Maps SDK has not needed it since the 2019 loader change, and PDF.js probes for eval
   # in a try/catch and falls back to its slower font path.
   #
   # connect-src names places.googleapis.com explicitly rather than `https://*.googleapis.com`. The
@@ -62,7 +63,7 @@
   #
   # Hosted checkout POSTs a form from THIS document into an iframe on the checkout host, so the
   # rails need frame-src and form-action too. Both pairs listed: one artefact serves both envs.
-  Content-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval' https://maps.googleapis.com https://maps.gstatic.com https://www.googletagmanager.com https://us-assets.i.posthog.com https://sdk.cashfree.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' data: https://fonts.gstatic.com; img-src 'self' data: blob: https: https://i.ytimg.com; connect-src 'self' https://images.unsplash.com https://maps.googleapis.com https://maps.gstatic.com https://places.googleapis.com https://www.googletagmanager.com https://www.google-analytics.com https://*.google-analytics.com https://*.analytics.google.com https://us.i.posthog.com https://us-assets.i.posthog.com https://sandbox.cashfree.com https://payments-test.cashfree.com https://api.cashfree.com https://payments.cashfree.com; frame-src 'self' blob: https://sandbox.cashfree.com https://api.cashfree.com https://www.youtube-nocookie.com; worker-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'self' https://sandbox.cashfree.com https://api.cashfree.com; frame-ancestors 'none'
+  Content-Security-Policy: default-src 'self'; script-src 'self' 'sha256-ZXdSxc/Anc08bj274JFX2HAdiHdWoQmZxe3rCLP4Fvk=' 'sha256-AWm4GprHDLo6r2wqq30FxD6yP5RlUPqJBnQSQzVkY6w=' 'wasm-unsafe-eval' https://maps.googleapis.com https://maps.gstatic.com https://www.googletagmanager.com https://us-assets.i.posthog.com https://sdk.cashfree.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' data: https://fonts.gstatic.com; img-src 'self' data: blob: https: https://i.ytimg.com; connect-src 'self' https://images.unsplash.com https://maps.googleapis.com https://maps.gstatic.com https://places.googleapis.com https://www.googletagmanager.com https://www.google-analytics.com https://*.google-analytics.com https://*.analytics.google.com https://us.i.posthog.com https://us-assets.i.posthog.com https://sandbox.cashfree.com https://payments-test.cashfree.com https://api.cashfree.com https://payments.cashfree.com; frame-src 'self' blob: https://sandbox.cashfree.com https://api.cashfree.com https://www.youtube-nocookie.com; worker-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'self' https://sandbox.cashfree.com https://api.cashfree.com; frame-ancestors 'none'
 
 # Vite's build output, content-addressed: the hash in the filename IS the bytes, so a URL can never
 # point at different content and a revalidation can only ever answer 304. `immutable` is what tells
@@ -88,3 +89,11 @@
 # storage.googleapis.com out of connect-src, and a pinned file cannot be swapped remotely.
 /models/*
   Cache-Control: public, max-age=31536000, immutable
+
+# Never indexed, even when linked from elsewhere: shared documents, and one person's flatmate post (privacy).
+/shared-documents
+  X-Robots-Tag: noindex, nofollow
+/view-documents/*
+  X-Robots-Tag: noindex, nofollow
+/flatmates/:kind/:id
+  X-Robots-Tag: noindex

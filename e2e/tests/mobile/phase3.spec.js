@@ -1,16 +1,7 @@
 import { test, expect } from '@playwright/test';
 
-/* Phase 3 of the mobile-only design work:
-     - every bottom-anchored FAB docks to --dz-bottom-inset instead of hard-coding
-       an offset, so nothing hides behind the tab bar
-     - the control height ramps to the 44px touch floor, which lifts every
-       dropdown option and shared field at once
-     - taps get an explicit :active response now the native flash is suppressed
-     - sheets and the filter drawer can be dragged away
-
-   Desktop non-leak assertions live in desktop-noleak-guardrails.spec.js — the mobile
-   projects run with hasTouch, so a (pointer: coarse) / (hover: none) rule can never be
-   disproved from here. */
+/* Desktop non-leak assertions live in desktop-noleak-guardrails.spec.js: the mobile projects run with hasTouch,
+   so a (pointer: coarse) / (hover: none) rule can never be disproved from here. */
 
 const MIN_TAP = 44;
 
@@ -78,7 +69,7 @@ test.describe('Touch feedback', () => {
       expect(highlight).toContain('rgba(0, 0, 0, 0');
     });
 
-    await test.step('the platform baseline is declared: no tap delay, no landscape inflation, dark UA chrome', async () => {
+    await test.step('the platform baseline is declared: no tap delay, no landscape inflation, UA chrome on the light default', async () => {
       const base = await page.evaluate(() => {
         const html = getComputedStyle(document.documentElement);
         const btn = getComputedStyle(document.querySelector('button'));
@@ -89,7 +80,7 @@ test.describe('Touch feedback', () => {
           userSelect: btn.userSelect || btn.webkitUserSelect,
         };
       });
-      expect(base.colorScheme).toBe('dark');
+      expect(base.colorScheme).toBe('light');
       expect(base.textSizeAdjust).toBe('100%');
       // Without it iOS Safari holds `click` for the double-tap-zoom window on some elements.
       expect(base.touchAction).toBe('manipulation');
@@ -97,22 +88,23 @@ test.describe('Touch feedback', () => {
       expect(base.userSelect).toBe('none');
     });
 
-    /* `.cat-card` and not `.property-card`: the home Featured card carries `list-reveal`, whose
-       `animation: … both` pins `transform: translateY(0)` in the animation cascade origin, so its
-       `:hover` lift cannot apply on any pointer. Asserting a flat card there would pass whether the
-       gate existed or not. The category rail has no such animation, so it is the honest witness —
-       its desktop counterpart is `platform/desktop-noleak-guardrails`. */
+    /* .cat-card, not .property-card: the Featured card's list-reveal animation pins transform,
+       so its :hover lift cannot apply on any pointer; the rail has no animation, so it is the honest witness. */
     await test.step('a tapped card is not left hovering', async () => {
       const card = page.locator('.cat-card').first();
-      await card.waitFor({ timeout: 15_000 });
-      await card.scrollIntoViewIfNeeded();
+      // The Featured block above the rail fills in after the API answers and
+      // pushes the rail down, out from under a resting pointer.
+      await expect(page.locator('.property-card').first()).toBeVisible({ timeout: 15_000 });
       // Touch has no hover, so the browser fakes one on first tap and holds it until the next tap
       // elsewhere. Hovering here is the closest reproduction Playwright offers of that stuck state.
       expect(await page.evaluate(() => matchMedia('(hover: hover)').matches)).toBe(false);
-      await card.hover();
-      // Without this the test is vacuous: if the synthetic hover never landed, a card that is not
-      // raised proves nothing about the gate.
-      await expect.poll(() => card.evaluate((el) => el.matches(':hover'))).toBe(true);
+      // Without this the test is vacuous: an unraised card proves nothing if the synthetic hover never landed;
+      // re-centre each pass as late layout shifts move it; `instant` because smooth scrolling is still moving it.
+      await expect.poll(async () => {
+        await card.evaluate((el) => el.scrollIntoView({ block: 'center', behavior: 'instant' }));
+        await card.hover();
+        return card.evaluate((el) => el.matches(':hover'));
+      }).toBe(true);
       await expect
         .poll(() => card.evaluate((el) => getComputedStyle(el).transform))
         .toBe('none');
@@ -151,10 +143,8 @@ test.describe('Drag to dismiss', () => {
     return settledBox(page.locator('.filter-panel.open'));
   }
 
-  /* `useSwipeDismiss` writes an inline transform the moment the gesture arms, so this is
-     the difference between "the drag was released short of the threshold" and "the drag
-     was never seen at all". Without it the snap-back test below passes on a panel that
-     ignored the pointer entirely — the exact vacuous pass this suite keeps finding. */
+  /* useSwipeDismiss writes an inline transform the moment the gesture arms, separating "released short of the
+     threshold" from "drag never seen", which the snap-back test below would otherwise pass on a dead panel. */
   const armed = (page) => page.locator('.filter-panel.open')
     .evaluate((el) => el.style.transform !== '');
 

@@ -1,4 +1,5 @@
 import { test, expect } from '../../fixtures/live.js';
+import { expectHoverGated } from '../../helpers/hoverGate.js';
 
 /* A touchscreen synthesises `:hover` and holds it until the next tap lands elsewhere, so every
  * decorative hover must be gated on `(hover: hover)`. Emulation reports a 0 safe-area inset. */
@@ -14,32 +15,6 @@ const gotoProp = async (page) => {
   await page.goto(`/property/${PROP}`);
   await page.locator('.main-image-wrapper').first().waitFor({ timeout: 15000 });
 };
-
-/* `[]` means the rule exists at top level; `null` means no such rule — the two are different
- *  failures and the assertions below distinguish them. */
-const mediaWrapping = (page, selector) =>
-  page.evaluate((sel) => {
-    const found = [];
-    let seen = 0;
-    /* Per-rule try/catch, not one around the sheet: a single rule the CSSOM refuses to expose would
-       otherwise abandon the remaining few thousand and report "no such rule". */
-    const walk = (rules, conditions) => {
-      for (const rule of rules) {
-        seen += 1;
-        try {
-          const conds = rule.type === CSSRule.MEDIA_RULE ? [...conditions, rule.conditionText] : conditions;
-          /* Match BEFORE recursing, and recurse unconditionally: since CSS Nesting, a plain style
-             rule also carries an empty `cssRules`, so an `else if` branch swallows every rule. */
-          if (rule.selectorText && rule.selectorText.split(',').some((s) => s.trim() === sel)) found.push(conds);
-          if (rule.cssRules) walk(rule.cssRules, conds);
-        } catch { /* one unreadable rule, e.g. an imported cross-origin sheet */ }
-      }
-    };
-    for (const sheet of document.styleSheets) {
-      try { walk(sheet.cssRules, []); } catch { /* cross-origin sheet — none of ours */ }
-    }
-    return { found, seen };
-  }, selector);
 
 test.describe('Property detail — sticky hover', () => {
   /* Hand-written rules only: Tailwind's `hover:` utilities need no entry, because
@@ -70,13 +45,7 @@ test.describe('Property detail — sticky hover', () => {
     await gotoProp(page);
 
     await test.step('every decorative hover is gated on a pointer that can leave', async () => {
-      for (const selector of [...GATED, ...GLOBAL_GATED]) {
-        const { found, seen } = await mediaWrapping(page, selector);
-        expect(seen, 'the walk reached no CSS rules at all, so every assertion below would pass or fail for the wrong reason').toBeGreaterThan(100);
-        expect(found.length, `${selector} has no rule at all — it was renamed or deleted, and this guard now proves nothing`).toBeGreaterThan(0);
-        const gated = found.some((conds) => conds.some((c) => c.replace(/\s/g, '').includes('hover:hover')));
-        expect(gated, `${selector} applies on a touchscreen, where the state it paints cannot be cleared`).toBe(true);
-      }
+      await expectHoverGated(page, [...GATED, ...GLOBAL_GATED]);
     });
 
     /* The rule above is about the stylesheet; this one is about the finger. It would still
@@ -111,12 +80,10 @@ test.describe('Property detail — photo lightbox', () => {
         const s = getComputedStyle(el);
         return { overlay: s.touchAction, photo: getComputedStyle(el.querySelector('img')).touchAction };
       });
-      // Claiming the gesture stops the photo's 40px swipe threshold from also panning the listing,
-      // and stops a downward swipe firing pull-to-refresh. `overscroll-behavior` would be inert here.
-      expect(m.overlay, 'the photo swipe must not also pan the listing behind it').toBe('none');
-      // Re-opened on the image alone, because the same class carries the floor-plan zoom, whose
-      // entire purpose is to be enlarged. Pinch only — single-finger pan stays claimed above.
-      expect(m.photo, 'the floor plan must still be pinch-zoomable to read room dimensions').toBe('pinch-zoom');
+      // Pan is claimed so the photo swipe neither pans the listing nor fires pull-to-refresh; pinch stays on;
+      // touch-action intersects down the tree, so the overlay decides: none would cancel the img's pinch-zoom.
+      expect(m.overlay, 'pan claimed, pinch kept for floor plans').toBe('pinch-zoom');
+      expect(m.photo, 'the img must not narrow the overlay further').toBe('auto');
     });
 
     await test.step('the arrows give way to the swipe that already works', async () => {
@@ -223,9 +190,8 @@ test.describe('Property detail — hero carousel', () => {
     });
 
     await test.step('tapping a dot drags the track to that photo', async () => {
-      /* The reverse direction of the same seam: the dots, thumbnails, desktop arrows and lightbox all
-         move `active` without touching the scroller, so the track has to follow it. Tapped from the
-         ask slide, so the track has somewhere to travel. */
+      /* The dots, thumbnails, desktop arrows and lightbox all move active without touching the scroller, so the
+         track has to follow it; tapped from the ask slide so the track has somewhere to travel. */
       const n = await d.count();
       const lastPhoto = await track(page).evaluate((el) => el.children.length - 2);
       await d.nth(n - 2).click();

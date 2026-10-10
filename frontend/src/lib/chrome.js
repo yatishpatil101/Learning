@@ -1,31 +1,9 @@
-/* Single control point for the app's two navigation bars.
-
-   The chrome is split across three components by necessity — Navbar renders the top
-   bar, BottomNav the tab bar, ConsumerLayout decides what mounts — but the *policy*
-   should not be. Before this module, "does /reels get a tab bar?" was answered by a
-   boolean expression inside ConsumerLayout's JSX, "when does the top bar hide?" by
-   two constants inside a useEffect in Navbar, and neither knew the other existed.
-   Changing a route's chrome meant finding all of them.
-
-   Division of labour, so this file does not quietly become a second stylesheet:
-
-     - Dimensions and appearance live in styles/index.css, under the chrome-token
-       block: --dz-nav-h, --dz-bottom-nav-h, --dz-bottom-nav-gap and the insets
-       derived from them, plus the z-index ladder. CSS owns anything a media query
-       needs to change per breakpoint, because JS cannot see breakpoints without
-       re-implementing them.
-     - Behaviour lives here: which bar appears on which route, and the scroll
-       thresholds that hide the top bar.
-
-   Both bars are responsive by CSS, not by JS: BottomNav is `lg:hidden` and every
-   hide-on-scroll rule sits inside a `max-width` query. So the policy below is
-   width-agnostic on purpose — it says *whether* a bar is mounted, and the stylesheet
-   says how it behaves at a given width. Adding a width test here would put the
-   breakpoint in two places, which is the bug this module exists to prevent. */
+/* Navigation-bar policy lives here; dimensions and per-breakpoint behaviour live in the CSS chrome tokens.
+   Both bars are responsive by CSS, so a width test here would put the breakpoint in two places. */
 
 /** Routes that render their own top offset for the fixed navbar, so ConsumerLayout
     must not add a second one. Each reserves --dz-nav-h itself. */
-const SELF_PADDED = ['/', '/listings', '/property', '/signin', '/signup'];
+const SELF_PADDED = ['/', '/listings', '/property', '/signin', '/signup', '/staff-login', '/staff-invite'];
 
 /** Full-screen experiences: no marketing footer, no floating assistant. */
 const FULL_BLEED = ['/reels'];
@@ -41,12 +19,6 @@ const AUTH = ['/signin', '/signup', '/staff-login', '/staff-invite'];
 const matches = (path, routes) =>
   routes.some((r) => (r === '/' ? path === '/' : path.startsWith(r)));
 
-/**
- * Resolve the chrome policy for a pathname. One call, one object, so a component
- * never re-derives a flag another component already owns.
- *
- * @param {string} pathname
- */
 export function chromeFor(pathname) {
   const path = (pathname || '/').toLowerCase();
 
@@ -60,18 +32,13 @@ export function chromeFor(pathname) {
     chatRoute,
     authRoute,
     /* Reels keeps the tab bar despite being full-bleed: it is one of the five tabs,
-       so stripping the bar stranded the user inside a destination with no route back
-       to the other four. Only the two routes that need the bottom edge lose it. */
+       so removing it would strand the user with no route to the other four. */
     showBottomNav: !chatRoute && !authRoute,
     showFooter: !fullBleed,
     showAssistant: !fullBleed,
   };
 }
 
-/* Hide-on-scroll thresholds for the top bar.
-
-   hideAfter  Only start hiding once the user is genuinely reading, rather than on
-              the first pixel of an accidental scroll.
-   delta      Require a real move in one direction, so scroll jitter and rubber-band
-              overscroll cannot make the bar flicker. */
+/* hideAfter: only hide once the user is genuinely reading. delta: require a real move in one direction,
+   so scroll jitter and rubber-band overscroll cannot flicker the bar. */
 export const TOPBAR_SCROLL = { hideAfter: 96, delta: 6 };

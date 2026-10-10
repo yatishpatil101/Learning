@@ -118,7 +118,7 @@ export default function InstallPrompt() {
   if (gone || cookieBar || !engaged || (!deferred && !ios)) return null;
 
   return (
-    <div className="dz-safe-x fixed inset-x-0 bottom-[var(--dz-bottom-inset)] z-[1350] flex justify-center p-3 lg:hidden pointer-events-none">
+    <div data-kbd-hide className="dz-safe-x fixed inset-x-0 bottom-[var(--dz-bottom-inset)] z-[1350] flex justify-center p-3 lg:hidden pointer-events-none">
       <div
         role="dialog"
         aria-label={t('install.title')}

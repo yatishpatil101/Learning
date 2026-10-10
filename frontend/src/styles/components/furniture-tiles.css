@@ -9,6 +9,7 @@
   align-items: center;
   gap: 9px;
   text-align: center;
+  font-family: inherit;
   cursor: pointer;
   min-height: 96px;
   transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);

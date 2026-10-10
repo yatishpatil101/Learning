@@ -1,10 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
+import { reducedMotion } from './motion.js';
 
 /* Gates on the pointer rather than on width the way `useSwipeDismiss` does: a refreshable list
    exists at every width, so a tablet gets the gesture too. */
 const TOUCH = '(hover: none) and (pointer: coarse)';
-
-const REDUCED = '(prefers-reduced-motion: reduce)';
 
 /* Past this much travel the release reads as intent to refresh rather than an overscroll. */
 const THRESHOLD = 64;
@@ -48,12 +47,8 @@ function optedOut(target, root) {
   return false;
 }
 
-/* Touch only, and only from a surface already at its top. Anything that handles its own drag
-   without scrolling needs a `data-no-ptr` attribute.
-
-   Listeners are attached by hand rather than returned as React props because the one legitimate
-   `preventDefault` here is on `touchmove`, which React registers passively at the root — from an
-   `onTouchMove` prop it is a no-op plus a console warning. */
+/* Listeners are attached by hand: the one `preventDefault` is on `touchmove`, which React registers passively,
+   so an `onTouchMove` prop would be a no-op plus a console warning. */
 export default function usePullToRefresh(onRefresh, { enabled = true, threshold = THRESHOLD } = {}) {
   const ref = useRef(null);
   const [pullDistance, setPullDistance] = useState(0);
@@ -69,7 +64,7 @@ export default function usePullToRefresh(onRefresh, { enabled = true, threshold 
     if (!el || !enabled) return undefined;
     if (!window.matchMedia?.(TOUCH).matches) return undefined;
 
-    const reduced = window.matchMedia?.(REDUCED).matches === true;
+    const reduced = reducedMotion();
     let drag = null;
     let refreshing = false;
     let alive = true;
@@ -95,9 +90,8 @@ export default function usePullToRefresh(onRefresh, { enabled = true, threshold 
         /* An upward move is the user scrolling. Stand down for the rest of the gesture
            rather than waiting for them to come back past the origin. */
         if (delta < 0) { drag = null; return; }
-        /* A sideways move is somebody else's gesture — a swipe-to-dismiss card, a chip rail — and
-           those carry a few pixels of downward drift that would otherwise arm the pull and
-           `preventDefault` the swipe out of existence. Decided once, at the slop crossing. */
+        /* A sideways move is another gesture's (swipe-to-dismiss, chip rail); its downward drift would arm the
+           pull and preventDefault the swipe. Decided once, at the slop crossing. */
         if (Math.abs(sideways) > Math.abs(delta)) { drag = null; return; }
         if (delta < SLOP) return;
         drag.active = true;
@@ -147,9 +141,8 @@ export default function usePullToRefresh(onRefresh, { enabled = true, threshold 
     return () => {
       alive = false;
       if (timer) clearTimeout(timer);
-      /* `alive`, `drag` and `timer` are locals of THIS effect run but the state outlives it, so a
-         re-bind between touchend and settle would leave the spinner on forever — the in-flight
-         `settle` correctly declines to touch a torn-down instance, and nothing else resets it. */
+      /* The state outlives this effect run's locals, so a re-bind between touchend and settle would leave the
+         spinner on forever: the in-flight `settle` declines to touch a torn-down instance. */
       setIsRefreshing(false);
       setPullDistance(0);
       el.removeEventListener('touchstart', onStart);

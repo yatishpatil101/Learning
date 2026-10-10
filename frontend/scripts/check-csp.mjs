@@ -1,7 +1,9 @@
 /** The CSP is written twice — a <meta> in index.html and a header in public/_headers — and only the dev-server copy
  * is exercised locally, so this compares them directive by directive. */
+import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { pathToFileURL } from 'node:url';
 
 const root = process.cwd();
 
@@ -55,6 +57,21 @@ for (const [label, directives] of [['index.html', meta], ['public/_headers', hea
   }
 }
 
+// Hashes cover the inline scripts as the deploy build emits them: API base '/api', the default every env uses.
+const inlineHashes = [...readFileSync(join(root, 'index.html'), 'utf8')
+  .matchAll(/<script(?![^>]*\b(?:src|type)=)[^>]*>([\s\S]*?)<\/script>/g)]
+  .map((m) => `'sha256-${createHash('sha256').update(m[1].replaceAll('__API_BASE__', '/api')).digest('base64')}'`);
+for (const [label, directives] of [['index.html', meta], ['public/_headers', header]]) {
+  const sources = directives.get('script-src') || [];
+  if (sources.includes("'unsafe-inline'")) problems.push(`${label}: script-src allows 'unsafe-inline'; hash the inline script instead.`);
+  for (const hash of inlineHashes.filter((h) => !sources.includes(h))) {
+    problems.push(`${label}: script-src is missing ${hash}, the hash of an inline <script> in index.html. Update it in index.html, public/_headers and edge/seo-pages.mjs.`);
+  }
+  for (const hash of sources.filter((s) => s.startsWith("'sha256-") && !inlineHashes.includes(s))) {
+    problems.push(`${label}: script-src carries ${hash}, which matches no inline <script> in index.html.`);
+  }
+}
+
 for (const name of new Set([...meta.keys(), ...header.keys()])) {
   if (HEADER_ONLY.has(name)) {
     if (meta.has(name)) problems.push(`index.html declares ${name}, which a <meta> CSP cannot enforce.`);
@@ -82,4 +99,16 @@ if (problems.length) {
   process.exit(1);
 }
 
-console.log(`✓ CSP copies agree (${meta.size} directives), and both allow WASM compilation.`);
+// Pages Functions bypass public/_headers, so the edge-rendered pages carry their own copy of the `/*` block.
+const { SECURITY_HEADERS } = await import(pathToFileURL(join(root, 'edge/seo-pages.mjs')).href);
+const block = readFileSync(join(root, 'public/_headers'), 'utf8').split(/\r?\n\/\*\r?\n/)[1].split(/\r?\n(?=\S)/)[0];
+const fileHeaders = Object.fromEntries(block.split(/\r?\n/).map((l) => l.trim())
+  .filter((l) => l && !l.startsWith('#')).map((l) => [l.slice(0, l.indexOf(':')), l.slice(l.indexOf(':') + 1).trim()]));
+const edgeDrift = [...new Set([...Object.keys(fileHeaders), ...Object.keys(SECURITY_HEADERS)])]
+  .filter((name) => fileHeaders[name] !== SECURITY_HEADERS[name]);
+if (edgeDrift.length) {
+  console.error(`✗ edge/seo-pages.mjs SECURITY_HEADERS differs from the /* block in public/_headers: ${edgeDrift.join(', ')}.`);
+  process.exit(1);
+}
+
+console.log(`✓ CSP copies agree (${meta.size} directives), both allow WASM compilation, and the edge headers match _headers.`);

@@ -1,18 +1,6 @@
 import { Children, isValidElement, useMemo } from 'react';
 import Select from './Select.jsx';
 
-/**
- * Drop-in replacement for native &lt;select&gt; with themed custom dropdown.
- * Same API as &lt;select&gt;: value, onChange(e), and &lt;option&gt; children.
- * @param {object} props
- * @param {string} props.value - Selected value.
- * @param {(e: {target:{value:string}}) => void} props.onChange - onChange with synthetic event shape.
- * @param {React.ReactNode} props.children - &lt;option&gt; / &lt;optgroup&gt; children.
- * @param {string} [props.className] - Additional class.
- * @param {boolean} [props.disabled] - Disable.
- * @param {boolean} [props.searchable] - Force search input.
- * @param {string} [props.title] - Used as aria-label.
- */
 function collectOptions(children) {
   const out = [];
   Children.forEach(children, (child) => {
@@ -52,6 +40,8 @@ export default function NativeSelect({ value, onChange, children, className, dis
       disabled={disabled}
       searchable={searchable}
       ariaLabel={ariaLabel}
+      ariaDescribedBy={rest['aria-describedby']}
+      id={id}
       invalid={invalid}
       dataErr={dataErr}
       size={size}

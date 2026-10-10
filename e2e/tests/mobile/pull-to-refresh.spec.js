@@ -100,12 +100,19 @@ function sawSpinner(page, ms = 1200) {
   );
 }
 
+/** The watch starts before the finger lifts: a protocol round trip on a loaded machine
+ * can outlast the 350ms spinner. */
+async function liftAndWatch(page, release) {
+  const seen = sawSpinner(page);
+  await release();
+  return seen;
+}
+
 /** Run one full past-the-threshold pull and assert it refreshed. Used as a control. */
 async function controlPull(page, cdp, origin) {
   const release = await drag(cdp, origin, { dy: PAST_THRESHOLD });
   await expect(page.locator(INDICATOR)).toBeVisible();
-  await release();
-  expect(await sawSpinner(page), 'the control pull refreshed').toBe(true);
+  expect(await liftAndWatch(page, release), 'the control pull refreshed').toBe(true);
   await expect(page.locator(INDICATOR)).toBeHidden();
 }
 
@@ -147,8 +154,7 @@ test.describe('Pull to refresh', () => {
     const indicator = page.locator(INDICATOR);
     await expect(indicator).toBeVisible();
 
-    await release();
-    expect(await sawSpinner(page), 'the release ran a refresh').toBe(true);
+    expect(await liftAndWatch(page, release), 'the release ran a refresh').toBe(true);
     await expect(indicator).toBeHidden();
     expect(consoleErrors).toEqual([]);
   });
@@ -163,8 +169,7 @@ test.describe('Pull to refresh', () => {
     const release = await drag(cdp, origin, { dy: SHORT_OF_THRESHOLD, steps: 8 });
     await expect(page.locator(INDICATOR)).toBeVisible();
 
-    await release();
-    expect(await sawSpinner(page), 'a short pull must not refresh').toBe(false);
+    expect(await liftAndWatch(page, release), 'a short pull must not refresh').toBe(false);
     await expect(page.locator(INDICATOR)).toBeHidden();
     expect(consoleErrors).toEqual([]);
   });
@@ -188,8 +193,7 @@ test.describe('Pull to refresh', () => {
     // Same origin dragged 120px across and 60px down: horizontal wins past the 6px slop, so the hook stands down.
     const release = await drag(cdp, origin, { dx: 120, dy: 60, steps: 12 });
     await expect(page.locator(INDICATOR)).toBeHidden();
-    await release();
-    expect(await sawSpinner(page), 'a sideways swipe must not refresh').toBe(false);
+    expect(await liftAndWatch(page, release), 'a sideways swipe must not refresh').toBe(false);
     await expect(page.locator(INDICATOR)).toBeHidden();
     expect(consoleErrors).toEqual([]);
   });
@@ -209,8 +213,7 @@ test.describe('Pull to refresh', () => {
 
     const release = await drag(cdp, await optedOutOrigin(page), { dy: PAST_THRESHOLD });
     await expect(page.locator(INDICATOR)).toBeHidden();
-    await release();
-    expect(await sawSpinner(page), 'a pan across the map must not refresh').toBe(false);
+    expect(await liftAndWatch(page, release), 'a pan across the map must not refresh').toBe(false);
     expect(consoleErrors).toEqual([]);
   });
 
@@ -229,8 +232,7 @@ test.describe('Pull to refresh', () => {
     // stays one.
     const release = await drag(cdp, origin, { dy: PAST_THRESHOLD });
     await expect(page.locator(INDICATOR)).toBeHidden();
-    await release();
-    expect(await sawSpinner(page), 'a mid-list pull must not refresh').toBe(false);
+    expect(await liftAndWatch(page, release), 'a mid-list pull must not refresh').toBe(false);
     expect(consoleErrors).toEqual([]);
   });
 });

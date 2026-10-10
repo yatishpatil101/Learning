@@ -12,8 +12,8 @@ import { resolveLocality, searchLocalities } from '../../services/localityServic
 
 const dbOption = (l) => ({ value: l.name, label: l.name, meta: { locality: l } });
 
-/** A locality is only chosen from a Google suggestion (or a saved one when Google is down) and resolved server-side, so the stored name is canonical.
- * `nameOnly` / `unrestricted` skip the resolve and report `{ name, lat, lng }`; typed text is never committed. */
+/** A locality is chosen only from a Google suggestion (or a saved one if Google is down), resolved server-side,
+ * so the stored name is canonical. `nameOnly` / `unrestricted` skip the resolve; typed text is never committed. */
 export default function LocalitySelect({
   multi = false,
   unrestricted = false,
@@ -25,6 +25,7 @@ export default function LocalitySelect({
   onBusyChange,
   disabled,
   invalid,
+  'aria-describedby': describedBy,
   ...rest
 }) {
   const { t } = useTranslation();
@@ -137,7 +138,7 @@ export default function LocalitySelect({
     onPick,
     disabled: disabled || busy,
     invalid: invalid || !!error,
-    ariaDescribedBy: error ? errorId : undefined,
+    ariaDescribedBy: [describedBy, error ? errorId : null].filter(Boolean).join(' ') || undefined,
     noResultsText: unrestricted ? t('ui.noMatches') : `${t('ui.noMatches')} in ${getActiveCity()}`,
     ...rest,
   };

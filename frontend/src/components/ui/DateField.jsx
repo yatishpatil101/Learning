@@ -17,6 +17,7 @@ export default function DateField({
   max,
   disabled = false,
   ariaLabel,
+  'aria-describedby': ariaDescribedBy,
   placeholder = 'DD/MM/YYYY',
 }) {
   const { t } = useTranslation();
@@ -40,6 +41,7 @@ export default function DateField({
         aria-expanded={open}
         aria-disabled={disabled || undefined}
         aria-label={label}
+        aria-describedby={ariaDescribedBy}
         onClick={() => !disabled && setOpen((o) => !o)}
         onKeyDown={(e) => {
           if (disabled) return;

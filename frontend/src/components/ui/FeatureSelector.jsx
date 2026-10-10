@@ -2,7 +2,6 @@ import { useEffect, useRef, useState } from 'react';
 import { Check, Plus, Sparkles, X } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { classNames } from '../../lib/format.js';
-import { onActivateKey } from '../../lib/onActivateKey.js';
 import '../../styles/components/furniture-tiles.css';
 /* Custom entries are held in the same plain string array as the predefined ones, so they flow through the existing
    state/submit path with no schema change. */
@@ -65,33 +64,27 @@ export default function FeatureSelector({
         {options.map(({ label, Icon }) => {
           const on = values.includes(label);
           return (
-            <div
+            <button
+              type="button"
               key={label}
               onClick={() => onToggle(label)}
-              // The app-wide :active press response selects on roles, never on tag names,
-              // so without this the grid stays inert under a finger.
-              onKeyDown={onActivateKey(() => onToggle(label))}
-              role="button"
-              tabIndex={0}
               aria-pressed={on}
               className={classNames('furn-tile', on && 'checked')}
             >
               <span className="furn-check"><Check className="w-3 h-3" /></span>
               <span className="furn-icon"><Icon className="w-5 h-5" /></span>
               <span className="furn-label">{label}</span>
-            </div>
+            </button>
           );
         })}
           {/* aria-label overrides title for screen readers but not the mouse tooltip. */}
         {customValues.map((label) => {
           const removeLabel = `Remove ${label}`;
           return (
-            <div
+            <button
+              type="button"
               key={label}
               onClick={() => onToggle(label)}
-              onKeyDown={onActivateKey(() => onToggle(label))}
-              role="button"
-              tabIndex={0}
               aria-label={removeLabel}
               className="furn-tile checked"
               title={removeLabel}
@@ -100,7 +93,7 @@ export default function FeatureSelector({
               <span className="furn-check"><X className="w-3 h-3" /></span>
               <span className="furn-icon"><Sparkles className="w-5 h-5" /></span>
               <span className="furn-label">{label}</span>
-            </div>
+            </button>
           );
         })}
       </div>

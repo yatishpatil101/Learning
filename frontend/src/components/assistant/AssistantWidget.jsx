@@ -270,7 +270,7 @@ export default function AssistantWidget() {
 
 function Fab({ onOpen, showNudge, onDismissNudge, nudgeMuted }) {
   return (
-    <div className="flex flex-col items-end gap-2">
+    <div data-kbd-hide className="flex flex-col items-end gap-2">
       {showNudge ? (
         <div className={'relative max-w-[240px] animate-slideIn rounded-2xl rounded-br-md bg-ink-card/95 px-3.5 py-2.5 text-[12.5px] leading-snug text-gray-200 shadow-2xl shadow-black/50 ring-1 ring-white/[0.06] backdrop-blur' + (nudgeMuted ? ' max-lg:hidden' : '')}>
           <button

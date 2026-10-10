@@ -21,6 +21,7 @@ const Select = forwardRef(function Select({
   disabled,
   ariaLabel,
   ariaDescribedBy,
+  id,
   invalid,
   dataErr,
   size = 'md',
@@ -237,6 +238,7 @@ const Select = forwardRef(function Select({
       <button
         type="button"
         ref={triggerRef}
+        id={id}
         disabled={disabled}
         aria-haspopup="listbox"
         aria-expanded={open}
@@ -257,7 +259,7 @@ const Select = forwardRef(function Select({
 
       {open && typeof document !== 'undefined'
         ? createPortal(
-              /* Scrim: a sheet is a modal surface, so the page behind it has to read as dismissed rather than merely covered. */
+              /* Scrim: a sheet is modal, so the page behind it must read as dismissed, not merely covered. */
             <>
               {sheet ? <div className="dz-dropdown__scrim" onClick={close} aria-hidden="true" /> : null}
               <div

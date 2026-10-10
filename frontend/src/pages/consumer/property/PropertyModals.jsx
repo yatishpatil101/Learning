@@ -22,7 +22,7 @@ export default function PropertyModals({ ctx }) {
       {visitOpen && flagEnabled('scheduleVisit') ? <ScheduleVisitModal p={p} isIn={isIn} onClose={() => setVisitOpen(false)} toast={toast} /> : null}
       {reportOpen ? <ReportModal p={p} onClose={() => setReportOpen(false)} toast={toast} /> : null}
 
-      {lightbox ? <PhotoLightbox photos={gallery} active={active} setActive={setActive} title={title} onClose={closeLightbox} /> : null}
+      {lightbox && gallery[active] ? <PhotoLightbox photos={gallery} active={active} setActive={setActive} title={title} onClose={closeLightbox} /> : null}
 
     </>
   );

@@ -12,6 +12,8 @@ import { useSaved } from '../../context/SavedContext.jsx';
 import { usePlan } from '../../context/PlanContext.jsx';
 import { TOPBAR_SCROLL } from '../../lib/chrome.js';
 import { firstName, initial, roleLabel } from '../../lib/auth.js';
+import { setAppPrefs } from '../../lib/localPrefs.js';
+import { useIsLightTheme } from '../../lib/themeColour.js';
 import useScrollLock from '../../hooks/useScrollLock.js';
 import NotificationBell from '../notifications/NotificationBell.jsx';
 /* Below lg the account menu is a full-height drawer; at lg+ the same state renders an anchored dropdown. */
@@ -27,6 +29,7 @@ export default function Navbar() {
   const saved = useSaved();
   const { listingLimit, isPaidOwner } = usePlan();
   const { unread: chatUnread } = useConversationUnread();
+  const light = useIsLightTheme();
   const location = useLocation();
   const navigate = useNavigate();
   const [cityOpen, setCityOpen] = useState(false);
@@ -104,6 +107,19 @@ export default function Navbar() {
         <span className="block text-xs text-gray-400">{roleLabel(user?.role)}</span>
       </span>
     </div>
+  );
+  const themeBtn = (
+    <button
+      type="button"
+      onClick={() => setAppPrefs({ theme: light ? 'dark' : 'light' })}
+      aria-label={light ? 'Switch to dark mode' : 'Switch to light mode'}
+      aria-pressed={light}
+      title={light ? 'Dark mode' : 'Light mode'}
+      data-testid="theme-toggle"
+      className="tap-extend relative grid h-8 w-8 place-items-center rounded-full text-gray-400 hover:bg-white/5 hover:text-white transition-colors shrink-0"
+    >
+      <Icon name={light ? 'moon' : 'sun'} className="w-[18px] h-[18px]" />
+    </button>
   );
   const acctItems = (close, { mobile = false } = {}) => (
       /* Compare is the exception, and only on the drawer's side of the breakpoint. */
@@ -333,11 +349,11 @@ export default function Navbar() {
                     <span className="grid h-7 w-7 place-items-center rounded-full bg-gradient-to-br from-teal-500 to-teal-400 text-xs font-bold text-white">{initial(user)}</span>
                     <span className="hidden sm:inline text-sm font-semibold text-gray-100">{firstName(user)}</span>
                     <Icon name="chevron-down" className="w-3.5 h-3.5 text-gray-400" style={{ transform: acctOpen ? 'rotate(180deg)' : '' }} />
-                  {/* Desktop (lg+): anchored dropdown. */}
                   </button>
+                  {/* Desktop (lg+): anchored dropdown. */}
                   {acctOpen ? (
                     <div className="hidden lg:block absolute right-0 mt-2 w-64 rounded-2xl bg-ink-card border border-white/10 shadow-2xl shadow-black/50 p-2 z-[60] max-h-[80vh] overflow-y-auto">
-                      <div className="py-1">{acctIdentity}</div>
+                      <div className="py-1 flex items-center justify-between gap-2">{acctIdentity}{themeBtn}</div>
                       <div className="border-t border-white/10 my-1.5" />
                       {acctItems(() => setAcctOpen(false))}
                       <div className="border-t border-white/10 my-1.5" />
@@ -347,7 +363,7 @@ export default function Navbar() {
                   ) : null}
                 </div>
               </>
-              /* Visible at every width: this is the only sign-in affordance, so it cannot be hidden behind a breakpoint. */
+              /* Visible at every width: it is the only sign-in affordance, so no breakpoint may hide it. */
             ) : (
               <Link to="/signin" className="dz-topbar__pill tap-extend relative inline-flex items-center gap-1.5 sm:gap-2 px-4 sm:px-5 py-2 sm:py-2.5 rounded-full bg-gradient-to-r from-teal-500 to-teal-400 text-sm font-semibold text-white hover:shadow-lg hover:shadow-teal-500/25 transition-all duration-300 hover:scale-105">
                 <Icon name="log-in" className="w-4 h-4" /> Sign In
@@ -377,9 +393,12 @@ export default function Navbar() {
         >
           <div className="flex items-center justify-between gap-2 px-4 h-16 border-b border-white/5 shrink-0">
             {acctIdentity}
-            <button onClick={() => setAcctOpen(false)} aria-label="Close menu" className="tap-target p-2 -mr-2 rounded-xl hover:bg-white/5 transition-all shrink-0">
-              <Icon name="x" className="w-5 h-5 text-gray-300" />
-            </button>
+            <div className="flex items-center gap-1 shrink-0">
+              {themeBtn}
+              <button onClick={() => setAcctOpen(false)} aria-label="Close menu" className="tap-target p-2 -mr-2 rounded-xl hover:bg-white/5 transition-all shrink-0">
+                <Icon name="x" className="w-5 h-5 text-gray-300" />
+              </button>
+            </div>
           </div>
           <nav className="flex-1 overflow-y-auto px-3 py-3" aria-label="Account">
             {acctOpen ? (

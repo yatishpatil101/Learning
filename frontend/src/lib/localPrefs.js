@@ -27,7 +27,7 @@ const write = (key, value) => {
 /* reduceMotion must be on <html> before first paint, which a server answer would arrive too late to honour. */
 const APP_PREF_KEY = 'dzAppPrefs';
 
-export const getAppPrefs = () => ({ reduceMotion: false, theme: 'dark', ...(read(APP_PREF_KEY, {}) || {}) });
+export const getAppPrefs = () => ({ reduceMotion: false, theme: 'light', ...(read(APP_PREF_KEY, {}) || {}) });
 
 export const setAppPrefs = (patch) => {
   const next = { ...getAppPrefs(), ...patch };

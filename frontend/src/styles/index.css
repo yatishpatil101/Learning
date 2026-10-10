@@ -42,8 +42,8 @@
   /* The bar floats, so --dz-bottom-inset is derived from its height PLUS this gap; changing the
      float here moves every bottom-anchored widget with it. */
   --dz-bottom-nav-gap: 12px;
-  /* max(), not a sum: the float gap and the home-indicator inset are the same thing, so adding
-     them double-counts (see docs/system/design-system.md). One token, because the bar's own bottom must agree with it. */
+  /* max(), not a sum: the float gap and the home-indicator inset are the same thing, so adding them
+     double-counts; one token because the bar's own bottom must agree with it. */
   --dz-bottom-nav-offset: max(var(--dz-bottom-nav-gap), var(--dz-safe-b));
   --dz-bottom-inset: var(--dz-safe-b);
   --dz-cookie-banner-h: 0px;
@@ -609,23 +609,21 @@ a[role="button"]:active { transform: scale(0.97) translateY(1px); }
   will-change: background-position;
 }
 
-/* Light-theme desktop hero: a dark-to-light fade passes through a muddy grey band, so it gets a clean rounded edge instead. */
-html.light .hero-bg.theme-dark { border-radius: 0 0 1.75rem 1.75rem; }
 html.light .hero-scrim { display: none; }
 
-/* Phone on the light theme: soft drifting glows that fade into the page, so there is no seam above Featured. */
-html.light .hero-bg:not(.theme-dark) {
+/* Light theme: soft drifting glows that fade into the page, so there is no seam above Featured. */
+html.light .hero-bg {
   background: none;
   animation: none;
   will-change: auto;
 }
 
-html.light .hero-bg:not(.theme-dark) .shape { display: none; }
+html.light .hero-bg .shape { display: none; }
 
-/* The gradient-clipped words carry island classes (`from-teal-400`, `from-orange-400`) that keep their bright dark-mode stops. */
-html.light .hero-bg:not(.theme-dark) .hero-noun [aria-hidden] { background: none; color: rgb(var(--dz-c-teal-700)); }
-html.light .hero-bg:not(.theme-dark) .hero-city { background: none; color: rgb(var(--dz-c-orange-700)); }
-html.light .hero-bg:not(.theme-dark) .hero-ticker > div { background: rgb(var(--dz-c-pure-white)); box-shadow: var(--tile-shadow); }
+/* The gradient-clipped words carry island classes that keep their bright dark-mode stops. */
+html.light .hero-bg .hero-noun [aria-hidden] { background: none; color: rgb(var(--dz-c-teal-700)); }
+html.light .hero-bg .hero-city { background: none; color: rgb(var(--dz-c-orange-700)); }
+html.light .hero-bg .hero-ticker > div { background: rgb(var(--dz-c-pure-white)); box-shadow: var(--tile-shadow); }
 
 .hero-mist { display: none; }
 /* Teal-500 / orange-500 because html.light inverts the 50-400 shades to dark ones. */
@@ -897,13 +895,6 @@ html.dz-reduce-motion .hero-mist { animation: none; }
   transition: transform 0.35s cubic-bezier(0.22, 1, 0.36, 1), box-shadow 0.35s ease;
   content-visibility: auto;
   contain-intrinsic-size: 0 380px;
-}
-
-@media (hover: hover) {
-  .property-card:hover {
-    transform: translateY(-6px);
-    box-shadow: 0 12px 40px rgb(var(--dz-c-black) / 0.45);
-  }
 }
 
 .card-hover {
@@ -1292,7 +1283,7 @@ details.faq[open] .faq-ico { transform: rotate(180deg); }
 /* ===== Listings page ===== */
 .t-all { transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1); }
 
-/* .card-hover:hover* / .heart-btn / .rng* (DualRange) / .custom-cb / .custom-radio moved to styles/routes/listings.css (Tier 1). Base .card-img below is SHARED with property SimilarProperties.jsx so it stays global. */
+/* .card-img is shared with property SimilarProperties.jsx, so it stays global. */
 
 .card-img { transition: transform 0.6s cubic-bezier(0.4, 0, 0.2, 1); }
 
@@ -1327,7 +1318,7 @@ details.faq[open] .faq-ico { transform: rotate(180deg); }
   border-top-color: var(--coral-1);
 }
 
-/* .filter-overlay/.filter-panel and .filter-fab* are SHARED (listings ResultsArea + flatmates FilterBar) so they stay global here. */
+/* .filter-overlay/.filter-panel and .filter-fab* are shared by listings and flatmates, so they stay global. */
 
 .filter-overlay {
   position: fixed;
@@ -1782,7 +1773,6 @@ select option:checked {
   font-weight: 600;
 }
 
-/* .dz-dropdown component (base + .dz-dd-sort/.dz-dd-photocat variants + .dz-action-sheet) moved to styles/components/dropdown.css (Tier 0). */
 
 /* .page-btn/.page-btn:hover moved to styles/routes/filters.css (Tier 1, shared by both routes). */
 
@@ -1864,7 +1854,6 @@ html.dz-reduce-motion .dz-connectivity-card { animation: none; }
   }
 }
 
-/* .auth-page split-screen OTP login (both fragments, wrapping the .otp-* island below) moved to styles/routes/auth.css (Tier 1). */
 
 /* OTP box styles — global (used on signin, signup, staff-login, list-property) */
 .otp-container {
@@ -2337,8 +2326,9 @@ html.dz-reduce-motion .dz-connectivity-card { animation: none; }
   justify-content: center;
   gap: 0.5rem;
   padding: calc(env(safe-area-inset-top, 0px) + 1rem) calc(env(safe-area-inset-right, 0px) + 1rem) calc(env(safe-area-inset-bottom, 0px) + 1rem) calc(env(safe-area-inset-left, 0px) + 1rem);
-  /* Hand-rolled overlays do not get <Modal>'s scroll lock; block page drag behind the photo. */
-  touch-action: none;
+  /* Hand-rolled overlays lack <Modal>'s scroll lock, so block page drag behind the photo. Pinch stays allowed
+     here, not on the img: touch-action intersects down the tree, so `none` on this box would cancel it below. */
+  touch-action: pinch-zoom;
   animation: dzLbFade 0.25s ease;
 }
 
@@ -2362,8 +2352,6 @@ html.dz-reduce-motion .dz-connectivity-card { animation: none; }
   /* dvh, not vh: vh is the viewport with the URL bar collapsed, so on load the photo plus its
      caption stood taller than the screen actually showing them. */
   max-height: 82dvh;
-  /* Floor plans need pinch-zoom even though the overlay blocks single-finger page drag. */
-  touch-action: pinch-zoom;
   border-radius: 1rem;
   box-shadow: 0 30px 80px rgb(var(--dz-c-black) / 0.6);
   user-select: none;
@@ -2563,8 +2551,8 @@ html.dz-reduce-motion .dz-connectivity-card { animation: none; }
   }
 }
 
-/* Mobile: centred dialogs become bottom sheets. Every consumer overlay already shares
-   .dz-modal-backdrop/.dz-modal, so this one block converts all of them. See docs/system/design-system.md - Bottom sheets. */
+/* Every consumer overlay shares .dz-modal-backdrop/.dz-modal, so this one block turns all centred dialogs
+   into bottom sheets. */
 @media (max-width: 639.98px) {
   .dz-modal-backdrop {
     align-items: flex-end;
@@ -2968,7 +2956,6 @@ details>summary::-webkit-details-marker { display: none; }
 
 details[open] .faq-chevron { transform: rotate(180deg); }
 
-/* EMI calculator range sliders + .num-field moved to styles/routes/emi.css (Tier 1, lazy EmiCalculator.jsx => own chunk). */
 
 /* Tenant profile + Checkout */
 .fld {
@@ -3446,7 +3433,7 @@ html.dz-reduce-motion .list-reveal {
   ::view-transition-new(root) { animation: none; }
 }
 
-/* dz-mdp map detail drawer moved to styles/routes/property-map-detail.css (Tier 1). The .price-marker.is-active rule below intentionally stays here (not .dz-mdp-scoped). */
+/* The .price-marker.is-active rule below intentionally stays here: it is not .dz-mdp-scoped. */
 /* Active marker highlight on the map */
 .price-marker.is-active {
   background: rgb(var(--dz-c-pure-white));
@@ -3498,6 +3485,9 @@ html.dz-reduce-motion .list-reveal {
   select,
   textarea { font-size: 16px !important; }
 }
+
+/* useKeyboardOpen: the soft keyboard is up, so bottom-pinned chrome would sit on top of the field being typed in. */
+.dz-kbd-open [data-kbd-hide] { display: none !important; }
 /* ===== Mobile bottom-chrome consumers (see the --dz-bottom-inset block near the top) ===== */
 
 /* Appended to <body>, so it cannot read the inset .has-bottom-nav sets on the layout wrapper and

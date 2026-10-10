@@ -1,13 +1,13 @@
 {
   "name": "Draazy — Zero-Brokerage Property in Pune",
   "short_name": "Draazy",
-  "description": "Pune's broker-free property marketplace. Buy, rent or list flats, commercial spaces and plots — direct from verified owners.",
+  "description": "Pune's broker-free property marketplace. Rent or buy homes, plots and commercial spaces from owners, with phone numbers private until the owner approves.",
   "start_url": "/?source=pwa",
   "scope": "/",
   "display": "standalone",
   "orientation": "any",
-  "background_color": "#0f0d1a",
-  "theme_color": "#0f0d1a",
+  "background_color": "#f3f7f6",
+  "theme_color": "#f3f7f6",
   "lang": "en-IN",
   "categories": ["business", "lifestyle", "shopping"],
   "icons": [

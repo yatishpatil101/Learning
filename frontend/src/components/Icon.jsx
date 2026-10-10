@@ -31,7 +31,7 @@ import {
   UserPlus, Users, UsersThree, Video, Wallet, Warehouse,
   Warning, Waves, Wind, X, XCircle, BookOpenText,
   ThumbsUp, ThumbsDown, Archive, Prohibit, DotsThreeVertical, ArrowBendUpLeft,
-  WarningCircle, CloudSlash,
+  WarningCircle, CloudSlash, Moon,
 } from '@phosphor-icons/react';
 // ── Lucide fallbacks (icons not in Phosphor) ─────────────────────────────────
 
@@ -261,6 +261,7 @@ const MAP = {
   trees:                 Tree,
   'tree-pine':           Tree,
   sun:                   Sun,
+  moon:                  Moon,
   waves:                 Waves,
   flame:                 Fire,
   wind:                  Wind,

@@ -86,7 +86,7 @@ export default function CookieConsent() {
   if (mode === 'hidden') return null;
 
   return (
-    <div className="dz-safe-x fixed inset-x-0 bottom-[var(--dz-bottom-inset)] z-[1400] flex justify-center p-3 sm:p-4 pointer-events-none">
+    <div data-kbd-hide className="dz-safe-x fixed inset-x-0 bottom-[var(--dz-bottom-inset)] z-[1400] flex justify-center p-3 sm:p-4 pointer-events-none">
       <div
         ref={panelRef}
         role="dialog"

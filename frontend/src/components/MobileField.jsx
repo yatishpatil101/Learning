@@ -1,10 +1,5 @@
 import { useState } from 'react';
 
-// Shared mobile-number input:
-//   [ 🇮🇳 +91 ] [ 98765 43210 ]
-// Two visually separate boxes with tight 6px gap so they read as one unit.
-// Strips non-digits, caps at 10, enforces an Indian mobile (starts 6-9),
-// and shows error state on blur when value is invalid.
 const IN_PATTERN = /^[6-9]\d{9}$/;
 const sanitize = (v) => String(v == null ? '' : v).replace(/\D/g, '').slice(0, 10);
 
@@ -19,6 +14,8 @@ export default function MobileField({
   error = false,
   disabled = false,
   id,
+  'aria-invalid': ariaInvalid,
+  'aria-describedby': ariaDescribedBy,
   autoFocus = false,
   enterKeyHint = 'next',
 }) {
@@ -49,6 +46,8 @@ export default function MobileField({
       {/* Number input */}
       <input
         id={id}
+        aria-invalid={ariaInvalid}
+        aria-describedby={ariaDescribedBy}
         type="tel"
         inputMode="numeric"
         maxLength={10}

@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
 import Icon from '../../../components/Icon.jsx';
 import { StarInput } from './StarInput.jsx';
@@ -28,7 +29,7 @@ export function ReviewModal({ onClose, onSubmit }) {
     onSubmit({ rating, categories: cats, text: text.trim(), recommend });
   };
 
-  return (
+  return createPortal(
     <div className="dz-modal-backdrop" role="dialog" aria-modal="true" aria-label={t('property.rateProperty')} onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
       <div className="dz-modal">
         <div className="flex items-start justify-between gap-3 mb-4">
@@ -68,6 +69,7 @@ export function ReviewModal({ onClose, onSubmit }) {
           <button type="button" onClick={submit} disabled={!rating} className={'btn-teal w-full flex items-center justify-center gap-2 py-3 ' + (!rating ? 'opacity-50 cursor-not-allowed' : '')}><Icon name="check" className="w-4 h-4" /> {t('property.submitReview')}</button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }

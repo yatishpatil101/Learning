@@ -8,8 +8,8 @@ test.describe('PWA installability', () => {
     await page.goto('/');
     await expect(page.locator('link[rel="manifest"]')).toHaveAttribute('href', '/manifest.webmanifest');
     // theme-color tints the Android status bar in standalone mode; without it an
-    // installed app shows a white band above a dark UI.
-    await expect(page.locator('meta[name="theme-color"]')).toHaveAttribute('content', '#0f0d1a');
+    // installed app shows a dark band above a light UI.
+    await expect(page.locator('meta[name="theme-color"]')).toHaveAttribute('content', '#f3f7f6');
     const viewport = await page.locator('meta[name="viewport"]').getAttribute('content');
     expect(viewport).toContain('width=device-width');
     // Without viewport-fit=cover, env(safe-area-inset-*) is 0 and fixed bottom bars sit under the gesture bar.
@@ -29,7 +29,7 @@ test.describe('PWA installability', () => {
     // 'standalone' is what removes the browser chrome — the whole point of installing.
     expect(m.display).toBe('standalone');
     expect(m.start_url).toContain('/');
-    expect(m.theme_color).toBe('#0f0d1a');
+    expect(m.theme_color).toBe('#f3f7f6');
   });
 
   test('orientation is not locked to portrait', async ({ page, baseURL }) => {
